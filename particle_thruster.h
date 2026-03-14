@@ -12,8 +12,12 @@
 #define PARTICLE_THRUSTER_H
 
 #include "Particle.h"
+#include "Trail.h"
 #include <random>
 #include <DirectXMath.h>
+
+// スラスタートレイルの有効/無効（コメントアウトで切り替え）
+#define THRUSTER_TRAIL_ENABLED 1
 
 //==============================================================================
 // ThrusterParticle クラス（ビルボード描画用）
@@ -75,6 +79,10 @@ private:
     DirectX::XMFLOAT4 m_color = { 1.0f, 1.0f, 1.0f, 1.0f };
     DirectX::XMFLOAT4 m_uvRect = { 0.0f, 0.0f, 80.0f, 80.0f };
 
+#if THRUSTER_TRAIL_ENABLED
+    Trail m_trail;
+#endif
+
 protected:
     virtual Particle* createParticle() override;
 
@@ -108,6 +116,14 @@ public:
     void SetColor(const DirectX::XMFLOAT4& color) { m_color = color; }
     void SetUVRect(const DirectX::XMFLOAT4& uvRect) { m_uvRect = uvRect; }
     void SetAspectRatio(float aspect) { m_aspect = aspect; }
+
+    // ルーム遷移時にトレイル履歴を即時クリア
+    void ClearTrail()
+    {
+#if THRUSTER_TRAIL_ENABLED
+        m_trail.Clear();
+#endif
+    }
 };
 
 #endif // PARTICLE_THRUSTER_H

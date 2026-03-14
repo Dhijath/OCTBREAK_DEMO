@@ -23,6 +23,7 @@
 #include "score.h"
 #include "ItemManager.h"
 #include "DamagePopup.h"
+#include "Shadow_Map.h"
 
 using namespace DirectX;
 
@@ -67,8 +68,36 @@ void Enemy::Initialize(const XMFLOAT3& position)
     SetHP(300, 300);
 
     m_pModel = ModelLoad("resource/Models/enemy.fbx", ENEMY_SIZE);
+    ComputeLockOnOffsetFromModel();
 
     Enemy_LoadSE();
+}
+
+//==============================================================================
+// モデルAABBからロックオンYオフセットを自動計算
+//==============================================================================
+void Enemy::ComputeLockOnOffsetFromModel()
+{
+    if (!m_pModel) return;
+    const XMFLOAT3 origin{ 0.0f, 0.0f, 0.0f };
+    AABB aabb = ModelGetAABB(m_pModel, origin);
+
+    // モデルのローカル中心・サイズ（スケール済み）
+    const float localMinY   = aabb.min.y;
+    const float localMaxY   = aabb.max.y;
+    const float localCenterY = (localMinY + localMaxY) * 0.5f;
+    const float halfH        = (localMaxY - localMinY) * 0.5f;
+    const float halfW        = std::max(
+        (aabb.max.x - aabb.min.x) * 0.5f,
+        (aabb.max.z - aabb.min.z) * 0.5f);
+
+    // ロックオンY（Draw の ENEMY_HEIGHT オフセット分を足す）
+    m_lockOnCenterOffset = ENEMY_HEIGHT + localCenterY;
+
+    // 衝突OBBをモデルAABBに合わせる
+    m_obbHalfWidth  = halfW;
+    m_obbHalfHeight = halfH;
+    m_obbBottomY    = ENEMY_HEIGHT + localCenterY; // m_Position.y からOBB中心まで
 }
 
 //==============================================================================
@@ -179,8 +208,9 @@ void Enemy::Update(double elapsed_time)
     // 重力加算
     vel += XMVectorSet(0, -9.8f * GRAVITY_MUL * dt, 0, 0);
 
-    // 速度制限（攻撃ダッシュ中は ATTACK_DASH_SPD まで許容）
-    vel = ClampXZSpeed(vel, m_IsAttacking ? ATTACK_DASH_SPD : MAX_SPEED);
+    // 速度制限（攻撃ダッシュ中は ATTACK_DASH_SPD、それ以外は m_SpeedCap まで許容）
+    // m_SpeedCap はサブクラス（EnemyBoss 等）が突進時に引き上げて使う
+    vel = ClampXZSpeed(vel, m_IsAttacking ? ATTACK_DASH_SPD : m_SpeedCap);
 
     // 摩擦
     vel += -vel * (FRICTION * dt);
@@ -238,15 +268,36 @@ void Enemy::Draw()
 }
 
 //==============================================================================
+// シャドウパス用深度描画
+//==============================================================================
+void Enemy::DrawShadow()
+{
+    if (!m_IsAlive || !m_pModel) return;
+
+    float angle = -atan2f(m_Front.z, m_Front.x);
+    XMMATRIX rot =
+        XMMatrixRotationY(angle) *
+        XMMatrixRotationY(XMConvertToRadians(-90.0f));
+
+    XMMATRIX trans =
+        XMMatrixTranslation(
+            m_Position.x,
+            m_Position.y + ENEMY_HEIGHT * 1.0f,
+            m_Position.z);
+
+    ShadowMap::DrawModel(m_pModel, rot * trans);
+}
+
+//==============================================================================
 // OBB取得
 //==============================================================================
 OBB Enemy::GetOBB() const
 {
-    XMFLOAT3 halfExtents = { ENEMY_HALF_WIDTH_X, ENEMY_HEIGHT * 0.5f, ENEMY_HALF_WIDTH_Z };
+    XMFLOAT3 halfExtents = { m_obbHalfWidth, m_obbHalfHeight, m_obbHalfWidth };
 
     XMFLOAT3 center = {
         m_Position.x,
-        m_Position.y + ENEMY_HEIGHT * 0.5f,
+        m_Position.y + m_obbBottomY,
         m_Position.z
     };
 
@@ -367,7 +418,11 @@ XMVECTOR Enemy::ClampXZSpeed(XMVECTOR v, float maxSpeed) const
 //==============================================================================
 void Enemy::ResolveWallCollisionAtPosition(XMVECTOR* ioPos, XMVECTOR* ioVel, XMFLOAT3* ioDest)
 {
+    // 壁との衝突は「円（Circle）」として処理する。
+    // OBB は m_Front で回転するため角が斜め方向に伸び、斜め向き時にケツが壁に刺さる。
+    // 円なら向き不依存 → コーナー引っかかりが発生しない。
     constexpr float TELEPORT_THRESHOLD = 0.3f;
+    constexpr float r = ENEMY_HALF_WIDTH_X; // 円半径（= 0.25f）
 
     for (int i = 0; i < Map_GetObjectsCount(); ++i)
     {
@@ -375,46 +430,74 @@ void Enemy::ResolveWallCollisionAtPosition(XMVECTOR* ioPos, XMVECTOR* ioVel, XMF
         if (!mo) continue;
         if (mo->KindId != 2) continue;
 
-        OBB enemyOBB = ConvertPositionToOBB(*ioPos);
-        Hit hit = Collision_IsHitOBB_AABB(enemyOBB, mo->Aabb);
-        if (!hit.isHit) continue;
-
         const AABB& a = mo->Aabb;
         XMFLOAT3 pos;
         XMStoreFloat3(&pos, *ioPos);
 
-        const float overlapX = (ENEMY_HALF_WIDTH_X + (a.max.x - a.min.x) * 0.5f)
-            - fabsf(pos.x - (a.min.x + a.max.x) * 0.5f);
-        const float overlapZ = (ENEMY_HALF_WIDTH_Z + (a.max.z - a.min.z) * 0.5f)
-            - fabsf(pos.z - (a.min.z + a.max.z) * 0.5f);
+        // 壁 AABB に対するエネミー中心の最近接点を求める
+        const float clampedX = std::clamp(pos.x, a.min.x, a.max.x);
+        const float clampedZ = std::clamp(pos.z, a.min.z, a.max.z);
+        const float dx = pos.x - clampedX;
+        const float dz = pos.z - clampedZ;
+        const float distSq = dx * dx + dz * dz;
 
-        const float minOverlap = std::min(overlapX, overlapZ);
+        if (distSq >= r * r) continue; // 衝突なし
 
-        // めり込み量が閾値以上ならテレポート
-        if (minOverlap >= TELEPORT_THRESHOLD)
+        // めり込み量（= 押し出すべき距離）
+        const float dist  = sqrtf(distSq);
+        const float push  = r - dist;
+
+        if (push >= TELEPORT_THRESHOLD)
         {
+            // 深いめり込み → 安全地点にテレポート
             XMFLOAT3 safePos = MapPatrolAI_GetNearbyDestination(pos, 3.0f);
-            *ioPos = XMLoadFloat3(&safePos);
-            *ioVel = XMVectorSet(0.0f, XMVectorGetY(*ioVel), 0.0f, 0.0f);
+            *ioPos  = XMLoadFloat3(&safePos);
+            *ioVel  = XMVectorSet(0.0f, XMVectorGetY(*ioVel), 0.0f, 0.0f);
             *ioDest = MapPatrolAI_GetNearbyDestination(safePos, 3.0f);
             break;
         }
 
-        // 通常の押し戻し
-        if (overlapX < overlapZ)
+        if (dist > 0.001f)
         {
-            const float sign = (pos.x < (a.min.x + a.max.x) * 0.5f) ? -1.0f : 1.0f;
-            *ioPos = XMVectorSetX(*ioPos, pos.x + sign * overlapX);
-            *ioVel = XMVectorSetX(*ioVel, 0.0f);
+            // Circle 中心が AABB 外 → 最近接方向（法線）に押し出す
+            const float nx = dx / dist;
+            const float nz = dz / dist;
+            *ioPos = XMVectorSetX(*ioPos, pos.x + nx * push);
+            *ioPos = XMVectorSetZ(*ioPos, pos.z + nz * push);
+
+            // 壁法線方向の速度成分のみ消す（平行成分は維持 → 壁沿いスライドが滑らか）
+            XMFLOAT3 vel;
+            XMStoreFloat3(&vel, *ioVel);
+            const float vDotN = vel.x * nx + vel.z * nz;
+            if (vDotN < 0.0f) // 壁に食い込む方向の速度のみ除去
+            {
+                vel.x -= vDotN * nx;
+                vel.z -= vDotN * nz;
+                *ioVel = XMLoadFloat3(&vel);
+            }
         }
         else
         {
-            const float sign = (pos.z < (a.min.z + a.max.z) * 0.5f) ? -1.0f : 1.0f;
-            *ioPos = XMVectorSetZ(*ioPos, pos.z + sign * overlapZ);
-            *ioVel = XMVectorSetZ(*ioVel, 0.0f);
+            // Circle 中心が AABB 内（最悪ケース）→ 最短軸で押し出す
+            const float wallCx   = (a.min.x + a.max.x) * 0.5f;
+            const float wallCz   = (a.min.z + a.max.z) * 0.5f;
+            const float overlapX = (r + (a.max.x - a.min.x) * 0.5f) - fabsf(pos.x - wallCx);
+            const float overlapZ = (r + (a.max.z - a.min.z) * 0.5f) - fabsf(pos.z - wallCz);
+            if (overlapX < overlapZ)
+            {
+                const float sign = (pos.x < wallCx) ? -1.0f : 1.0f;
+                *ioPos = XMVectorSetX(*ioPos, pos.x + sign * overlapX);
+                *ioVel = XMVectorSetX(*ioVel, 0.0f);
+            }
+            else
+            {
+                const float sign = (pos.z < wallCz) ? -1.0f : 1.0f;
+                *ioPos = XMVectorSetZ(*ioPos, pos.z + sign * overlapZ);
+                *ioVel = XMVectorSetZ(*ioVel, 0.0f);
+            }
         }
 
-        // 押し戻し後の位置から3マス以内の目的地を設定する
+        // 押し戻し後の位置から目的地を更新
         XMFLOAT3 newPos;
         XMStoreFloat3(&newPos, *ioPos);
         *ioDest = MapPatrolAI_GetNearbyDestination(newPos, 3.0f);
@@ -545,7 +628,7 @@ void Enemy::ResolvePlayerCollision(XMVECTOR* ioPos, XMVECTOR* ioVel)
 }
 
 //==============================================================================
-// 弾ヒット処理（OBB ↔ OBB）
+// 弾ヒット処理（OBB重なり + レイキャストによるすり抜け防止）
 //==============================================================================
 void Enemy::ResolveBulletHits()
 {
@@ -556,7 +639,17 @@ void Enemy::ResolveBulletHits()
         OBB bulletOBB = Bullet_GetOBB(i);
         OBB enemyOBB  = GetOBB();
 
-        if (!Collision_IsOverlapOBB(bulletOBB, enemyOBB))
+        // ① 通常のOBB重なり判定
+        bool hit = Collision_IsOverlapOBB(bulletOBB, enemyOBB);
+
+        // ② すり抜け防止：前フレーム位置→現在位置のレイキャスト判定
+        if (!hit)
+        {
+            const XMFLOAT3& prevPos = Bullet_GetPrevPosition(i);
+            hit = OBB_RaySegmentIntersect(enemyOBB, prevPos, bulletOBB.center);
+        }
+
+        if (!hit)
             continue;
 
         //ヒットSE

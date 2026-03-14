@@ -49,6 +49,7 @@ using namespace DirectX;
 #include "EnemyManager.h"
 #include "DamagePopup.h"
 #include "BossIntro.h"
+#include "Shadow_Map.h"
 
 
 
@@ -279,7 +280,7 @@ bool Game_GetLockOnWorldPos(XMFLOAT3* outPos)
         if (!e.IsAlive()) continue;
 
         XMFLOAT3 enemyPosF = e.GetPosition();
-        enemyPosF.y += 0.8f;
+        enemyPosF.y += e.GetLockOnCenterOffset();
 
         XMVECTOR ePos = XMLoadFloat3(&enemyPosF);
         XMVECTOR toEnemy = ePos - rayOrigin;
@@ -302,7 +303,9 @@ bool Game_GetLockOnWorldPos(XMFLOAT3* outPos)
 
     if (bestIdx < 0) return false;
 
-    *outPos = g_EnemyManager.GetEnemy(bestIdx).GetPosition();
+    const Enemy& best = g_EnemyManager.GetEnemy(bestIdx);
+    *outPos = best.GetPosition();
+    outPos->y += best.GetLockOnCenterOffset();
     return true;
 }
 
@@ -317,11 +320,15 @@ void Game_Update(double elapsed_time)
         elapsed_time = MAX_DT;
 
     //--------------------------------------------------------------------------
-    // ボス登場演出中はゲームロジックをスキップ（カメラ更新のみ）
+    // ボス登場演出中はゲームロジックをスキップ
+    // ただしボス自身の Update はバレルアニメ（BossPhase::INTRO）のために呼ぶ
+    // 仕様：イントロ開始→ボスアニメ開始→ボスアニメ終了→イントロ終了
     //--------------------------------------------------------------------------
     if (BossIntro_IsPlaying())
     {
         BossIntro_Update(elapsed_time);
+        if (g_pBossEnemy) g_pBossEnemy->Update(elapsed_time);
+        Player_Update(elapsed_time); // 入力無効中でも重力・物理だけ動かす（Player.cpp 684行の分岐で処理）
         return;
     }
 
@@ -447,6 +454,28 @@ void Game_Draw()
     //    10.0f,
     //    { 0.4f, 0.4f, 0.4f, 1.0f }
     //);
+
+    // ---------------------------------------------------------------------
+    // シャドウパス（深度のみ書き込み）
+    // ・ライト視点からエネミー・プレイヤーを描画してシャドウマップを生成
+    // ・EndPass 後に ShadowMap::BindForMainPass で通常 PS(t7/b5/b8) にバインド
+    // ---------------------------------------------------------------------
+    if (ShadowMap::IsEnabled())
+    {
+        const XMFLOAT3 lightDir  = { 0.4f, -1.0f, 0.3f }; // 斜め上から照射
+        const XMFLOAT3 focusPos  = Player_GetPosition();
+
+        ShadowMap::BeginPass(lightDir, focusPos, 40.0f, 0.5f, 120.0f);
+        g_EnemyManager.DrawShadow();
+        Player_DrawShadow();
+        ShadowMap::EndPass();
+
+        // メインRTV+DSV+ビューポートを復元
+        Direct3D_BindMainRenderTarget();
+
+        // シャドウ SRV / サンプラー / パラメータを PS にバインド
+        ShadowMap::BindForMainPass();
+    }
 
     // 3Dパス：前フレームの2Dパスで無効化した深度テスト+書き込みを有効化
     Direct3D_SetDepthEnable(true);

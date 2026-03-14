@@ -526,6 +526,9 @@ void Map_GenerateDungeon(std::uint32_t seed)
     //==============================
     // 部屋サイズ（奇数推奨）
     //==============================
+    //const int roomMinSize = 5;
+    //const int roomMaxSize = 7;
+
     const int roomMinSize = 73;
     const int roomMaxSize = 73;
 

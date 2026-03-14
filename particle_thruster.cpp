@@ -126,6 +126,9 @@ ThrusterEmitter::ThrusterEmitter(
     , m_mt(std::random_device()())
     , m_unit01(0.0f, 1.0f)
 {
+#if THRUSTER_TRAIL_ENABLED
+    m_trail.Initialize(48, 0.18f, 0.5f, { 0.4f, 0.7f, 1.0f, 0.7f });
+#endif
 }
 
 Particle* ThrusterEmitter::createParticle()
@@ -164,10 +167,24 @@ Particle* ThrusterEmitter::createParticle()
 void ThrusterEmitter::Update(double elapsed_time)
 {
     Emitter::Update(elapsed_time);
+
+#if THRUSTER_TRAIL_ENABLED
+    XMFLOAT3 pos;
+    XMStoreFloat3(&pos, GetPosition());
+    m_trail.Update(elapsed_time, pos);
+#endif
 }
 
 void ThrusterEmitter::Draw()
 {
+    // トレイルはビルボード描画より先に描く
+    // Shader_Billboard_Begin() が VS b1/b2 を未初期化バッファで上書きするため、
+    // 後から描くとトレイル VS がゼロ行列を読んで全頂点 (0,0,0,0) になってしまう。
+    // モデル描画直後のこのタイミングなら b1/b2 に正しいビュー/プロジェクション行列が残っている。
+#if THRUSTER_TRAIL_ENABLED
+    m_trail.Draw();
+#endif
+
     Direct3D_SetBlendStateAdditive(true);
     Direct3D_SetDepthStencilStateDepthWriteDisable(false);
 

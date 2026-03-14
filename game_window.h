@@ -9,6 +9,12 @@
 
 HWND GameWindow_Create(HINSTANCE hInstance);
 
+// フルスクリーン ↔ ウィンドウ をトグル（ボーダーレス方式）
+void GameWindow_ToggleFullscreen(HWND hWnd);
+
+// 現在フルスクリーンかどうか
+bool GameWindow_IsFullscreen();
+
 extern bool g_ExitDialogJustClosed;
 
 

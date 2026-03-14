@@ -117,7 +117,7 @@ public:
 
 private:
     static constexpr double FIRE_INTERVAL = 0.09;   // 連射間隔（秒）
-    static constexpr float  BULLET_SPEED  = 24.0f;  // 弾速（単位/秒）
+    static constexpr float  BULLET_SPEED  = 46.0f;  // 弾速（単位/秒）
     static constexpr int    BASE_DAMAGE   = 45;      // 基礎ダメージ
 
     double m_cooldown = 0.0;
@@ -145,7 +145,7 @@ public:
 
 private:
     static constexpr double FIRE_INTERVAL    = 1.0;    // 発射間隔（秒）
-    static constexpr float  BULLET_SPEED     = 15.0f;  // 弾速（単位/秒）
+    static constexpr float  BULLET_SPEED     = 18.0f;  // 弾速（単位/秒）
     static constexpr int    BASE_DAMAGE      = 100;     // 爆発ダメージ
     static constexpr float  EXPLOSION_RADIUS = 7.5f;   // 爆発半径
 
@@ -213,10 +213,10 @@ public:
 
 private:
     static constexpr double FIRE_INTERVAL = 0.7;   // 連射間隔（秒）
-    static constexpr float  BULLET_SPEED  = 30.0f; // ペレット弾速（単位/秒）
+    static constexpr float  BULLET_SPEED  = 46.0f; // ペレット弾速（単位/秒）
     static constexpr int    BASE_DAMAGE   = 45;      // 1ペレットの基礎ダメージ
-    static constexpr int    PELLET_COUNT  = 9;      // 1射のペレット数
-    static constexpr float  SPREAD_DEG   = 7.0f;  // 最大拡散角（度）
+    static constexpr int    PELLET_COUNT  = 11;      // 1射のペレット数
+    static constexpr float  SPREAD_DEG   = 9.0f;  // 最大拡散角（度）
 
     double m_cooldown = 0.0;
     int    m_shootSE  = -1;

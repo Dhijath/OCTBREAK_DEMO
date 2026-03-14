@@ -115,6 +115,17 @@ bool Direct3D_Initialize(HWND hWnd)
         return false;
     }
 
+    // DXGI のデフォルト Alt+Enter フルスクリーン処理を無効化
+    // （ゲーム側でボーダーレスフルスクリーンを独自実装するため競合を防ぐ）
+    {
+        IDXGIFactory* pFactory = nullptr;
+        if (SUCCEEDED(g_pSwapChain->GetParent(__uuidof(IDXGIFactory), (void**)&pFactory)))
+        {
+            pFactory->MakeWindowAssociation(hWnd, DXGI_MWA_NO_ALT_ENTER);
+            pFactory->Release();
+        }
+    }
+
     // バックバッファ設定
     if (!configureBackBuffer()) {
         MessageBox(hWnd, "バックバッファの設定に失敗しました", "エラー", MB_OK);
@@ -259,6 +270,18 @@ void Direct3D_Clear()
 }
 
 
+
+/*==============================================================================
+
+   メインRTV+DSV+ビューポートの復元
+   シャドウパス後に呼ぶことでバックバッファ描画に戻す
+
+==============================================================================*/
+void Direct3D_BindMainRenderTarget()
+{
+    g_pDeviceContext->OMSetRenderTargets(1, &g_pRenderTargetView, g_pDepthStencilView);
+    g_pDeviceContext->RSSetViewports(1, &g_Viewport);
+}
 
 /*==============================================================================
 
@@ -424,6 +447,39 @@ void releaseBackBuffer()
     SAFE_RELEASE(g_pRenderTargetView);
     SAFE_RELEASE(g_pDepthStencilBuffer);
     SAFE_RELEASE(g_pDepthStencilView);
+}
+
+/*==============================================================================
+
+   バックバッファ リサイズ（フルスクリーン切替・WM_SIZE 時）
+
+==============================================================================*/
+bool Direct3D_ResizeBackBuffer(unsigned int width, unsigned int height)
+{
+    if (!g_pSwapChain)         return true;  // 初期化前は無視
+    if (width == 0 || height == 0) return true;  // 最小化は無視
+
+    // RTV / DSV をコンテキストからアンバインドしてから解放
+    // （バインドしたまま ResizeBuffers を呼ぶと D3D 警告が出る）
+    g_pDeviceContext->OMSetRenderTargets(0, nullptr, nullptr);
+    releaseBackBuffer();
+
+    // バッファ数・フォーマットはそのまま（0 / UNKNOWN で引き継ぎ）
+    HRESULT hr = g_pSwapChain->ResizeBuffers(
+        0,                       // バッファ数（現在値を維持）
+        width, height,           // 新しいサイズ
+        DXGI_FORMAT_UNKNOWN,     // フォーマット（現在値を維持）
+        0                        // フラグなし
+    );
+
+    if (FAILED(hr))
+    {
+        hal::dout << "ResizeBuffers 失敗: 0x" << std::hex << hr << std::endl;
+        return false;
+    }
+
+    // RTV / DSV / Viewport を再生成
+    return configureBackBuffer();
 }
 
 

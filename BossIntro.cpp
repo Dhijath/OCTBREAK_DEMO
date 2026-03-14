@@ -43,8 +43,11 @@ namespace
     // 演出開始時のプレイヤーカメラ座標（RETURN の終点）
     static XMFLOAT3 g_PreIntroEye = {};
 
+    // ORBIT 開始角度（演出開始時のカメラ方向に合わせる）
+    static float g_OrbitStartAngle = 0.0f;
+
     // --- 定数 ---
-    static constexpr double ORBIT_DURATION  = 3.0;   // 旋回時間（秒）
+    static constexpr double ORBIT_DURATION  = 2.0;   // 旋回時間（秒）
     static constexpr double RETURN_DURATION = 1.0;   // 戻り時間（秒）
     static constexpr float  ORBIT_RADIUS    = 5.0f;  // 旋回半径（m）
     static constexpr float  ORBIT_ANGLE_RAD = XM_PI * 1.5f; // 270度（rad）
@@ -56,7 +59,8 @@ namespace
     //----------------------------------------------------------
     static XMFLOAT3 CalcOrbitEye(float t)
     {
-        const float angle  = ORBIT_ANGLE_RAD * t;   // 時計回り
+        // CW旋回: t=0 → playerAngle+270°、t=1 → playerAngle（ボス正面で止まる）
+        const float angle  = g_OrbitStartAngle + ORBIT_ANGLE_RAD * (1.0f - t);
         const float ex     = g_BossPos.x + ORBIT_RADIUS * cosf(angle);
         const float ez     = g_BossPos.z + ORBIT_RADIUS * sinf(angle);
         const float sinH   = sinf(t * XM_PI);         // 0→1→0 の滑らか山型
@@ -71,20 +75,38 @@ namespace
 //==============================================================================
 void BossIntro_Start(const XMFLOAT3& bossSpawnPos)
 {
-    g_BossPos     = bossSpawnPos;
-    g_Phase       = Phase::Orbit;
-    g_Timer       = 0.0;
-    g_PreIntroEye = Player_Camera_GetPosition(); // 演出前のカメラ位置を保存
+    g_BossPos = bossSpawnPos;
+    g_Phase   = Phase::Orbit;
+    g_Timer   = 0.0;
+
+    // プレイヤー座標・旋回角度を先に決める
+    const XMFLOAT3 playerPos = Player_GetPosition();
+    {
+        float dx = playerPos.x - g_BossPos.x;
+        float dz = playerPos.z - g_BossPos.z;
+        g_OrbitStartAngle = atan2f(dz, dx); // player→boss 方向（毎回一定）
+    }
+
+    // カメラをボス方向・水平に即スナップしてから g_PreIntroEye をキャプチャ
+    // SetYawPitch + Update だとその後 Mouse_GetState が同フレームのデルタを加算して
+    // gYaw が再び上書きされるため、マウス入力をバイパスする SnapToYawPitch を使う
+    {
+        float dx = bossSpawnPos.x - playerPos.x;
+        float dz = bossSpawnPos.z - playerPos.z;
+        float yawToBoss = atan2f(dx, dz); // atan2(x, z) → Z+ を 0 とする LH 慣習
+        Player_Camera_SnapToYawPitch(yawToBoss, 0.0f); // マウス入力なしで即 g_Pos 確定
+    }
+    g_PreIntroEye = Player_Camera_GetPosition(); // RETURN の終点
 
     // プレイヤー入力を無効化
     Player_SetEnable(false);
 
-    // ボスをプレイヤー方向（演出開始前カメラ位置）に向ける
+    // ボスをプレイヤー方向に向ける
     // ※ BossIntro 中は Game_Update がスキップされ EnemyBoss::Update が呼ばれないため
     //   m_Front がゼロのままになり壁を向いて見える問題を防ぐ
     {
-        float dx = g_PreIntroEye.x - g_BossPos.x;
-        float dz = g_PreIntroEye.z - g_BossPos.z;
+        float dx = playerPos.x - g_BossPos.x;
+        float dz = playerPos.z - g_BossPos.z;
         float len = sqrtf(dx * dx + dz * dz);
         if (len > 0.001f)
             Game_SetBossLookDir({ dx / len, 0.0f, dz / len });
@@ -127,7 +149,7 @@ void BossIntro_Update(double dt)
         const float tc  = (t < 0.0f) ? 0.0f : (t > 1.0f) ? 1.0f : t;
 
         // 滑らかな補間（ease-in/out）
-        const float smooth = tc * tc * (3.0f - 2.0f * tc);
+        const float smooth = tc * tc * (3.0f - 1.0f * tc);
 
         XMVECTOR start  = XMLoadFloat3(&g_OrbitEndEye);
         XMVECTOR end    = XMLoadFloat3(&g_PreIntroEye);
@@ -143,11 +165,20 @@ void BossIntro_Update(double dt)
         {
             g_Phase = Phase::Done;
 
-            // プレイヤーカメラの保存済み View/Proj を復帰
-            Player_Camera_ApplyMainViewProj();
-
-            // プレイヤー入力を有効化
+            // プレイヤー入力を有効化（先に有効化してから Camera_Update を呼ぶ）
             Player_SetEnable(true);
+
+            // イントロ中のプレイヤー移動（重力など）による位置ずれをカメラに即反映
+            // ApplyMainViewProj の代わりに Update(0) で現在プレイヤー位置から再計算
+            Player_Camera_Update(0.0);
+
+            // イントロ終了時点のプレイヤー位置へボスを向ける
+            XMFLOAT3 playerPos = Player_GetPosition();
+            float dx  = playerPos.x - g_BossPos.x;
+            float dz  = playerPos.z - g_BossPos.z;
+            float len = sqrtf(dx * dx + dz * dz);
+            if (len > 0.001f)
+                Game_SetBossLookDir({ dx / len, 0.0f, dz / len });
         }
     }
 }

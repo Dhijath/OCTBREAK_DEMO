@@ -74,5 +74,19 @@ void Player_Camera_OverrideCinematic(
     const DirectX::XMFLOAT3& eye,
     const DirectX::XMFLOAT3& target);
 
+//==============================================================================
+// カメラの Yaw/Pitch を直接設定（演出開始前の向きリセット用）
+// ・gYaw / gPitch を上書きし、次の Update で反映される
+// ・MOUSE_FREE モード時のみ有効（FIXED_FOLLOW はこの値を使わない）
+//==============================================================================
+void Player_Camera_SetYawPitch(float yaw, float pitch);
+
+//==============================================================================
+// Yaw/Pitch でカメラを即スナップ（マウス入力なし・g_Pos を即時更新）
+// ・BossIntro_Start など演出開始直前に呼び、直後に GetPosition() で位置取得可能
+// ・Update() を呼ぶと再びマウス入力が加算されるため、代わりにこちらを使う
+//==============================================================================
+void Player_Camera_SnapToYawPitch(float yaw, float pitch);
+
 
 #endif // PLAYER_CAMERA_H

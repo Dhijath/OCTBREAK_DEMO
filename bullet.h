@@ -20,6 +20,7 @@
 #include <DirectXMath.h>
 #include "collision.h"
 #include "collision_obb.h"
+#include "Trail.h"
 
 //==============================================================================
 // 弾の種別
@@ -52,6 +53,9 @@ public:
     // ・派生クラスのリソース解放を保証する
     //==========================================================================
     virtual ~BulletBase() = default;
+
+    // トレイル描画（派生クラスで必要な場合のみオーバーライド）
+    virtual void DrawTrail() {}
 
     //==========================================================================
     // 更新処理
@@ -154,6 +158,7 @@ public:
     // ・damage : ダメージ量
     //==========================================================================
     Bullet(const DirectX::XMFLOAT3& pos, const DirectX::XMFLOAT3& vel, int damage);
+    ~Bullet();
 
     void                      Update(double elapsed_time) override;  // 位置更新・寿命管理
     bool                      IsDestroyed()    const override;        // 寿命切れ判定
@@ -162,6 +167,7 @@ public:
     const DirectX::XMFLOAT3& GetPrevPosition() const override;        // 前フレーム位置を返す
     DirectX::XMFLOAT3        GetFront()        const override;        // 進行方向を返す
     int                       GetDamage()      const override { return m_damage; }  // ダメージ量を返す
+    void                      DrawTrail()      override;              // リボントレイル描画
 
 private:
     DirectX::XMFLOAT3 m_position{};          // 現在位置
@@ -169,6 +175,7 @@ private:
     DirectX::XMFLOAT3 m_velocity{};          // 速度ベクトル
     double             m_accumulatedTime{ 0.0 };  // 経過時間（寿命管理用）
     int                m_damage{ 0 };         // ダメージ量
+    Trail              m_trail{};             // リボントレイル
 
     static constexpr double LIFE_TIME = 0.5;  // 寿命（秒）
 };
@@ -461,6 +468,17 @@ public:
     AABB GetAABB(int index) const;
 
     //==========================================================================
+    // 前フレーム位置取得
+    //
+    // ■引数
+    // ・index : 弾のインデックス
+    //
+    // ■戻り値
+    // ・1フレーム前のワールド座標
+    //==========================================================================
+    const DirectX::XMFLOAT3& GetPrevPosition(int index) const;
+
+    //==========================================================================
     // OBB取得
     //
     // ■役割
@@ -630,6 +648,17 @@ int Bullet_GetDamage(int index);
 // ・軸平行なAABB
 //==============================================================================
 AABB Bullet_GetAABB(int index);
+
+//==============================================================================
+// 前フレーム位置取得
+//
+// ■引数
+// ・index : 弾のインデックス
+//
+// ■戻り値
+// ・1フレーム前のワールド座標（レイキャスト判定用）
+//==============================================================================
+const DirectX::XMFLOAT3& Bullet_GetPrevPosition(int index);
 
 //==============================================================================
 // OBB取得

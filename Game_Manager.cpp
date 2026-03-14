@@ -34,6 +34,8 @@
 #include "pad_logger.h"
 #include "Pause.h"
 #include "BossIntro.h"
+#include "ItemManager.h"
+#include "player_camera.h"
 
 // 現在/次の状態
 static GameState g_GameState = GameState::Title;
@@ -348,12 +350,15 @@ void GameManager_Update(double elapsed_time)
 
             Map_RegisterFloors();
             Player_SetPosition(Map_GetSpawnPosition(), true);
+            Player_SetFront({ 0.0f, 0.0f, 1.0f });
             Game_RespawnEnemies();
             Bullet_ClearAll();             // ルーム遷移時に残弾・エフェクト・パーティクルをクリア
             EnemyBullet_ClearAll();
             BulletHitEffect_ClearAll();
             Effect_ClearAll();
             Player_ClearParticles();
+            ItemManager_ClearAll();        // ドロップアイテムをクリア
+            Player_Camera_Update(0.0);     // 新スポーン位置にカメラを即更新（BossIntro の g_PreIntroEye を正しく取るため）
 
             g_GoalCooldown = 1.0;
 

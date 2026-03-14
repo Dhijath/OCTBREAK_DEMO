@@ -153,4 +153,22 @@ Hit Collision_IsHitOBB_AABB(const OBB& obb, const AABB& aabb);
 //==============================================================================
 void Collision_DebugDraw(const OBB& obb, const DirectX::XMFLOAT4& color);
 
+//==============================================================================
+// レイセグメントとOBBの交差判定
+//
+// ■役割
+// ・from から to への線分がOBBと交差するか判定する
+// ・弾のすり抜け防止（前フレーム位置→現在位置の経路チェック）に使用
+//
+// ■引数
+// ・obb  : 判定対象のOBB
+// ・from : 線分の始点（前フレームの弾位置）
+// ・to   : 線分の終点（現在フレームの弾位置）
+//
+// ■戻り値
+// ・true  : 線分がOBBと交差している（命中）
+// ・false : 交差していない
+//==============================================================================
+bool OBB_RaySegmentIntersect(const OBB& obb, const DirectX::XMFLOAT3& from, const DirectX::XMFLOAT3& to);
+
 #endif // COLLISION_OBB_H

@@ -14,8 +14,9 @@
 
 ==============================================================================*/
 
-#include <windows.h>  
+#include <windows.h>
 #include "bullet.h"
+#include "Trail.h"
 #include "model.h"
 #include "bullet_hit_effect.h"
 #include "collision_obb.h"
@@ -46,6 +47,16 @@ using namespace DirectX;
 Bullet::Bullet(const XMFLOAT3& pos, const XMFLOAT3& vel, int damage)
     : m_position(pos), m_prevPosition(pos), m_velocity(vel), m_damage(damage)
 {
+    // 暖色系のリボントレイル（弾の飛跡）
+    m_trail.Initialize(20, 0.07f, 0.18f, { 1.0f, 0.7f, 0.2f, 0.9f });
+}
+
+Bullet::~Bullet()
+{
+    // m_trail.Finalize() は Trail::~Trail() が自動で呼ぶため不要
+    // ここで明示呼び出しすると二重 Finalize になり s_RefCount が
+    // 余分に 0 になって他の Trail インスタンス（スラスター等）の
+    // 共有 GPU リソースが解放されてしまう
 }
 
 //==============================================================================
@@ -66,6 +77,13 @@ void Bullet::Update(double elapsed_time)
         XMLoadFloat3(&m_position) + XMLoadFloat3(&m_velocity) * static_cast<float>(elapsed_time)
     );
     m_accumulatedTime += elapsed_time;
+
+    m_trail.Update(elapsed_time, m_position);
+}
+
+void Bullet::DrawTrail()
+{
+    m_trail.Draw();
 }
 
 //==============================================================================
@@ -604,7 +622,7 @@ void BulletManager::DrawBeam(int index)
 //==============================================================================
 void BulletManager::Draw()
 {
-
+    // ① 不透明モデル描画
     for (int i = 0; i < m_count; i++)
     {
         const BulletType type = m_bullets[i]->GetType();
@@ -613,6 +631,10 @@ void BulletManager::Draw()
         else
             DrawBeam(i);
     }
+
+    // ② トレイル描画（加算ブレンド・不透明物の後）
+    for (int i = 0; i < m_count; i++)
+        m_bullets[i]->DrawTrail();
 }
 
 //==============================================================================
@@ -747,6 +769,13 @@ AABB BulletManager::GetAABB(int index) const
 // ■戻り値
 // ・弾のOBB（進行方向を考慮した当たり判定）
 //==============================================================================
+const XMFLOAT3& BulletManager::GetPrevPosition(int index) const
+{
+    static const XMFLOAT3 kZero{ 0.0f, 0.0f, 0.0f };
+    if (index < 0 || index >= m_count) return kZero;
+    return m_bullets[index]->GetPrevPosition();
+}
+
 OBB BulletManager::GetOBB(int index) const
 {
     if (index < 0 || index >= m_count) return OBB();  // 範囲外はデフォルトOBB
@@ -840,6 +869,11 @@ int Bullet_GetDamage(int index)
 AABB Bullet_GetAABB(int index)
 {
     return GetManager().GetAABB(index);
+}
+
+const XMFLOAT3& Bullet_GetPrevPosition(int index)
+{
+    return GetManager().GetPrevPosition(index);
 }
 
 OBB Bullet_GetOBB(int index)

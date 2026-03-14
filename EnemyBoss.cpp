@@ -16,7 +16,10 @@
 #include "ModelToon.h"
 #include "Light.h"
 #include "Player_Camera.h"
+#include "BossIntro.h"
 #include <cstdlib>
+#include <algorithm>  // std::clamp
+#include <cmath>      // acosf, sqrtf, atan2f
 
 using namespace DirectX;
 
@@ -38,10 +41,11 @@ void EnemyBoss::Initialize(const XMFLOAT3& position)
     // 本体モデルを差し替え
     ModelRelease(m_pModel);
     m_pModel = ModelLoad("resource/Models/enemy_tank.fbx", BOSS_SIZE);
+    ComputeLockOnOffsetFromModel(); // ボスモデルのAABBから自動計算
 
-    // 左右バレルをロード
-    m_pBarrelL = ModelLoad("resource/Models/Barrel.fbx", BOSS_SIZE * 0.5f);
-    m_pBarrelR = ModelLoad("resource/Models/Barrel.fbx", BOSS_SIZE * 0.5f);
+    // X字4門バレルをロード
+    for (int i = 0; i < BARREL_COUNT; ++i)
+        m_pBarrel[i] = ModelLoad("resource/Models/Barrel.fbx", BOSS_SIZE * 0.5f);
 
     // ショットガンSEをロード
     m_shootSE = LoadAudioWithVolume("resource/sound/shotgun.wav", 0.5f);
@@ -49,9 +53,9 @@ void EnemyBoss::Initialize(const XMFLOAT3& position)
     m_BarrelRotX = 0.0f;
 
     // 突進・射撃パラメータ初期化
-    m_bossPhase         = BossPhase::NORMAL;
+    m_bossPhase         = BossPhase::INTRO;
     m_chargeTimer       = 0.0f;
-    m_chargeCooldown    = 3.0f;   // 開始直後は少し猶予を持たせる
+    m_chargeCooldown    = CHARGE_INTERVAL; // イントロ終了後すぐ突進しないよう満タン
     m_chargeDir         = {};
     m_chargeDamageDealt = false;
     m_shotCount         = 0;
@@ -66,8 +70,11 @@ void EnemyBoss::Finalize()
     UnloadAudio(m_shootSE);
     m_shootSE = -1;
 
-    ModelRelease(m_pBarrelL); m_pBarrelL = nullptr;
-    ModelRelease(m_pBarrelR); m_pBarrelR = nullptr;
+    for (int i = 0; i < BARREL_COUNT; ++i)
+    {
+        ModelRelease(m_pBarrel[i]);
+        m_pBarrel[i] = nullptr;
+    }
 
     Enemy::Finalize();
 }
@@ -89,7 +96,23 @@ void EnemyBoss::Update(double elapsed_time)
     float dt = static_cast<float>(elapsed_time > 1.0 / 30.0 ? 1.0 / 30.0 : elapsed_time);
 
     //==========================================================================
+    // INTRO 中：バレルアニメタイマーのみ更新。AI・移動・射撃・ロックオン全スキップ。
+    // m_Front は BossIntro_Start() で設定済みの方向を維持する。
+    //==========================================================================
+    if (m_bossPhase == BossPhase::INTRO)
+    {
+        m_chargeTimer += dt;
+        if (m_chargeTimer >= INTRO_DURATION && !BossIntro_IsPlaying())
+        {
+            m_bossPhase   = BossPhase::NORMAL;
+            m_chargeTimer = 0.0f;
+        }
+        return;
+    }
+
+    //==========================================================================
     // 突進フェーズに応じた速度の事前設定（Enemy::Update 内の EnemyAI に渡す初期値）
+    // ＋ m_SpeedCap を更新して Enemy::Update 内の ClampXZSpeed 上限を制御する
     //==========================================================================
     switch (m_bossPhase)
     {
@@ -97,29 +120,20 @@ void EnemyBoss::Update(double elapsed_time)
         // 溜め中は停止（EnemyAI が lerp で若干動くが許容範囲）
         m_Velocity.x = 0.0f;
         m_Velocity.z = 0.0f;
+        m_SpeedCap   = MAX_SPEED; // 通常上限を維持
         break;
 
     case BossPhase::CHARGING:
         // 突進方向へ高速移動
         m_Velocity.x = m_chargeDir.x * CHARGE_SPEED;
         m_Velocity.z = m_chargeDir.z * CHARGE_SPEED;
+        m_SpeedCap   = CHARGE_SPEED; // 突進速度まで上限を引き上げ
         break;
 
     case BossPhase::NORMAL:
-    {
-        // 近づきすぎたら後退（距離を保つ）
-        const XMFLOAT3& playerPos = Player_GetPosition();
-        float dx    = m_Position.x - playerPos.x;
-        float dz    = m_Position.z - playerPos.z;
-        float dist2 = dx * dx + dz * dz;
-        if (dist2 < KEEP_DISTANCE * KEEP_DISTANCE && dist2 > 0.001f)
-        {
-            float dist = sqrtf(dist2);
-            m_Velocity.x = (dx / dist) * RETREAT_SPEED;
-            m_Velocity.z = (dz / dist) * RETREAT_SPEED;
-        }
+        // 通常 AI に任せる。距離調整は Enemy::Update() 後にソフトな斥力で行う
+        m_SpeedCap = MAX_SPEED;
         break;
-    }
 
     default:
         break;
@@ -134,7 +148,60 @@ void EnemyBoss::Update(double elapsed_time)
     if (!m_IsAlive) return;
 
     //==========================================================================
-    // バレル・本体の向き更新
+    // ソフト斥力（NORMAL 時のみ）
+    // Enemy::Update 後に加算することで EnemyAI のチェイスと自然に競合させる。
+    // 距離二乗で滑らかなフォールオフ → 遠いと無視、近いほど押し返す力が増す。
+    // 「完全に近づかせない」設計ではないので接触も起こり得る。
+    //==========================================================================
+    if (m_bossPhase == BossPhase::NORMAL)
+    {
+        const XMFLOAT3& playerPos = Player_GetPosition();
+        float dx   = m_Position.x - playerPos.x;
+        float dz   = m_Position.z - playerPos.z;
+        float dist = sqrtf(dx * dx + dz * dz);
+
+        //----------------------------------------------------------------------
+        // ① ソフト斥力：近いほど押し返す（密着時のみ強力）
+        //----------------------------------------------------------------------
+        if (dist < KEEP_DISTANCE && dist > 0.001f)
+        {
+            float t       = 1.0f - dist / KEEP_DISTANCE;
+            float repulse = RETREAT_SPEED * t * t;
+            m_Velocity.x += (dx / dist) * repulse;
+            m_Velocity.z += (dz / dist) * repulse;
+        }
+
+        //----------------------------------------------------------------------
+        // ② ストレイフ：プレイヤーを中心に接線方向へ旋回する
+        // プレイヤー→ボスの方向に直交するベクトルを使い、数秒ごとに反転。
+        // EnemyAI の直線チェイスに旋回成分が加わり、弧を描いて動く。
+        //----------------------------------------------------------------------
+        m_strafeTimer -= dt;
+        if (m_strafeTimer <= 0.0f)
+        {
+            // 方向転換：ランダムな間隔で左右を切り替え
+            m_strafeSign  = -m_strafeSign;
+            m_strafeTimer = STRAFE_CHANGE_MIN +
+                (rand() % static_cast<int>((STRAFE_CHANGE_MAX - STRAFE_CHANGE_MIN) * 100)) * 0.01f;
+        }
+
+        if (dist > 0.001f)
+        {
+            // ボス→プレイヤー方向に直交する接線（XZ平面）
+            float toPlayerX = -dx / dist;  // = playerPos - bossPos (正規化)
+            float toPlayerZ = -dz / dist;
+            float tangentX  = -toPlayerZ * static_cast<float>(m_strafeSign);
+            float tangentZ  =  toPlayerX * static_cast<float>(m_strafeSign);
+
+            m_Velocity.x += tangentX * STRAFE_SPEED;
+            m_Velocity.z += tangentZ * STRAFE_SPEED;
+        }
+    }
+
+    //==========================================================================
+    // ロックオン：感知時のみ本体をプレイヤー方向へ滑らかに回転する
+    // ─ 突進中だけは突進方向へ固定（バレルで見た目がおかしくなるため）
+    // ─ 未感知時はバレル・本体ともに最後の方向を保持
     //==========================================================================
     {
         const XMFLOAT3& playerPos = Player_GetPosition();
@@ -143,20 +210,23 @@ void EnemyBoss::Update(double elapsed_time)
         float dz        = playerPos.z - m_Position.z;
         float horizDist = sqrtf(dx * dx + dz * dz);
 
+        // 感知判定：視野距離(XZ平面)かつ視線が通っている
+        const bool isDetected = (horizDist <= SIGHT_DIST)
+                             && MapPatrolAI_HasLineOfSight(m_Position, playerPos);
+
         if (m_bossPhase == BossPhase::CHARGING && (m_chargeDir.x != 0.0f || m_chargeDir.z != 0.0f))
         {
-            // 突進中は突進方向に向く
+            // 突進中：突進方向へ向く（バレルも水平に固定）
             m_Front      = m_chargeDir;
             m_BarrelRotX = 0.0f;
         }
-        else
+        else if (isDetected && horizDist > 0.001f)
         {
-            // 通常・溜め・クールダウン中はプレイヤー方向を向く
+            // バレル仰角：プレイヤー追従
             m_BarrelRotX = atan2f(dy, horizDist);
-            if (horizDist > 0.001f)
-            {
-                m_Front = { dx / horizDist, 0.0f, dz / horizDist };
-            }
+
+            // 本体水平向き：感知中は即スナップ（EnemyAI の移動向きより優先）
+            m_Front = { dx / horizDist, 0.0f, dz / horizDist };
         }
     }
 
@@ -168,15 +238,23 @@ void EnemyBoss::Update(double elapsed_time)
     case BossPhase::NORMAL:
     {
         // 突進クールダウンを減算
-        m_chargeCooldown -= dt;
+        m_chargeCooldown  -= dt;
+        m_lastShotTimer   += dt;
 
-        // クールダウン完了 & 視線が通っていれば溜め開始
-        if (m_chargeCooldown <= 0.0f &&
-            MapPatrolAI_HasLineOfSight(m_Position, Player_GetPosition()))
+        // ==== アクション優先順位 ====
+        // 突進 > 射撃 > ストレイフ
+        // 射撃直後（SHOOT_CHARGE_GAP 秒以内）は突進を抑制し、
+        // プレイヤーに「射撃→即突進」の連続を押し付けない。
+        bool canCharge = m_chargeCooldown <= 0.0f
+                      && m_lastShotTimer  >= SHOOT_CHARGE_GAP
+                      && MapPatrolAI_HasLineOfSight(m_Position, Player_GetPosition());
+
+        if (canCharge)
         {
             m_bossPhase         = BossPhase::CHARGE_WINDUP;
             m_chargeTimer       = 0.0f;
             m_chargeDamageDealt = false;
+            m_shootTimer        = 0.0f; // 溜め開始時に射撃タイマーをリセット
         }
         break;
     }
@@ -258,23 +336,24 @@ void EnemyBoss::Update(double elapsed_time)
     //==========================================================================
     // 射撃タイマー更新（溜め・突進中は射撃しない）
     //==========================================================================
+    // ==== 射撃（突進中・溜め中は撃たない）====
     if (m_bossPhase == BossPhase::NORMAL || m_bossPhase == BossPhase::COOLDOWN)
     {
         m_shootTimer += dt;
         if (m_shootTimer >= m_nextShootInterval)
         {
-            m_shootTimer = 0.0f;
-            // 次の射撃間隔をランダム化（0.7〜1.6 秒）
+            m_shootTimer        = 0.0f;
             m_nextShootInterval = 0.7f + (rand() % 90) * 0.01f;
 
-            // 視線が通っていれば射撃
             if (MapPatrolAI_HasLineOfSight(m_Position, Player_GetPosition()))
             {
                 m_shotCount++;
                 if (m_shotCount % 3 == 0)
-                    SpreadShoot(); // 3発に1回は散弾
+                    SpreadShoot();
                 else
-                    Shoot();       // 通常2連射
+                    Shoot();
+
+                m_lastShotTimer = 0.0f; // 射撃直後フラグをリセット
             }
         }
     }
@@ -304,19 +383,28 @@ void EnemyBoss::Draw()
         XMMatrixRotationY(angle) *
         XMMatrixRotationY(XMConvertToRadians(-90.0f));
 
+    // モデルのローカルAABBを取得して底面をm_Position.yに合わせる（地面めり込み修正）
+    const AABB bodyLocal = ModelGetAABB(m_pModel, { 0.0f, 0.0f, 0.0f });
+
     XMMATRIX trans = XMMatrixTranslation(
         m_Position.x,
-        m_Position.y,
+        m_Position.y - bodyLocal.min.y,
         m_Position.z
     );
 
     ModelDrawToon(m_pModel, rot * trans);
 
-    // 左右バレル描画
-    if (m_pBarrelL && m_pBarrelR)
+    // X字4門バレル描画: 正面から見て上右・上左・下右・下左の2×2配置
+    // rightOffset は ±1 の正規化符号（GetBarrelWorldMatrix内でOBBスケーリング）
+    // heightOffset はAABB高さに対する比率で算出
+    if (m_pBarrel[0])
     {
-        ModelDrawToon(m_pBarrelL, GetBarrelWorldMatrix(BARREL_OFFSET));
-        ModelDrawToon(m_pBarrelR, GetBarrelWorldMatrix(-BARREL_OFFSET));
+        // [0]=前面 [1]=右面 [2]=後面 [3]=左面 — OBBの各辺サーフェスに底面を合わせて配置
+        for (int i = 0; i < BARREL_COUNT; ++i)
+        {
+            if (m_pBarrel[i])
+                ModelDrawToon(m_pBarrel[i], GetBarrelWorldMatrix(i));
+        }
     }
 }
 
@@ -324,39 +412,194 @@ void EnemyBoss::Draw()
 // バレルのワールド行列取得
 //
 // ■役割
-// ・ボス正面方向・仰角・左右オフセットからバレルのワールド行列を返す
-// ・Draw() と Shoot() で共用する
+// ・OBBの各面サーフェスにバレル底面を合わせて配置する
+// ・マズル（ローカル -Z）がプレイヤーを向くように aimRot を構築する
 //
 // ■引数
-// ・sideOffset : 正=右バレル / 負=左バレル
+// ・faceIndex : 0=前面 / 1=右面 / 2=後面 / 3=左面
 //==============================================================================
-XMMATRIX EnemyBoss::GetBarrelWorldMatrix(float sideOffset)
+XMMATRIX EnemyBoss::GetBarrelWorldMatrix(int faceIndex)
 {
+    if (!m_pModel)                                return XMMatrixIdentity();
+    if (faceIndex < 0 || faceIndex >= BARREL_COUNT) return XMMatrixIdentity();
+    if (!m_pBarrel[faceIndex])                    return XMMatrixIdentity();
+
+    const XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+
+    // ── ボス向き ──────────────────────────────────────────────────────────────
+    XMVECTOR bossFront = XMVector3Normalize(
+        XMVectorSet(m_Front.x, 0.0f, m_Front.z, 0.0f));
+    XMVECTOR bossRight = XMVector3Normalize(XMVector3Cross(up, bossFront));
+
+    // ── 本体OBB（Draw()と同じ回転行列を使ってAABB→OBBに変換） ────────────────
+    const AABB bodyLocal = ModelGetAABB(m_pModel, { 0.0f, 0.0f, 0.0f });
+
+    // Draw()と同じ回転：RotY(angle) * RotY(-90°)
     float angle = -atan2f(m_Front.z, m_Front.x);
+    XMMATRIX bodyRot = XMMatrixRotationY(angle)
+                     * XMMatrixRotationY(XMConvertToRadians(-90.0f));
 
-    XMMATRIX barrelRot =
-        XMMatrixRotationX(-m_BarrelRotX) *
-        XMMatrixRotationY(angle) *
-        XMMatrixRotationY(XMConvertToRadians(-90.0f));
+    // ローカルAABB中心・半サイズ（XZ のみ使用）
+    float heX = (bodyLocal.max.x - bodyLocal.min.x) * 0.5f;
+    float heZ = (bodyLocal.max.z - bodyLocal.min.z) * 0.5f;
 
-    const XMFLOAT3 bodyOrigin = { m_Position.x, m_Position.y, m_Position.z };
-    const AABB bodyAABB = ModelGetAABB(m_pModel, bodyOrigin);
-    const AABB barrelLocal = ModelGetAABB(m_pBarrelL, { 0.0f, 0.0f, 0.0f });
-    const float barrelCenterY = (barrelLocal.max.y + barrelLocal.min.y) * 0.5f;
+    // ワールド空間でのOBBの各軸方向（Y成分は水平面では無視）
+    XMVECTOR rotLocalX = XMVector3TransformNormal(
+        XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f), bodyRot);
+    XMVECTOR rotLocalZ = XMVector3TransformNormal(
+        XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f), bodyRot);
 
-    // 右方向を計算してsideOffsetでずらす
-    XMVECTOR frontV = XMVectorSet(m_Front.x, 0.0f, m_Front.z, 0.0f);
-    XMVECTOR rightV = XMVector3Normalize(XMVector3Cross(XMVectorSet(0, 1, 0, 0), frontV));
-    XMFLOAT3 right;
-    XMStoreFloat3(&right, rightV);
+    // ボスFront/Right方向に対するOBBの投影距離（面サーフェスまでの半幅）
+    auto absDot = [](XMVECTOR a, XMVECTOR b) -> float {
+        return fabsf(XMVectorGetX(XMVector3Dot(a, b)));
+    };
+    float frontExtent = absDot(rotLocalX, bossFront) * heX
+                      + absDot(rotLocalZ, bossFront) * heZ;
+    float rightExtent = absDot(rotLocalX, bossRight) * heX
+                      + absDot(rotLocalZ, bossRight) * heZ;
+
+    // ── ボディのワールド中心 ──────────────────────────────────────────────────
+    // Draw()のtrans: Translation(x, y - bodyLocal.min.y, z) なので
+    // ローカル中心 → ワールド：RotY後の中心 + bodyTranslation
+    float localCX = (bodyLocal.min.x + bodyLocal.max.x) * 0.5f;
+    float localCY = (bodyLocal.min.y + bodyLocal.max.y) * 0.5f;
+    float localCZ = (bodyLocal.min.z + bodyLocal.max.z) * 0.5f;
+    XMVECTOR rotCenter = XMVector3TransformNormal(
+        XMVectorSet(localCX, localCY, localCZ, 0.0f), bodyRot);
+    XMVECTOR worldCenter = XMVectorAdd(
+        rotCenter,
+        XMVectorSet(m_Position.x,
+                    m_Position.y - bodyLocal.min.y,
+                    m_Position.z, 0.0f));
+    XMFLOAT3 wc;
+    XMStoreFloat3(&wc, worldCenter);
+
+    // ── 前面2×2配置：OBBの角に合わせる ──────────────────────────────────────
+    //   [0]=上右  [1]=上左  [2]=下右  [3]=下左
+    //
+    //   Z : 前面OBBサーフェス（frontExtent）に合わせる
+    //   X : OBBの左右端（±rightExtent）に合わせる
+    //   Y : OBBの上端(max.y) or 下端(min.y) のワールドY → 角に配置
+    const float sideSign[4] = { +1.0f, -1.0f, +1.0f, -1.0f };
+    const bool  isUpper[4]  = { true,  true,  false, false  };
+
+    // Z: 前面OBBサーフェス（XZ 平面）
+    XMVECTOR originV = XMVectorAdd(
+        worldCenter,
+        XMVectorScale(bossFront, frontExtent));
+
+    XMFLOAT3 barrelOriginPos;
+    XMStoreFloat3(&barrelOriginPos, originV);
+
+    // X: OBBの左右端（bossRight 方向）
+    XMFLOAT3 rightF;
+    XMStoreFloat3(&rightF, bossRight);
+    barrelOriginPos.x += rightF.x * sideSign[faceIndex] * rightExtent;
+    barrelOriginPos.z += rightF.z * sideSign[faceIndex] * rightExtent;
+
+    // Y: AABB上端/下端のワールドY
+    // Draw()のtrans Y = m_Position.y - bodyLocal.min.y なので
+    //   ワールド下端 = m_Position.y
+    //   ワールド上端 = m_Position.y - bodyLocal.min.y + bodyLocal.max.y
+    const float worldBottom = m_Position.y;
+    const float worldTop    = m_Position.y - bodyLocal.min.y + bodyLocal.max.y;
+    barrelOriginPos.y = isUpper[faceIndex] ? worldTop : worldBottom;
+
+    // ── INTRO 前進オフセット ───────────────────────────────────────────────────
+    // 上昇フェーズ（0→INTRO_RAISE_END）で前進、復帰フェーズで後退
+    // 上段・下段ともに同じ前後移動をさせてめり込みを防ぐ
+    if (m_bossPhase == BossPhase::INTRO)
+    {
+        float anim;
+        if (m_chargeTimer <= INTRO_RAISE_END)
+        {
+            float t = std::clamp(m_chargeTimer / INTRO_RAISE_END, 0.0f, 1.0f);
+            anim = t * t * (3.0f - 2.0f * t);             // smoothstep 0→1
+        }
+        else
+        {
+            const float returnDur = INTRO_DURATION - INTRO_RAISE_END;
+            float t = std::clamp((m_chargeTimer - INTRO_RAISE_END) / returnDur, 0.0f, 1.0f);
+            anim = 1.0f - t * t * (3.0f - 2.0f * t);      // smoothstep 1→0
+        }
+
+        const float maxForward = 0.35f; // 前進量（m）
+        XMVECTOR fwd = XMVectorScale(bossFront, maxForward * anim);
+        barrelOriginPos.x += XMVectorGetX(fwd);
+        barrelOriginPos.z += XMVectorGetZ(fwd);
+    }
 
     XMMATRIX barrelTrans = XMMatrixTranslation(
-        m_Position.x + m_Front.x * BARREL_FORWARD + right.x * sideOffset,
-        bodyAABB.max.y - barrelCenterY,
-        m_Position.z + m_Front.z * BARREL_FORWARD + right.z * sideOffset
+        barrelOriginPos.x, barrelOriginPos.y, barrelOriginPos.z);
+
+    // ── 照準方向 ──────────────────────────────────────────────────────────────
+    XMVECTOR aimDir;
+
+    if (m_bossPhase == BossPhase::INTRO && !isUpper[faceIndex])
+    {
+        // 下段：拳を中央上方へ収束させる（上昇フェーズのみ・復帰フェーズは正面へ戻す）
+        float anim;
+        if (m_chargeTimer <= INTRO_RAISE_END)
+        {
+            float t = std::clamp(m_chargeTimer / INTRO_RAISE_END, 0.0f, 1.0f);
+            anim = t * t * (3.0f - 2.0f * t);
+        }
+        else
+        {
+            const float returnDur = INTRO_DURATION - INTRO_RAISE_END;
+            float t = std::clamp((m_chargeTimer - INTRO_RAISE_END) / returnDur, 0.0f, 1.0f);
+            anim = 1.0f - t * t * (3.0f - 2.0f * t);
+        }
+
+        XMVECTOR fistPoint = XMVectorSet(wc.x, worldTop + 0.3f, wc.z, 0.0f);
+        XMVECTOR toFist    = XMVector3Normalize(
+            XMVectorSubtract(fistPoint, XMLoadFloat3(&barrelOriginPos)));
+        aimDir = XMVector3Normalize(XMVectorLerp(bossFront, toFist, anim));
+    }
+    else if (m_bossPhase == BossPhase::NORMAL || m_bossPhase == BossPhase::COOLDOWN)
+    {
+        // 射撃フェーズ：プレイヤー追従
+        XMFLOAT3 playerPos = Player_GetPosition();
+        XMFLOAT3 target    = { playerPos.x, playerPos.y + 0.3f, playerPos.z };
+        XMVECTOR toTarget  = XMVectorSet(
+            target.x - barrelOriginPos.x,
+            target.y - barrelOriginPos.y,
+            target.z - barrelOriginPos.z, 0.0f);
+        aimDir = XMVectorGetX(XMVector3LengthSq(toTarget)) > 0.001f
+               ? XMVector3Normalize(toTarget)
+               : bossFront;
+    }
+    else
+    {
+        aimDir = bossFront; // 突進中：正面固定
+    }
+
+    XMVECTOR aimZ = XMVectorNegate(aimDir);
+    XMVECTOR aimX = XMVector3Normalize(XMVector3Cross(up, aimZ));
+    if (XMVectorGetX(XMVector3LengthSq(aimX)) < 0.001f)
+        aimX = XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
+    XMVECTOR aimY = XMVector3Cross(aimZ, aimX);
+
+    XMFLOAT3 ax, ay, az;
+    XMStoreFloat3(&ax, aimX);
+    XMStoreFloat3(&ay, aimY);
+    XMStoreFloat3(&az, aimZ);
+
+    // 行ベクトル形式（Player.cpp の aimRot と完全同形式）
+    XMMATRIX aimRot(
+        ax.x, ax.y, ax.z, 0.0f,
+        ay.x, ay.y, ay.z, 0.0f,
+        az.x, az.y, az.z, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f
     );
 
-    return barrelRot * barrelTrans;
+    // 上段バレル：底面が下（モデル中心方向）を向くよう上下反転
+    // 下段バレル：BARREL_FLIP_DEG で通常補正（底面が上＝モデル中心方向）
+    XMMATRIX localRot = isUpper[faceIndex]
+        ? XMMatrixRotationZ(XMConvertToRadians(BARREL_FLIP_DEG + 180.0f)) // 上段: 反転
+        : XMMatrixRotationZ(XMConvertToRadians(BARREL_FLIP_DEG));          // 下段: 通常
+
+    return localRot * aimRot * barrelTrans;
 }
 
 //==============================================================================
@@ -372,12 +615,15 @@ void EnemyBoss::Shoot()
     XMFLOAT3 playerPos = Player_GetPosition();
     XMFLOAT3 target = { playerPos.x, playerPos.y + 0.3f, playerPos.z };
 
-    const AABB barrelLocal = ModelGetAABB(m_pBarrelL, { 0.0f, 0.0f, 0.0f });
+    if (!m_pBarrel[0]) return;
+    const AABB barrelLocal = ModelGetAABB(m_pBarrel[0], { 0.0f, 0.0f, 0.0f });
 
-    // 左右それぞれのバレルから発射
-    for (float side : { BARREL_OFFSET, -BARREL_OFFSET })
+    // Drawと同じ4面配置から全門発射
+    for (int i = 0; i < BARREL_COUNT; ++i)
     {
-        XMMATRIX barrelWorld = GetBarrelWorldMatrix(side);
+        if (!m_pBarrel[i]) continue;
+
+        XMMATRIX barrelWorld = GetBarrelWorldMatrix(i);
 
         // バレル先端（ローカルZ最小＝マズル）をワールド座標に変換
         XMVECTOR muzzleLocal = XMVectorSet(0.0f, 0.0f, barrelLocal.min.z, 1.0f);
@@ -409,40 +655,33 @@ void EnemyBoss::SpreadShoot()
     XMFLOAT3 playerPos = Player_GetPosition();
     XMFLOAT3 target    = { playerPos.x, playerPos.y + 0.3f, playerPos.z };
 
-    // 水平方向の基準角（ボス→プレイヤー）
-    float dx      = target.x - m_Position.x;
-    float dy      = target.y - m_Position.y;
-    float dz      = target.z - m_Position.z;
-    float baseYaw = atan2f(dx, dz);  // XZ 平面のヨー角
-
-    // 仰角
-    float horizDist    = sqrtf(dx * dx + dz * dz);
-    float baseElevation = atan2f(dy, horizDist);
-    float cosEl        = cosf(baseElevation);
-    float sinEl        = sinf(baseElevation);
-
-    // 中央バレル位置をマズルとして使用
-    if (!m_pBarrelL) { Shoot(); return; }
-    const AABB barrelLocal = ModelGetAABB(m_pBarrelL, { 0.0f, 0.0f, 0.0f });
-    XMMATRIX   barrelCenter = GetBarrelWorldMatrix(0.0f);
+    // マズル位置を先に取得（方向計算の基点になる）
+    if (!m_pBarrel[0]) { Shoot(); return; }
+    const AABB barrelLocal = ModelGetAABB(m_pBarrel[0], { 0.0f, 0.0f, 0.0f });
+    // 前面バレル（index 0）を基点にスプレッド射撃
+    XMMATRIX   barrelCenter = GetBarrelWorldMatrix(0);
     XMVECTOR   muzzleLocal  = XMVectorSet(0.0f, 0.0f, barrelLocal.min.z, 1.0f);
     XMVECTOR   muzzleWorld  = XMVector3TransformCoord(muzzleLocal, barrelCenter);
     XMFLOAT3   muzzlePos;
     XMStoreFloat3(&muzzlePos, muzzleWorld);
 
+    // マズル→プレイヤーの方向で基準角を計算（ボス中心ではなくマズル基点）
+    float dx         = target.x - muzzlePos.x;
+    float dy         = target.y - muzzlePos.y;
+    float dz         = target.z - muzzlePos.z;
+    float horizDist  = sqrtf(dx * dx + dz * dz);
+    float baseYaw    = atan2f(dx, dz);
+    float cosEl      = (horizDist > 0.001f) ? cosf(atan2f(dy, horizDist)) : 1.0f;
+    float sinEl      = (horizDist > 0.001f) ? sinf(atan2f(dy, horizDist)) : 0.0f;
+
     // 扇状5発（±30°, ±15°, 中央）
     const float spreadAngles[] = { -30.0f, -15.0f, 0.0f, 15.0f, 30.0f };
     for (float deg : spreadAngles)
     {
-        float a   = baseYaw + XMConvertToRadians(deg);
-        XMFLOAT3 vel = {
-            sinf(a) * cosEl,
-            sinEl,
-            cosf(a) * cosEl
-        };
+        float a      = baseYaw + XMConvertToRadians(deg);
+        XMFLOAT3 vel = { sinf(a) * cosEl, sinEl, cosf(a) * cosEl };
         EnemyBullet_Create(muzzlePos, vel, SHOOT_DAMAGE, BOSS_BULLET_SPEED);
     }
 
-    // ショットガンSE再生
     PlayAudio(m_shootSE, false);
 }

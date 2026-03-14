@@ -28,4 +28,7 @@ void ItemManager_Spawn(ItemType type, const DirectX::XMFLOAT3& position);
 // position : スポーン座標
 void ItemManager_SpawnRandom(const DirectX::XMFLOAT3& position);
 
+// 全アイテムを消去（ルーム遷移用、SEは解放しない）
+void ItemManager_ClearAll();
+
 #endif // ITEMMANAGER_H

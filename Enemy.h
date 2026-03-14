@@ -95,6 +95,14 @@ public:
     const DirectX::XMFLOAT3& GetPosition() const;
 
     //==========================================================================
+    // ロックオン照準のYオフセット（モデルの視覚的中心までの高さ）
+    //
+    // ■戻り値
+    // ・ロックオン位置のY軸オフセット（m_Position.y からの高さ）
+    //==========================================================================
+    virtual float GetLockOnCenterOffset() const { return m_lockOnCenterOffset; }
+
+    //==========================================================================
     // 速度ポインタ取得（ノックバック用）
     //
     // ■戻り値
@@ -156,6 +164,12 @@ public:
     // BossIntro など外部から初期方向を指定する場合に使用
     //==========================================================================
     void SetFront(const DirectX::XMFLOAT3& front) { m_Front = front; }
+
+    //==========================================================================
+    // シャドウパス用深度描画
+    // ShadowMap::BeginPass() ～ EndPass() の間で呼ぶ
+    //==========================================================================
+    virtual void DrawShadow();
 
 protected:
     //==========================================================================
@@ -224,6 +238,11 @@ protected:
     //==========================================================================
     void ResolveBulletHits();
 
+    //==========================================================================
+    // モデルAABBからロックオンYオフセットを自動計算してセット
+    //==========================================================================
+    void ComputeLockOnOffsetFromModel();
+
     DirectX::XMFLOAT3 m_Position    {};  // 現在位置
     DirectX::XMFLOAT3 m_Velocity    {};  // 速度
     DirectX::XMFLOAT3 m_Front       {};  // 向き（正面ベクトル）
@@ -246,6 +265,17 @@ protected:
     float m_AttackTimer    = 0.0f;  // 溜め経過時間
     float m_AttackCooldown = 0.0f;  // 攻撃後の再発動ウェイト
     bool  m_IsAttacking    = false; // 攻撃溜め中フラグ
+
+    // 速度上限オーバーライド（サブクラスが突進などで一時的に引き上げる用）
+    // デフォルトは MAX_SPEED。Enemy::Update の ClampXZSpeed はこの値を参照する
+    float m_SpeedCap = MAX_SPEED;
+
+    float m_lockOnCenterOffset = 0.4f; // ロックオンYオフセット（モデル読込後に自動設定）
+
+    // モデルAABBから算出した衝突OBB半径（ComputeLockOnOffsetFromModel で設定）
+    float m_obbHalfWidth  = ENEMY_HALF_WIDTH_X; // X/Z 半径
+    float m_obbHalfHeight = ENEMY_HEIGHT * 0.5f; // Y 半径
+    float m_obbBottomY    = ENEMY_HEIGHT * 0.5f; // m_Position.y からOBB中心までのY距離
 };
 
 void Enemy_LoadSE();

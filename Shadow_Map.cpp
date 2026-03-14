@@ -15,7 +15,9 @@
 #include <d3d11.h>
 #include <DirectXMath.h>
 #include <algorithm>
+#include <fstream>
 #include "direct3d.h" // ← デバイス/コンテキスト取得に使う想定
+#include "model.h"    // ← DrawModel で MODEL* を使う
 
 using namespace DirectX;
 
@@ -40,6 +42,12 @@ namespace
 
     // PS b5: shadow params
     ID3D11Buffer* g_pCBShadowParam = nullptr;
+
+    // 深度のみ描画用シェーダー
+    ID3D11VertexShader*  g_pShadowVS    = nullptr;
+    ID3D11PixelShader*   g_pShadowPS    = nullptr;
+    ID3D11InputLayout*   g_pShadowIL    = nullptr;
+    ID3D11Buffer*        g_pCBWorld     = nullptr; // VS b0: world
 
     // 保存（戻す用）
     ID3D11RasterizerState* g_pRSPrev = nullptr;
@@ -73,6 +81,19 @@ namespace
     ID3D11DeviceContext* GetContext()
     {
           return Direct3D_GetContext();
+    }
+
+    // CSO ファイル読み込みヘルパー
+    static bool LoadCSO(const char* path, unsigned char** ppData, size_t* pSize)
+    {
+        std::ifstream ifs(path, std::ios::binary);
+        if (!ifs) return false;
+        ifs.seekg(0, std::ios::end);
+        *pSize = static_cast<size_t>(ifs.tellg());
+        ifs.seekg(0, std::ios::beg);
+        *ppData = new unsigned char[*pSize];
+        ifs.read(reinterpret_cast<char*>(*ppData), *pSize);
+        return true;
     }
 
     XMFLOAT3 Normalize(const XMFLOAT3& v)
@@ -181,11 +202,55 @@ namespace ShadowMap
         if (FAILED(dev->CreateBuffer(&spd, nullptr, &g_pCBShadowParam)))
             return false;
 
+        // --- Shadow VS (shader_vertex_shadow_3d.cso)
+        {
+            unsigned char* pData = nullptr;
+            size_t sz = 0;
+            if (LoadCSO("resource/shader/shader_vertex_shadow_3d.cso", &pData, &sz))
+            {
+                dev->CreateVertexShader(pData, sz, nullptr, &g_pShadowVS);
+
+                // 入力レイアウト（Vertex3D と同じ）
+                D3D11_INPUT_ELEMENT_DESC layout[] = {
+                    { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,    0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+                    { "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT,    0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+                    { "COLOR",    0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+                    { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,       0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+                };
+                dev->CreateInputLayout(layout, ARRAYSIZE(layout), pData, sz, &g_pShadowIL);
+                delete[] pData;
+            }
+        }
+
+        // --- Shadow PS (shader_pixel_shadow.cso)
+        {
+            unsigned char* pData = nullptr;
+            size_t sz = 0;
+            if (LoadCSO("resource/shader/shader_pixel_shadow.cso", &pData, &sz))
+            {
+                dev->CreatePixelShader(pData, sz, nullptr, &g_pShadowPS);
+                delete[] pData;
+            }
+        }
+
+        // --- CB World (VS b0)
+        {
+            D3D11_BUFFER_DESC wbd{};
+            wbd.ByteWidth      = sizeof(XMFLOAT4X4);
+            wbd.Usage          = D3D11_USAGE_DEFAULT;
+            wbd.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
+            dev->CreateBuffer(&wbd, nullptr, &g_pCBWorld);
+        }
+
         return true;
     }
 
     void Finalize()
     {
+        SafeRelease((IUnknown*&)g_pCBWorld);
+        SafeRelease((IUnknown*&)g_pShadowIL);
+        SafeRelease((IUnknown*&)g_pShadowPS);
+        SafeRelease((IUnknown*&)g_pShadowVS);
         SafeRelease((IUnknown*&)g_pCBShadowParam);
         SafeRelease((IUnknown*&)g_pCBLightVP);
         SafeRelease((IUnknown*&)g_pRSDepthBias);
@@ -282,8 +347,11 @@ namespace ShadowMap
         ID3D11DeviceContext* ctx = GetContext();
         if (!ctx) return;
 
-        // VS(b3): LightViewProj
+        // VS(b3): LightViewProj（影生成 VS が参照する）
         ctx->VSSetConstantBuffers(3, 1, &g_pCBLightVP);
+
+        // PS(b8): LightViewProj（PS が posW から shadowUV を計算する用）
+        ctx->PSSetConstantBuffers(8, 1, &g_pCBLightVP);
 
         // PS(t7): Shadow SRV
         ctx->PSSetShaderResources(7, 1, &g_pShadowSRV);
@@ -294,11 +362,47 @@ namespace ShadowMap
         // PS(b5): shadow param
         CBShadowParam sp{};
         sp.shadowMapSize = XMFLOAT2((float)g_Size, (float)g_Size);
-        sp.depthBias = 0.0015f;   // まずはこの値（後で調整しやすい）
-        sp.strength = 1.0f;
+        sp.depthBias = 0.001f;
+        sp.strength = 0.6f; // 影の濃さ（0=影なし / 1=真っ暗）
 
         ctx->UpdateSubresource(g_pCBShadowParam, 0, nullptr, &sp, 0, 0);
         ctx->PSSetConstantBuffers(5, 1, &g_pCBShadowParam);
+    }
+
+    void DrawModel(MODEL* model, const XMMATRIX& world)
+    {
+        if (!g_InShadowPass || !model || !model->AiScene) return;
+        if (!g_pShadowVS || !g_pShadowPS || !g_pShadowIL || !g_pCBWorld) return;
+
+        ID3D11DeviceContext* ctx = GetContext();
+        if (!ctx) return;
+
+        // シェーダーセット
+        ctx->VSSetShader(g_pShadowVS, nullptr, 0);
+        ctx->PSSetShader(g_pShadowPS, nullptr, 0);
+        ctx->IASetInputLayout(g_pShadowIL);
+        ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+        // ワールド行列を VS b0 に渡す
+        XMFLOAT4X4 wt;
+        XMStoreFloat4x4(&wt, XMMatrixTranspose(world));
+        ctx->UpdateSubresource(g_pCBWorld, 0, nullptr, &wt, 0, 0);
+        ctx->VSSetConstantBuffers(0, 1, &g_pCBWorld);
+        // VS b3 は BeginPass で設定済みの lightViewProj
+
+        // 全メッシュ描画（深度のみ書き込み）
+        const UINT stride = sizeof(float) * (3 + 3 + 4 + 2); // Vertex3D のサイズ
+        const UINT offset = 0;
+        for (unsigned int m = 0; m < model->AiScene->mNumMeshes; m++)
+        {
+            aiMesh* mesh = model->AiScene->mMeshes[m];
+            if (!mesh || mesh->mNumFaces == 0) continue;
+            if (!model->VertexBuffer[m] || !model->IndexBuffer[m]) continue;
+
+            ctx->IASetVertexBuffers(0, 1, &model->VertexBuffer[m], &stride, &offset);
+            ctx->IASetIndexBuffer(model->IndexBuffer[m], DXGI_FORMAT_R32_UINT, 0);
+            ctx->DrawIndexed(mesh->mNumFaces * 3, 0, 0);
+        }
     }
 
     ID3D11ShaderResourceView* GetShadowSRV()

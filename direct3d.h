@@ -28,6 +28,10 @@ void Direct3D_Clear();
 // バックバッファの画面表示
 void Direct3D_Present();
 
+// バックバッファのリサイズ（フルスクリーン切替・WM_SIZE 時に呼ぶ）
+// width / height が 0 の場合（最小化など）は何もしない
+bool Direct3D_ResizeBackBuffer(unsigned int width, unsigned int height);
+
 // バックバッファの横幅を返す
 unsigned int Direct3D_GetBackBufferWidth();
 
@@ -90,6 +94,8 @@ void Direct3D_EndOffScreen();
 // オフスクリーンのSRV取得（ミニマップ貼り付け用）
 ID3D11ShaderResourceView* Direct3D_GetOffScreenSRV();
 
+// シャドウパス後にメインRTV+DSV+ビューポートを復元する
+void Direct3D_BindMainRenderTarget();
 
 
 #endif // DIRECT3D_H

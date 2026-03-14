@@ -1,17 +1,17 @@
 /*==============================================================================
 
-   ƒtƒB[ƒ‹ƒh—pƒsƒNƒZƒ‹ƒVƒF[ƒ_[ [shader_pixel_field.hlsl]
+   ï¿½tï¿½Bï¿½[ï¿½ï¿½ï¿½hï¿½pï¿½sï¿½Nï¿½Zï¿½ï¿½ï¿½Vï¿½Fï¿½[ï¿½_ï¿½[ [shader_pixel_field.hlsl]
 														 Author : 51106
 														 Date   : 2025/05/15
 --------------------------------------------------------------------------------
 
 /*==============================================================================
-    ƒtƒB[ƒ‹ƒh—pƒsƒNƒZƒ‹ƒVƒF[ƒ_[
+    ï¿½tï¿½Bï¿½[ï¿½ï¿½ï¿½hï¿½pï¿½sï¿½Nï¿½Zï¿½ï¿½ï¿½Vï¿½Fï¿½[ï¿½_ï¿½[
     Ambient + Directional
 ==============================================================================*/
 
 //=========================
-// Light.cpp ‚Æˆê’v‚·‚é cbuffer
+// Light.cpp ï¿½Æˆï¿½vï¿½ï¿½ï¿½ï¿½ cbuffer
 //=========================
 cbuffer DiffuseBuffer : register(b0)
 {
@@ -30,7 +30,7 @@ cbuffer DirectionalBuffer : register(b2)
 };
 
 //=========================
-// “ü—Í
+// ï¿½ï¿½ï¿½ï¿½
 //=========================
 struct PS_IN
 {
@@ -45,6 +45,24 @@ Texture2D tex_grass : register(t0);
 Texture2D tex_dirt : register(t1);
 
 SamplerState samp : register(s0);
+
+//----------------------------------------------------------
+// Shadow map (ShadowMap::BindForMainPass)
+//----------------------------------------------------------
+cbuffer CB_SHADOW_PARAM : register(b5)
+{
+    float2 shadowMapSize;
+    float  shadowDepthBias;
+    float  shadowPad0;
+    float  shadowStrength;
+    float3 shadowPad1;
+}
+cbuffer CB_LIGHT_VP : register(b8)
+{
+    float4x4 lightViewProj;
+}
+Texture2D              shadowMap     : register(t7);
+SamplerComparisonState shadowSampler : register(s1);
 
 
 //=========================
@@ -69,6 +87,22 @@ float4 main(PS_IN pi) : SV_TARGET
     float3 ambient = base * ambient_color.rgb;
 
     float3 result = diffuse + ambient;
+
+    // --- Shadow map
+    if (shadowStrength > 0.0f)
+    {
+        float4 posLight = mul(float4(pi.posW, 1.0f), lightViewProj);
+        float3 ndc = posLight.xyz / posLight.w;
+        float2 shadowUV = ndc.xy * float2(0.5f, -0.5f) + 0.5f;
+        if (shadowUV.x >= 0.0f && shadowUV.x <= 1.0f &&
+            shadowUV.y >= 0.0f && shadowUV.y <= 1.0f &&
+            ndc.z >= 0.0f && ndc.z <= 1.0f)
+        {
+            float cmpDepth   = ndc.z - shadowDepthBias;
+            float shadowFactor = shadowMap.SampleCmpLevelZero(shadowSampler, shadowUV, cmpDepth);
+            result *= lerp(1.0f - shadowStrength, 1.0f, shadowFactor);
+        }
+    }
 
     return float4(result, tex_color.a);
 }

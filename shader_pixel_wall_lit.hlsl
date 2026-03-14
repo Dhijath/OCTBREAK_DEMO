@@ -1,13 +1,13 @@
 /*==============================================================================
 
-   •Ç•`‰æ—pƒsƒNƒZƒ‹ƒVƒF[ƒ_iLitj [shader_pixel_wall_lit.hlsl]
+   ï¿½Ç•`ï¿½ï¿½pï¿½sï¿½Nï¿½Zï¿½ï¿½ï¿½Vï¿½Fï¿½[ï¿½_ï¿½iLitï¿½j [shader_pixel_wall_lit.hlsl]
                                                          Author : 51106
                                                          Date   : 2026/02/17
 --------------------------------------------------------------------------------
 
-   E•Çê—p Lit PSiƒ‰ƒCƒeƒBƒ“ƒO‘Î‰ž”Åj
-   EAmbient / Directional / SpeculariBlinn-Phongj‘Î‰ž
-   EWallLightData \‘¢‘Ì‚Æ cbuffer ‚ÌƒŒƒCƒAƒEƒg‚ðˆê’v‚³‚¹‚é
+   ï¿½Eï¿½Çï¿½p Lit PSï¿½iï¿½ï¿½ï¿½Cï¿½eï¿½Bï¿½ï¿½ï¿½Oï¿½Î‰ï¿½ï¿½Åj
+   ï¿½EAmbient / Directional / Specularï¿½iBlinn-Phongï¿½jï¿½Î‰ï¿½
+   ï¿½EWallLightData ï¿½\ï¿½ï¿½ï¿½Ì‚ï¿½ cbuffer ï¿½Ìƒï¿½ï¿½Cï¿½Aï¿½Eï¿½gï¿½ï¿½ï¿½ï¿½vï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 
 ==============================================================================*/
 cbuffer PS_CONSTANT_BUFFER_DIFFUSE : register(b0)
@@ -44,6 +44,24 @@ struct PS_IN
 Texture2D tex : register(t0);
 SamplerState samplerState : register(s0);
 
+//----------------------------------------------------------
+// Shadow map (ShadowMap::BindForMainPass)
+//----------------------------------------------------------
+cbuffer CB_SHADOW_PARAM : register(b5)
+{
+    float2 shadowMapSize;
+    float  shadowDepthBias;
+    float  shadowPad0;
+    float  shadowStrength;
+    float3 shadowPad1;
+}
+cbuffer CB_LIGHT_VP : register(b8)
+{
+    float4x4 lightViewProj;
+}
+Texture2D              shadowMap     : register(t7);
+SamplerComparisonState shadowSampler : register(s1);
+
 float4 main(PS_IN pi) : SV_TARGET
 {
     float2 uv = pi.uv * uvRepeat;
@@ -53,20 +71,36 @@ float4 main(PS_IN pi) : SV_TARGET
 
     float3 lightDir = normalize(-directional_direction.xyz);
 
-    // LambertƒfƒBƒtƒ…[ƒY
+    // Lambertï¿½fï¿½Bï¿½tï¿½ï¿½ï¿½[ï¿½Y
     float NdotL = max(0.0f, dot(N, lightDir));
     float3 diffuse = directional_color.rgb * NdotL;
 
-    // Blinn-PhongƒXƒyƒLƒ…ƒ‰
+    // Blinn-Phongï¿½Xï¿½yï¿½Lï¿½ï¿½ï¿½ï¿½
     float3 viewDir = normalize(camera_position - pi.posW);
     float3 halfVec = normalize(lightDir + viewDir);
     float NdotH = max(0.0f, dot(N, halfVec));
     float3 specular = specular_color.rgb * pow(NdotH, specular_power);
 
-    // ÅIƒJƒ‰[‡¬
+    // ï¿½ÅIï¿½Jï¿½ï¿½ï¿½[ï¿½ï¿½ï¿½ï¿½
     float3 lighting = ambient + diffuse + specular;
     float3 finalColor = texColor.rgb * pi.color.rgb * diffuse_color.rgb * lighting;
     float alpha = texColor.a * pi.color.a * diffuse_color.a;
+
+    // --- Shadow map
+    if (shadowStrength > 0.0f)
+    {
+        float4 posLight = mul(float4(pi.posW, 1.0f), lightViewProj);
+        float3 ndc = posLight.xyz / posLight.w;
+        float2 shadowUV = ndc.xy * float2(0.5f, -0.5f) + 0.5f;
+        if (shadowUV.x >= 0.0f && shadowUV.x <= 1.0f &&
+            shadowUV.y >= 0.0f && shadowUV.y <= 1.0f &&
+            ndc.z >= 0.0f && ndc.z <= 1.0f)
+        {
+            float cmpDepth   = ndc.z - shadowDepthBias;
+            float shadowFactor = shadowMap.SampleCmpLevelZero(shadowSampler, shadowUV, cmpDepth);
+            finalColor *= lerp(1.0f - shadowStrength, 1.0f, shadowFactor);
+        }
+    }
 
     return float4(finalColor, alpha);
 }

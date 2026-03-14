@@ -309,3 +309,60 @@ void Collision_DebugDraw(const OBB& obb, const DirectX::XMFLOAT4& color)
 
     g_pContext->Draw(24, 0);
 }
+
+//==============================================================================
+// レイセグメントとOBBの交差判定（スラブ法）
+//==============================================================================
+bool OBB_RaySegmentIntersect(const OBB& obb, const XMFLOAT3& from, const XMFLOAT3& to)
+{
+    XMVECTOR vFrom = XMLoadFloat3(&from);
+    XMVECTOR vTo   = XMLoadFloat3(&to);
+    XMVECTOR vDir  = vTo - vFrom;
+
+    float length = XMVectorGetX(XMVector3Length(vDir));
+    if (length < 1e-6f) return false;
+
+    vDir = XMVectorScale(vDir, 1.0f / length); // 正規化
+
+    // OBB中心からレイ始点へのベクトル（OBBローカル空間で判定するため）
+    XMVECTOR vCenter = XMLoadFloat3(&obb.center);
+    XMVECTOR vOrigin = vFrom - vCenter;
+
+    const XMVECTOR axes[3] = {
+        XMLoadFloat3(&obb.axisX),
+        XMLoadFloat3(&obb.axisY),
+        XMLoadFloat3(&obb.axisZ),
+    };
+    const float halfExtents[3] = {
+        obb.halfExtents.x,
+        obb.halfExtents.y,
+        obb.halfExtents.z,
+    };
+
+    float tMin = 0.0f;
+    float tMax = length;
+
+    for (int i = 0; i < 3; ++i)
+    {
+        float e = XMVectorGetX(XMVector3Dot(axes[i], vOrigin)); // 原点の軸投影
+        float f = XMVectorGetX(XMVector3Dot(axes[i], vDir));    // 方向の軸投影
+
+        if (fabsf(f) > 1e-6f)
+        {
+            float t1 = (-halfExtents[i] - e) / f;
+            float t2 = ( halfExtents[i] - e) / f;
+            if (t1 > t2) std::swap(t1, t2);
+            tMin = std::max(tMin, t1);
+            tMax = std::min(tMax, t2);
+            if (tMin > tMax) return false;
+        }
+        else
+        {
+            // レイがスラブと平行：スラブの外側なら交差しない
+            if (-halfExtents[i] > e || e > halfExtents[i])
+                return false;
+        }
+    }
+
+    return tMin <= tMax;
+}

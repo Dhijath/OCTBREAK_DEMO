@@ -14,6 +14,7 @@
 #include <DirectXMath.h>
 
 struct ID3D11ShaderResourceView;
+struct MODEL; // 前方宣言（DrawModel の引数用）
 
 namespace ShadowMap
 {
@@ -36,9 +37,14 @@ namespace ShadowMap
     void EndPass();
 
     // 影参照（通常描画パス）に必要なものをバインド
-    // VS b3 : LightViewProj
+    // VS b3 : LightViewProj（影生成 VS 用）
+    // PS b8 : LightViewProj（PS で shadowUV 計算用）
     // PS t7 : ShadowMap SRV, PS s1 : ComparisonSampler, PS b5 : ShadowParam
     void BindForMainPass();
+
+    // シャドウパス中にモデルを深度のみ描画する
+    // BeginPass() ～ EndPass() の間で呼ぶこと
+    void DrawModel(struct MODEL* model, const DirectX::XMMATRIX& world);
 
     // 「いま影生成中か？」（描画側で分岐したい時に使う）
     bool IsRenderingShadow();

@@ -94,6 +94,24 @@ Texture2D    tex          : register(t0);
 SamplerState samplerState : register(s0);
 
 //----------------------------------------------------------
+// シャドウマップ（ShadowMap::BindForMainPass でバインド）
+//----------------------------------------------------------
+cbuffer CB_SHADOW_PARAM : register(b5)
+{
+    float2 shadowMapSize;
+    float  shadowDepthBias;
+    float  shadowPad0;
+    float  shadowStrength;
+    float3 shadowPad1;
+}
+cbuffer CB_LIGHT_VP : register(b8)
+{
+    float4x4 lightViewProj;
+}
+Texture2D              shadowMap     : register(t7);
+SamplerComparisonState shadowSampler : register(s1);
+
+//----------------------------------------------------------
 // 丸影（shader_pixel_3d.hlsl と同一）
 //----------------------------------------------------------
 float BlobShadowFactor(float3 posW)
@@ -174,6 +192,29 @@ float4 main(PS_IN pi) : SV_TARGET
     // --- 丸影（shader_pixel_3d.hlsl と同一）
     float shadow = BlobShadowFactor(pi.posW);
     color *= shadow;
+
+    // --- シャドウマップ（ShadowMap::BindForMainPass でバインドされたとき有効）
+    if (shadowStrength > 0.0f)
+    {
+        // ワールド座標からライト空間のクリップ座標を計算
+        float4 posLight = mul(float4(pi.posW, 1.0f), lightViewProj);
+        float3 ndc = posLight.xyz / posLight.w;
+
+        // NDC → UV（Y反転、Z は [0,1] 範囲チェック）
+        float2 shadowUV = ndc.xy * float2(0.5f, -0.5f) + 0.5f;
+
+        // UV が有効範囲内かつ深度が有効な場合のみサンプル
+        if (shadowUV.x >= 0.0f && shadowUV.x <= 1.0f &&
+            shadowUV.y >= 0.0f && shadowUV.y <= 1.0f &&
+            ndc.z >= 0.0f && ndc.z <= 1.0f)
+        {
+            float cmpDepth   = ndc.z - shadowDepthBias;
+            float shadowFactor = shadowMap.SampleCmpLevelZero(shadowSampler, shadowUV, cmpDepth);
+            // shadowFactor: 1=日当たり / 0=影　→ 影の濃さ(shadowStrength)で補間
+            float dimFactor = lerp(1.0f - shadowStrength, 1.0f, shadowFactor);
+            color *= dimFactor;
+        }
+    }
 
     float alpha = texSample.a * pi.color.a * diffuse_color.a;
     return float4(color, alpha);
