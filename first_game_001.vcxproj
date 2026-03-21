@@ -150,6 +150,7 @@
     </FxCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include=".claude\worktrees\nifty-mahavira\shield.cpp" />
     <ClCompile Include="Assimp\assimp\cexport.cpp" />
     <ClCompile Include="Audio.cpp" />
     <ClCompile Include="billboard.cpp" />
@@ -232,6 +233,7 @@
     <ClCompile Include="WICTextureLoader11.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include=".claude\worktrees\nifty-mahavira\shield.h" />
     <ClInclude Include="Assimp\assimp\ai_assert.h" />
     <ClInclude Include="Assimp\assimp\cexport.h" />
     <ClInclude Include="Audio.h" />

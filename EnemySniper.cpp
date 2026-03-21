@@ -42,6 +42,7 @@ void EnemySniper::Initialize(const XMFLOAT3& position)
     SetHP(HP, HP);
 
     m_pModel = ModelLoad("resource/Models/robomodel.fbx", ENEMY_SIZE * 0.85f);
+    ComputeLockOnOffsetFromModel();
 
     Enemy_LoadSE();
 }

@@ -384,11 +384,11 @@ OBB Enemy::ConvertPositionToOBB(const XMVECTOR& pos) const
     XMFLOAT3 position;
     XMStoreFloat3(&position, pos);
 
-    XMFLOAT3 halfExtents = { ENEMY_HALF_WIDTH_X, ENEMY_HEIGHT * 0.5f, ENEMY_HALF_WIDTH_Z };
+    XMFLOAT3 halfExtents = { m_obbHalfWidth, m_obbHalfHeight, m_obbHalfWidth };
 
     XMFLOAT3 center = {
         position.x,
-        position.y + ENEMY_HEIGHT * 0.5f,
+        position.y + m_obbBottomY,
         position.z
     };
 

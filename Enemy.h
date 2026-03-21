@@ -22,7 +22,7 @@ class Enemy
 {
 public:
     static constexpr float ENEMY_SIZE = 0.25;
-    static constexpr float ENEMY_HEIGHT = 0.3f;
+    static constexpr float ENEMY_HEIGHT = 0.3f;  // 描画オフセット用（OBBはモデルAABBから自動計算）
     static constexpr float ENEMY_HALF_WIDTH_X = 0.25f;
     static constexpr float ENEMY_HALF_WIDTH_Z = 0.25f;
 

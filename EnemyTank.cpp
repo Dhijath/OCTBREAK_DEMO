@@ -44,6 +44,7 @@ void EnemyTank::Initialize(const XMFLOAT3& position)
     m_pModel  = ModelLoad("resource/Models/enemy_tank.fbx", ENEMY_SIZE * 2.5f);
     m_pShield = ModelLoad("resource/Models/Shield.fbx",     ENEMY_SIZE * 2.5f);
     m_pBarrel = ModelLoad("resource/Models/Barrel.fbx",     ENEMY_SIZE * 1.0f);
+    ComputeLockOnOffsetFromModel();
 
     // 盾の状態を初期化する
     m_ShieldHp    = SHIELD_MAX_HP;

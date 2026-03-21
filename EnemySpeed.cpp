@@ -41,6 +41,7 @@ void EnemySpeed::Initialize(const XMFLOAT3& position)
 
     // スピード用モデルをロードする（小さめのスケール）
     m_pModel = ModelLoad("resource/Models/robomodel.fbx", ENEMY_SIZE * 0.7f);
+    ComputeLockOnOffsetFromModel();
 
     Enemy_LoadSE();
 }

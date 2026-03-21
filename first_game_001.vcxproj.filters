@@ -259,6 +259,9 @@
     <ClCompile Include="Trail.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
+    <ClCompile Include=".claude\worktrees\nifty-mahavira\shield.cpp">
+      <Filter>ソース ファイル</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="debug_ostream.h">
@@ -511,6 +514,9 @@
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
     <ClInclude Include="Trail.h">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
+    <ClInclude Include=".claude\worktrees\nifty-mahavira\shield.h">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
   </ItemGroup>
