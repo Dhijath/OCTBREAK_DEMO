@@ -89,14 +89,17 @@ void Sprite_Finalize(void)
 //==============================================================================
 void Sprite_Begin()
 {
-	const float SCREEN_WIDTH = static_cast<float>(Direct3D_GetBackBufferWidth());
-	const float SCREEN_HEIGHT = static_cast<float>(Direct3D_GetBackBufferHeight());
+	// 仮想解像度（スプライト座標系）を固定にすることで、
+	// バックバッファがモニター解像度に変わっても画面全体に引き伸ばされる
+	// 3Dはビューポートがネイティブ解像度なのでそのままシャープに描画される
+	static constexpr float VIRTUAL_W = 1600.0f;
+	static constexpr float VIRTUAL_H = 900.0f;
 
 	// 2D用：左上原点の正射影を VS 定数へ
 	Shader_SetProjectionMatrix(
 		XMMatrixOrthographicOffCenterLH(
-			0.0f, SCREEN_WIDTH,     // left, right
-			SCREEN_HEIGHT, 0.0f,    // bottom, top（LH版はここで上下を入れ替える）
+			0.0f, VIRTUAL_W,     // left, right
+			VIRTUAL_H, 0.0f,    // bottom, top（LH版はここで上下を入れ替える）
 			0.0f, 1.0f));           // nearZ, farZ
 }
 
@@ -105,14 +108,13 @@ void Sprite_Begin()
 //==============================================================================
 void Sprite_BeginSquare()
 {
-	const float SCREEN_WIDTH = static_cast<float>(Direct3D_GetBackBufferWidth());
-	const float SCREEN_HEIGHT = static_cast<float>(Direct3D_GetBackBufferHeight());
+	static constexpr float VIRTUAL_W = 1600.0f;
+	static constexpr float VIRTUAL_H = 900.0f;
 
-	// 左上原点で画面サイズの正射影（通常のSprite_Begin()と同じ）
 	Shader_SetProjectionMatrix(
 		XMMatrixOrthographicOffCenterLH(
-			0.0f, SCREEN_WIDTH,
-			SCREEN_HEIGHT, 0.0f,
+			0.0f, VIRTUAL_W,
+			VIRTUAL_H, 0.0f,
 			0.0f, 1.0f
 		)
 	);

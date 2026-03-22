@@ -44,6 +44,9 @@ ID3D11Device* Direct3D_GetDevice();
 // D3D デバイスコンテキスト取得
 ID3D11DeviceContext* Direct3D_GetContext();
 
+// スワップチェーン取得
+IDXGISwapChain* Direct3D_GetSwapChain();
+
 // 深度テストの ON / OFF
 void Direct3D_SetDepthEnable(bool enable);
 

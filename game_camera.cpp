@@ -1,4 +1,21 @@
-﻿#include "game_camera.h"
+﻿/*==============================================================================
+
+   ゲーム用カメラ制御 [game_camera.cpp]
+                                                         Author : 51106
+                                                         Date   : 2025/11/12
+--------------------------------------------------------------------------------
+   ゲームプレイ中に使用するビュー行列・透視投影行列を管理するカメラモジュール。
+   camera.cpp（汎用カメラ）と構造は共通だが、ゲーム専用の設定を持つ。
+
+   ■機能
+     - Game_Camera_Initialize : カメラ位置・向きを初期化
+     - Game_Camera_Update     : 毎フレームのカメラ更新
+     - Game_Camera_GetMatrix  : ビュー行列を取得
+     - Game_Camera_GetPerspectiveMatrix : 透視投影行列を取得
+     - Game_Camera_GetPosition          : カメラワールド位置を取得
+
+==============================================================================*/
+#include "game_camera.h"
 #include <DirectXMath.h>
 using namespace DirectX;
 #include "shader3d.h"

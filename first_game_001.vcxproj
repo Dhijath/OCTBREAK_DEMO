@@ -140,7 +140,7 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>$(CoreLibraryDependencies);%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>d2d1.lib;dwrite.lib;$(CoreLibraryDependencies);%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
       <Command>xcopy /D /Y "$(TargetDir)*.cso" "$(ProjectDir)"</Command>
@@ -168,6 +168,9 @@
     <ClCompile Include="debug_ostream.cpp" />
     <ClCompile Include="debug_text.cpp" />
     <ClCompile Include="direct3d.cpp" />
+    <ClCompile Include="AssemblyScreen.cpp" />
+    <ClCompile Include="DirectWrite.cpp" />
+    <ClCompile Include="WeaponDef.cpp" />
     <ClCompile Include="effect.cpp" />
     <ClCompile Include="Enemy.cpp" />
     <ClCompile Include="EnemyAI.cpp" />
@@ -250,6 +253,9 @@
     <ClInclude Include="debug_ostream.h" />
     <ClInclude Include="debug_text.h" />
     <ClInclude Include="direct3d.h" />
+    <ClInclude Include="AssemblyScreen.h" />
+    <ClInclude Include="DirectWrite.h" />
+    <ClInclude Include="WeaponDef.h" />
     <ClInclude Include="Easing.h" />
     <ClInclude Include="effect.h" />
     <ClInclude Include="Enemy.h" />

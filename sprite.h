@@ -24,6 +24,10 @@
 #include <d3d11.h>
 #include <DirectXMath.h>
 
+// スプライト座標系の仮想解像度（常に1600×900で描画→画面全体に引き伸ばし）
+static constexpr int SPRITE_SCREEN_W = 1600;
+static constexpr int SPRITE_SCREEN_H = 900;
+
 //====================================
 // 初期化／終了
 //====================================

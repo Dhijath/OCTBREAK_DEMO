@@ -87,8 +87,8 @@ void Polygon_Draw(void)
 	Vertex* v = (Vertex*)msr.pData;
 
 	// 頂点情報を書き込み
-	const float SCREEN_WIDTH = (float)Direct3D_GetBackBufferWidth();
-	const float SCREEN_HEIGHT = (float)Direct3D_GetBackBufferHeight();
+	const float SCREEN_WIDTH = 1600.0f;
+	const float SCREEN_HEIGHT = 900.0f;
 
 	const float rad = 2.0f * DirectX::XM_PI / (float)g_NumVertex; // 1頂点あたりの角度
 	//float rad = 0.01f;

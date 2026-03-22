@@ -80,8 +80,8 @@ void Fade_Draw()
     Sprite_Draw(
         g_FadeTexID,
         0.0f, 0.0f,
-        (float)Direct3D_GetBackBufferWidth(),
-        (float)Direct3D_GetBackBufferHeight(),
+        (float)SPRITE_SCREEN_W,
+        (float)SPRITE_SCREEN_H,
         color
     );
 }

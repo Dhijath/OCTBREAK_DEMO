@@ -1,4 +1,26 @@
-﻿#include "sprite_anim.h"
+﻿/*==============================================================================
+
+   弾ヒットエフェクト [bullet_hit_effect.cpp]
+                                                         Author : 51106
+                                                         Date   : 2026/02/20
+--------------------------------------------------------------------------------
+   弾がエネミーや壁にヒットしたときに 3D 空間でビルボード再生する
+   スプライトアニメーションエフェクトを管理するモジュール。
+
+   ■機能
+     - BulletHitEffect_Initialize : テクスチャ・アニメパターンをロード
+     - BulletHitEffect_Finalize   : リソース解放
+     - BulletHitEffect_ClearAll   : アセット解放なしで全エフェクトをリセット（ルーム遷移時）
+     - BulletHitEffect_Update     : 全エフェクトの再生状態を更新
+     - BulletHitEffect_Create     : 指定ワールド座標にエフェクトを 1 つ生成
+     - BulletHitEffect_Draw       : アクティブなエフェクトをビルボードとして描画
+
+   ■描画方式
+     カメラを向くビルボードとして描画するため、
+     BulletHitEffect_Draw は player_camera の回転情報を使用する。
+
+==============================================================================*/
+#include "sprite_anim.h"
 #include <DirectXMath.h>
 #include "bullet_hit_effect.h"
 using namespace DirectX;

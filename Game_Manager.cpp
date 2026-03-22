@@ -27,7 +27,7 @@
 #include "effect.h"
 #include "Clear.h"
 #include "Result.h"
-#include "WeaponSelect.h"
+#include "AssemblyScreen.h"
 #include "Enemy.h"
 #include "map.h"
 #include <cstdint>
@@ -127,7 +127,7 @@ void GameManager_Initialize()
 void GameManager_Finalize()
 {
     Title_Finalize();
-    WeaponSelect_Finalize();
+    AssemblyScreen_Finalize();
     Option_Finalize();
     Game_Finalize();
     Clear_Finalize();
@@ -193,9 +193,7 @@ void GameManager_Update(double elapsed_time)
     {
         if (!g_IsTransitioning)
         {
-            WeaponSelect_Update(elapsed_time);
-
-            if (WeaponSelect_GetResult() == WeaponSelectResult::Decided)
+            if (AssemblyScreen_Update(elapsed_time))
             {
                 BeginTransition(GameState::Playing, BGM_GAME);
             }
@@ -379,12 +377,15 @@ void GameManager_Update(double elapsed_time)
 
         if (g_GameState == GameState::WeaponSelect)
         {
-            WeaponSelect_Initialize();
+            AssemblyScreen_Initialize();
         }
         else if (g_GameState == GameState::Playing)
         {
             Game_Initialize();
-            Player_SetNormalWeaponIndex(WeaponSelect_GetSelectedIndex());  // 選択武器を反映
+            Player_SetNormalWeaponIndex(
+                static_cast<int>(AssemblyScreen_GetRightWeapon()));  // 右腕武器を反映
+            Player_SetLeftWeaponIndex(
+                static_cast<int>(AssemblyScreen_GetLeftWeapon()));   // 左腕武器を反映
         }
         else if (g_GameState == GameState::Title)
         {
@@ -418,7 +419,7 @@ void GameManager_Draw()
     switch (g_GameState)
     {
     case GameState::Title:        Title_Draw();         break;
-    case GameState::WeaponSelect: WeaponSelect_Draw();  break;
+    case GameState::WeaponSelect: AssemblyScreen_Draw(); break;
     case GameState::Playing:
         Game_Draw();
         // ポーズ中はゲーム画面の上にメニューを重ねる

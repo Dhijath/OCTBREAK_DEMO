@@ -117,8 +117,8 @@ void Clear_Draw()
     Direct3D_SetBlendState(true);
     Direct3D_SetDepthEnable(false); // 　2Dスプライト中は深度を切る
     Sprite_Begin();
-    const int sw = Direct3D_GetBackBufferWidth();
-    const int sh = Direct3D_GetBackBufferHeight();
+    const int sw = SPRITE_SCREEN_W;
+    const int sh = SPRITE_SCREEN_H;
 
     // 背景（全面フィット）
     if (g_ClearBgTex >= 0)

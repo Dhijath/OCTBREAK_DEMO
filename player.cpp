@@ -7,6 +7,7 @@
 ==============================================================================*/
 #include "Player.h"
 #include "model.h"
+#include "WeaponDef.h"
 #include "key_logger.h"
 #include "pad_logger.h"
 #include "Light.h"
@@ -48,8 +49,13 @@ namespace
     MODEL* g_pThrusterModel = nullptr;  // スラスターパーツモデル
     MODEL* g_pHeadModel = nullptr;      // 頭パーツモデル
 
-    MODEL* g_pBarrelModel = nullptr;  // 腕パーツモデル 銃
-    MODEL* g_pShieldModel = nullptr;  // 腕パーツモデル　シールド
+    MODEL* g_pBarrelModel     = nullptr;  // 右腕モデル（バレル系）
+    MODEL* g_pShieldModel     = nullptr;  // シールドモデル（左右共用）
+    MODEL* g_pLeftBarrelModel = nullptr;  // 左腕モデル（バレル系）
+
+    int g_RightWeaponIdx = WEAPON_MACHINEGUN; // 右腕武器ID（0-3）
+    int g_LeftWeaponIdx  = WEAPON_SHIELD;     // 左腕武器ID（0-3）
+    PlayerWeapon* g_pLeftWeapon = nullptr;    // 左腕武器インスタンス
 
 
     bool g_IsJump = false;
@@ -99,9 +105,25 @@ namespace
     int                  g_NormalWeaponIdx = 0;                       // E キーで切り替え
 
     //--------------------------------------------------------------------------
+    // 武器IDからインスタンスを生成するヘルパー
+    //--------------------------------------------------------------------------
+    static PlayerWeapon* CreateWeaponByID(int weaponId)
+    {
+        switch (weaponId)
+        {
+        case WEAPON_MACHINEGUN: return new WeaponNormal();
+        case WEAPON_SHOTGUN:    return new WeaponShotgun();
+        case WEAPON_MISSILE:    return new WeaponMissile();
+        default:                return nullptr;
+        }
+    }
+
+    //--------------------------------------------------------------------------
     // SE関連（通常スロット切り替え音のみ。射撃SEは各武器クラスが管理）
     //--------------------------------------------------------------------------
     int g_PlayerModeSwitchToNormalSE = -1;  // 通常スロット切り替えSE
+    int g_SeShieldDeploy             = -1;  // シールド展開SE
+    int g_SeShieldRetract            = -1;  // シールド収納SE
 
     //--------------------------------------------------------------------------
     // パーティクル（スラスター）
@@ -118,7 +140,7 @@ namespace
     constexpr float PLAYER_HEIGHT_OFFSET = 0.15f;
 
 
-    float g_ThrusterLocalYaw = 0.0f;
+    float g_ThrusterLocalYaw = XMConvertToRadians(180.0f); // FBXデフォルト向き補正
     bool  g_PlayerBodyFollowCamera = true;  // true: ボディがカメラ方向 / false: 移動方向
 
     static XMMATRIX Player_GetBodyRotationMatrix()
@@ -155,8 +177,8 @@ namespace
         const float centerZ = (thrusterLocal.min.z + thrusterLocal.max.z) * 0.5f;
 
         // 中心を原点に移動 → 回転 → 中心を戻す
-        XMMATRIX toCenter = XMMatrixTranslation(-centerX, -centerY, -centerZ);
-        XMMATRIX rot = XMMatrixRotationY(g_ThrusterLocalYaw);
+        XMMATRIX toCenter   = XMMatrixTranslation(-centerX, -centerY, -centerZ);
+        XMMATRIX rot        = XMMatrixRotationY(g_ThrusterLocalYaw);
         XMMATRIX fromCenter = XMMatrixTranslation(centerX, centerY, centerZ);
 
         XMMATRIX thrusterLocalRot = toCenter * rot * fromCenter;
@@ -174,9 +196,9 @@ namespace
 
     static XMMATRIX Player_GetBarrelWorldMatrix()
     {
-        constexpr float BARREL_FLIP_DEG = 180.0f;  // 上下反転（Z軸）
-        constexpr float BARREL_LEAN_DEG = -30.0f;  // 左傾き（Z軸）調整可
-        constexpr float BARREL_TILT_DEG = 0.0f;  // ナナメ角度（X軸）調整可
+        constexpr float BARREL_FLIP_DEG = 180.0f; // Z軸反転（モデル上下補正）
+        constexpr float BARREL_LEAN_DEG = -30.0f; // 傾き
+        constexpr float BARREL_TILT_DEG =   0.0f;
         constexpr float BARREL_SIDE_X = 0.30f;  // 右横オフセット（調整可）
         constexpr float BARREL_FORWARD_OFFSET = 0.3f;  // 前方オフセット（調整可）
 
@@ -248,7 +270,82 @@ namespace
             0.0f, 0.0f, 0.0f, 1.0f
         );
 
-        // 外観補正（上下反転 + 左傾き）：Z 軸回転なのでマズル方向は変わらない
+        XMMATRIX localRot =
+            XMMatrixRotationZ(XMConvertToRadians(BARREL_FLIP_DEG + BARREL_LEAN_DEG)) *
+            XMMatrixRotationX(XMConvertToRadians(BARREL_TILT_DEG));
+
+        return localRot * aimRot * barrelTrans;
+    }
+
+    // 左腕バレル（右腕の鏡像：サイドオフセット・リーンを反転）
+    static XMMATRIX Player_GetLeftBarrelWorldMatrix()
+    {
+        constexpr float BARREL_FLIP_DEG          = 180.0f;
+        constexpr float BARREL_LEAN_DEG          =  30.0f;  // 右腕と逆方向
+        constexpr float BARREL_TILT_DEG          =   0.0f;
+        constexpr float BARREL_SIDE_X            = -0.30f;  // 左側
+        constexpr float BARREL_FORWARD_OFFSET    =  0.3f;
+
+        const XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+        XMVECTOR playerFront = XMVector3Normalize(XMLoadFloat3(&g_PlayerFront));
+        XMVECTOR playerRight = XMVector3Normalize(XMVector3Cross(up, playerFront));
+
+        const XMFLOAT3 bodyWorldPos = {
+            g_PlayerPosition.x,
+            g_PlayerPosition.y + PLAYER_HEIGHT_OFFSET,
+            g_PlayerPosition.z
+        };
+        const AABB bodyAABB = ModelGetAABB(g_pPlayerModel, bodyWorldPos);
+
+        const XMFLOAT3 barrelOriginPos = {
+            g_PlayerPosition.x + XMVectorGetX(playerRight) * BARREL_SIDE_X
+                               + XMVectorGetX(playerFront) * BARREL_FORWARD_OFFSET,
+            bodyAABB.min.y,
+            g_PlayerPosition.z + XMVectorGetZ(playerRight) * BARREL_SIDE_X
+                               + XMVectorGetZ(playerFront) * BARREL_FORWARD_OFFSET
+        };
+        XMMATRIX barrelTrans = XMMatrixTranslation(
+            barrelOriginPos.x, barrelOriginPos.y, barrelOriginPos.z);
+
+        XMVECTOR aimDir;
+        if (g_PlayerBodyFollowCamera)
+        {
+            XMFLOAT3 lockOnPos;
+            if (Game_GetLockOnWorldPos(&lockOnPos))
+            {
+                XMVECTOR toTarget = XMLoadFloat3(&lockOnPos)
+                    - XMLoadFloat3(&barrelOriginPos);
+                aimDir = XMVector3Normalize(toTarget);
+            }
+            else
+            {
+                XMFLOAT3 camFront = Player_Camera_GetFront();
+                aimDir = XMVector3Normalize(XMVectorSet(camFront.x, 0.0f, camFront.z, 0.0f));
+            }
+        }
+        else
+        {
+            aimDir = XMVector3Normalize(XMLoadFloat3(&g_PlayerFront));
+        }
+
+        XMVECTOR aimZ = XMVectorNegate(aimDir);
+        XMVECTOR aimX = XMVector3Normalize(XMVector3Cross(up, aimZ));
+        if (XMVectorGetX(XMVector3LengthSq(aimX)) < 0.001f)
+            aimX = XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
+        XMVECTOR aimY = XMVector3Cross(aimZ, aimX);
+
+        XMFLOAT3 ax, ay, az;
+        XMStoreFloat3(&ax, aimX);
+        XMStoreFloat3(&ay, aimY);
+        XMStoreFloat3(&az, aimZ);
+
+        XMMATRIX aimRot(
+            ax.x, ax.y, ax.z, 0.0f,
+            ay.x, ay.y, ay.z, 0.0f,
+            az.x, az.y, az.z, 0.0f,
+            0.0f, 0.0f, 0.0f, 1.0f
+        );
+
         XMMATRIX localRot =
             XMMatrixRotationZ(XMConvertToRadians(BARREL_FLIP_DEG + BARREL_LEAN_DEG)) *
             XMMatrixRotationX(XMConvertToRadians(BARREL_TILT_DEG));
@@ -332,6 +429,68 @@ namespace
             az.x, az.y, az.z, 0.0f,
             0.0f, 0.0f, 0.0f, 1.0f
         );
+
+        XMMATRIX localRot =
+            XMMatrixRotationZ(XMConvertToRadians(SHIELD_FLIP_DEG + SHIELD_LEAN_DEG)) *
+            XMMatrixRotationX(XMConvertToRadians(SHIELD_TILT_DEG));
+
+        return localRot * aimRot * shieldTrans;
+    }
+
+    // 右腕シールド（左腕の鏡像：サイドオフセット反転）
+    static XMMATRIX Player_GetRightShieldWorldMatrix()
+    {
+        constexpr float SHIELD_FLIP_DEG = 0.0f;
+        constexpr float SHIELD_LEAN_DEG = 0.0f;
+        constexpr float SHIELD_TILT_DEG = 0.0f;
+
+        const float b = g_ShieldGuardBlend;
+        const float SHIELD_SIDE_X        =  0.30f - b * 0.15f;  // 右横 → 正面寄り（左の逆）
+        const float SHIELD_FORWARD_OFFSET =  0.20f + b * 0.30f;
+        const float SHIELD_HEIGHT_OFFSET  =  0.10f + b * 0.15f;
+
+        const XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+        XMVECTOR playerFront = XMVector3Normalize(XMLoadFloat3(&g_PlayerFront));
+        XMVECTOR playerRight = XMVector3Normalize(XMVector3Cross(up, playerFront));
+
+        const XMFLOAT3 bodyWorldPos = {
+            g_PlayerPosition.x, g_PlayerPosition.y + PLAYER_HEIGHT_OFFSET, g_PlayerPosition.z };
+        const AABB bodyAABB = ModelGetAABB(g_pPlayerModel, bodyWorldPos);
+
+        const XMFLOAT3 shieldOriginPos = {
+            g_PlayerPosition.x + XMVectorGetX(playerRight) * SHIELD_SIDE_X
+                               + XMVectorGetX(playerFront) * SHIELD_FORWARD_OFFSET,
+            bodyAABB.min.y + SHIELD_HEIGHT_OFFSET,
+            g_PlayerPosition.z + XMVectorGetZ(playerRight) * SHIELD_SIDE_X
+                               + XMVectorGetZ(playerFront) * SHIELD_FORWARD_OFFSET
+        };
+        XMMATRIX shieldTrans = XMMatrixTranslation(
+            shieldOriginPos.x, shieldOriginPos.y, shieldOriginPos.z);
+
+        XMVECTOR aimDir;
+        if (g_PlayerBodyFollowCamera)
+        {
+            XMFLOAT3 lockOnPos;
+            if (Game_GetLockOnWorldPos(&lockOnPos))
+                aimDir = XMVector3Normalize(XMLoadFloat3(&lockOnPos) - XMLoadFloat3(&shieldOriginPos));
+            else
+            {
+                XMFLOAT3 camFront = Player_Camera_GetFront();
+                aimDir = XMVector3Normalize(XMVectorSet(camFront.x, 0.0f, camFront.z, 0.0f));
+            }
+        }
+        else
+            aimDir = XMVector3Normalize(XMLoadFloat3(&g_PlayerFront));
+
+        XMVECTOR aimZ = XMVectorNegate(aimDir);
+        XMVECTOR aimX = XMVector3Normalize(XMVector3Cross(up, aimZ));
+        if (XMVectorGetX(XMVector3LengthSq(aimX)) < 0.001f)
+            aimX = XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
+        XMVECTOR aimY = XMVector3Cross(aimZ, aimX);
+
+        XMFLOAT3 ax, ay, az;
+        XMStoreFloat3(&ax, aimX); XMStoreFloat3(&ay, aimY); XMStoreFloat3(&az, aimZ);
+        XMMATRIX aimRot(ax.x, ax.y, ax.z, 0, ay.x, ay.y, ay.z, 0, az.x, az.y, az.z, 0, 0, 0, 0, 1);
 
         XMMATRIX localRot =
             XMMatrixRotationZ(XMConvertToRadians(SHIELD_FLIP_DEG + SHIELD_LEAN_DEG)) *
@@ -459,7 +618,7 @@ void Player_Initialize(const DirectX::XMFLOAT3& position, const DirectX::XMFLOAT
     g_PlayerEnable = true;
 
 
-    g_ThrusterLocalYaw = 0.0f;
+    g_ThrusterLocalYaw = XMConvertToRadians(180.0f);
 
     g_PlayerDamageMultiplier = 1.0f;
     g_PlayerSpeedMultiplier = 1.0f;
@@ -478,9 +637,14 @@ void Player_Initialize(const DirectX::XMFLOAT3& position, const DirectX::XMFLOAT
     // プレイヤーモデルを body.fbx で構成する
     g_pPlayerModel = ModelLoad("resource/Models/body.fbx", 0.3f);
     g_pThrusterModel = ModelLoad("resource/Models/Thruster.fbx", 0.3f);
-    g_pBarrelModel = ModelLoad("resource/Models/Barrel.fbx", 0.15f);
-    g_pHeadModel = ModelLoad("resource/Models/Head.fbx", 0.3f);
-    g_pShieldModel = ModelLoad("resource/Models/Shield.fbx", 0.15f);
+    g_pBarrelModel = ModelLoad(k_WeaponDefs[g_NormalWeaponIdx].modelPath, k_WeaponDefs[g_NormalWeaponIdx].scale);
+    g_pHeadModel   = ModelLoad("resource/Models/Head.fbx", 0.3f);
+    g_pShieldModel = ModelLoad(k_WeaponDefs[WEAPON_SHIELD].modelPath, k_WeaponDefs[WEAPON_SHIELD].scale);
+
+    // 左腕武器（バレル系ならモデルとインスタンスをロード）
+    g_LeftWeaponIdx = WEAPON_SHIELD;
+    g_pLeftBarrelModel = nullptr;
+    g_pLeftWeapon      = nullptr;
 
     // OBBをボディモデルのAABBから自動計算する
     {
@@ -536,6 +700,8 @@ void Player_Initialize(const DirectX::XMFLOAT3& position, const DirectX::XMFLOAT
     // SE読み込み（通常スロット切り替えSEのみ。射撃SEは各武器クラスが管理）
     //--------------------------------------------------------------------------
     g_PlayerModeSwitchToNormalSE = LoadAudioWithVolume("resource/sound/mode_switch_normal.wav", 0.5f);
+    g_SeShieldDeploy  = LoadAudio("resource/Sound/shield_deploy.wav");
+    g_SeShieldRetract = LoadAudio("resource/Sound/shield_retract.wav");
 
     PadLogger_Initialize();
 
@@ -582,6 +748,10 @@ void Player_Finalize() // プレイヤーの終了処理（モデル解放・ス
     ModelRelease(g_pShieldModel);
     g_pShieldModel = nullptr;
 
+    ModelRelease(g_pLeftBarrelModel);
+    g_pLeftBarrelModel = nullptr;
+    if (g_pLeftWeapon) { g_pLeftWeapon->Finalize(); delete g_pLeftWeapon; g_pLeftWeapon = nullptr; }
+
     if (g_PlayerThrusterEmitter)
     {
         delete g_PlayerThrusterEmitter;
@@ -617,6 +787,8 @@ void Player_Finalize() // プレイヤーの終了処理（モデル解放・ス
     //--------------------------------------------------------------------------
     UnloadAudio(g_PlayerModeSwitchToNormalSE);
     g_PlayerModeSwitchToNormalSE = -1;
+    UnloadAudio(g_SeShieldDeploy);  g_SeShieldDeploy  = -1;
+    UnloadAudio(g_SeShieldRetract); g_SeShieldRetract = -1;
 }
 
 //==============================================================================
@@ -767,15 +939,28 @@ void Player_Update(double elapsed_time)
     }
 
     //--------------------------------------------------------------------------
-    // シールド更新（LT 長押し、またはキーボード G でガード）
+    // シールド更新（装備しているアームのボタンで展開）
+    //   右腕シールド → RB  左腕シールド → LB  両腕 → どちらか
     //--------------------------------------------------------------------------
     {
-        const bool ltPressed = (PadLogger_GetLeftTrigger() > 0.5f)
-                            || KeyLogger_IsPressed(KK_G);
-        Shield_Update(elapsed_time, ltPressed);
+        bool shieldPressed = KeyLogger_IsPressed(KK_G);  // キーボード G は常に有効
+        if (g_RightWeaponIdx == WEAPON_SHIELD)
+            shieldPressed |= PadLogger_IsPressed(PAD_RIGHT_SHOULDER)
+                          || KeyLogger_IsPressed(KK_SPACE)
+                          || Player_Camera_IsMouseLeftPressed();
+        if (g_LeftWeaponIdx == WEAPON_SHIELD)
+            shieldPressed |= PadLogger_IsPressed(PAD_LEFT_SHOULDER);
+
+        Shield_Update(elapsed_time, shieldPressed);
+
+        // 展開・収納SE（立ち上がり・立ち下がりで1回だけ）
+        static bool s_PrevLtPressed = false;
+        if (shieldPressed && !s_PrevLtPressed) PlayAudio(g_SeShieldDeploy,  false);
+        if (!shieldPressed && s_PrevLtPressed) PlayAudio(g_SeShieldRetract, false);
+        s_PrevLtPressed = shieldPressed;
 
         // 構えアニメーション（ブレンド値を時間で補間）
-        const float target = ltPressed ? 1.0f : 0.0f;
+        const float target = shieldPressed ? 1.0f : 0.0f;
         const float step   = SHIELD_GUARD_BLEND_SPEED * static_cast<float>(elapsed_time);
         const float diff   = target - g_ShieldGuardBlend;
         if (fabsf(diff) <= step)
@@ -785,112 +970,96 @@ void Player_Update(double elapsed_time)
     }
 
     //--------------------------------------------------------------------------
-    // 通常スロット切り替え（E キーまたはパッド RT）
-    //--------------------------------------------------------------------------
-    {
-        static bool s_PrevRtPressed = false;
-
-        const bool rtPressed = (PadLogger_GetRightTrigger() > 0.5f);
-        const bool rtTrigger = (!s_PrevRtPressed && rtPressed);
-        s_PrevRtPressed = rtPressed;
-
-        if (KeyLogger_IsTrigger(KK_E) || rtTrigger)
-        {
-            g_NormalWeaponIdx = (g_NormalWeaponIdx + 1) % NORMAL_WEAPON_COUNT;
-            if (g_PlayerModeSwitchToNormalSE >= 0)
-                PlayAudio(g_PlayerModeSwitchToNormalSE, false);
-            HUD_NotifyModeChange(false);
-        }
-    }
-
-    //--------------------------------------------------------------------------
     // 全武器を毎フレーム更新（クールダウンを常に正確に保持する）
     //--------------------------------------------------------------------------
     if (g_pBeamWeapon)
         g_pBeamWeapon->Update(elapsed_time);
     if (g_NormalWeapons[g_NormalWeaponIdx])
         g_NormalWeapons[g_NormalWeaponIdx]->Update(elapsed_time);
+    if (g_pLeftWeapon)
+        g_pLeftWeapon->Update(elapsed_time);
 
     //--------------------------------------------------------------------------
     // 発射ボタン判定
+    //   RB(PAD_RIGHT_SHOULDER) = 右腕  LB(PAD_LEFT_SHOULDER) = 左腕
+    //   RT                     = ビーム  マウス左 = 右腕  マウス右 = ビーム
     //--------------------------------------------------------------------------
-    const bool padAttack = PadLogger_IsPressed(PAD_RIGHT_SHOULDER);
-    const bool mouseAttack = Player_Camera_IsMouseLeftPressed();
-    const bool keyAttack = KeyLogger_IsPressed(KK_SPACE);
+    const bool padRightFire = PadLogger_IsPressed(PAD_RIGHT_SHOULDER);
+    const bool padLeftFire  = PadLogger_IsPressed(PAD_LEFT_SHOULDER);
+    const bool padBeamFire  = (PadLogger_GetRightTrigger() > 0.5f);
+    const bool mouseAttack  = Player_Camera_IsMouseLeftPressed();
+    const bool keyAttack    = KeyLogger_IsPressed(KK_SPACE);
+    const bool beamAttack   = Player_Camera_IsMouseRightPressed() || padBeamFire;
 
-    const bool beamAttack =
-        Player_Camera_IsMouseRightPressed() ||
-        PadLogger_IsPressed(PAD_LEFT_SHOULDER);   // LBでビーム
+    const bool rightFire = keyAttack || mouseAttack || padRightFire;
+    const bool leftFire  = padLeftFire;
 
     //--------------------------------------------------------------------------
-    // 発射処理
+    // 右腕発射
     //--------------------------------------------------------------------------
-    if (keyAttack || mouseAttack || padAttack || beamAttack)
+    if (rightFire)
     {
         XMFLOAT3 muzzlePos, aimDir;
 
         if (g_pBarrelModel)
         {
-            // バレルワールド行列からマズル位置と照準方向を取得
             const AABB     barrelLocal = ModelGetAABB(g_pBarrelModel, { 0.0f, 0.0f, 0.0f });
             const XMMATRIX barrelWorld = Player_GetBarrelWorldMatrix();
 
-            // ローカル -Z 端（マズル）をワールド座標に変換
             const XMVECTOR muzzleLocal = XMVectorSet(0.0f, 0.0f, barrelLocal.min.z, 1.0f);
-            XMStoreFloat3(&muzzlePos,
-                XMVector3TransformCoord(muzzleLocal, barrelWorld));
-
-            // バレルの向き（ローカル -Z → ワールド）を照準方向に
-            const XMVECTOR dir = XMVector3Normalize(
-                XMVector3TransformNormal(XMVectorSet(0.0f, 0.0f, -1.0f, 0.0f), barrelWorld));
-            XMStoreFloat3(&aimDir, dir);
+            XMStoreFloat3(&muzzlePos, XMVector3TransformCoord(muzzleLocal, barrelWorld));
+            XMStoreFloat3(&aimDir,
+                XMVector3Normalize(XMVector3TransformNormal(XMVectorSet(0.0f, 0.0f, -1.0f, 0.0f), barrelWorld)));
         }
         else
         {
-            // フォールバック（バレルなし）：カメラ前方 XZ またはロックオン方向
-            XMVECTOR vPos = XMLoadFloat3(&g_PlayerPosition);
-            XMVECTOR vMuzzle = vPos + XMVectorSet(0.0f, 0.25f, 0.0f, 0.0f);
+            XMVECTOR vMuzzle = XMLoadFloat3(&g_PlayerPosition) + XMVectorSet(0.0f, 0.25f, 0.0f, 0.0f);
             XMStoreFloat3(&muzzlePos, vMuzzle);
-
-            XMFLOAT3 camFrontShoot = Player_Camera_GetFront();
-            XMVECTOR vCamFrontXZ = XMVector3Normalize(
-                XMVectorSet(camFrontShoot.x, 0.0f, camFrontShoot.z, 0.0f));
-
+            XMFLOAT3 cf = Player_Camera_GetFront();
             XMFLOAT3 lockOnPos;
             if (Game_GetLockOnWorldPos(&lockOnPos))
-            {
-                XMVECTOR toTarget = XMLoadFloat3(&lockOnPos) - vMuzzle;
-                XMStoreFloat3(&aimDir, XMVector3Normalize(toTarget));
-            }
+                XMStoreFloat3(&aimDir, XMVector3Normalize(XMLoadFloat3(&lockOnPos) - vMuzzle));
             else
-                XMStoreFloat3(&aimDir, vCamFrontXZ);
+                XMStoreFloat3(&aimDir, XMVector3Normalize(XMVectorSet(cf.x, 0.0f, cf.z, 0.0f)));
         }
 
-        // 通常スロット武器発射（Space / 左クリック / R2）
-        if (keyAttack || mouseAttack || padAttack)
-        {
-            if (g_NormalWeapons[g_NormalWeaponIdx])
-                g_NormalWeapons[g_NormalWeaponIdx]->TryFire(muzzlePos, aimDir, g_PlayerDamageMultiplier);
-        }
+        if (g_RightWeaponIdx != WEAPON_SHIELD && g_NormalWeapons[g_NormalWeaponIdx])
+            g_NormalWeapons[g_NormalWeaponIdx]->TryFire(muzzlePos, aimDir, g_PlayerDamageMultiplier);
+    }
 
-        // ビーム発射（右クリック）：胴体中心から発射
-        if (beamAttack && g_pBeamWeapon)
-        {
-            // 胴体中心位置（バレルではなくボディ原点）
-            const XMFLOAT3 beamOrigin = {
-                g_PlayerPosition.x,
-                g_PlayerPosition.y + PLAYER_HEIGHT_OFFSET,
-                g_PlayerPosition.z
-            };
+    //--------------------------------------------------------------------------
+    // 左腕発射（バレル系選択時のみ）
+    //--------------------------------------------------------------------------
+    if (leftFire && g_pLeftWeapon && g_pLeftBarrelModel)
+    {
+        const AABB     leftLocal = ModelGetAABB(g_pLeftBarrelModel, { 0.0f, 0.0f, 0.0f });
+        const XMMATRIX leftWorld = Player_GetLeftBarrelWorldMatrix();
 
-            // 照準方向：カメラ前方 XZ（Y 成分なし・ロックオンなし）
-            const XMFLOAT3 camFrontBeam = Player_Camera_GetFront();
-            XMFLOAT3 beamDir;
-            XMStoreFloat3(&beamDir, XMVector3Normalize(
-                XMVectorSet(camFrontBeam.x, 0.0f, camFrontBeam.z, 0.0f)));
+        XMFLOAT3 leftMuzzlePos, leftAimDir;
+        XMStoreFloat3(&leftMuzzlePos,
+            XMVector3TransformCoord(XMVectorSet(0.0f, 0.0f, leftLocal.min.z, 1.0f), leftWorld));
+        XMStoreFloat3(&leftAimDir,
+            XMVector3Normalize(XMVector3TransformNormal(XMVectorSet(0.0f, 0.0f, -1.0f, 0.0f), leftWorld)));
 
-            g_pBeamWeapon->TryFire(beamOrigin, beamDir, g_PlayerDamageMultiplier);
-        }
+        g_pLeftWeapon->TryFire(leftMuzzlePos, leftAimDir, g_PlayerDamageMultiplier);
+    }
+
+    //--------------------------------------------------------------------------
+    // ビーム発射（RT / マウス右）：胴体中心から発射
+    //--------------------------------------------------------------------------
+    if (beamAttack && g_pBeamWeapon)
+    {
+        const XMFLOAT3 beamOrigin = {
+            g_PlayerPosition.x,
+            g_PlayerPosition.y + PLAYER_HEIGHT_OFFSET,
+            g_PlayerPosition.z
+        };
+        const XMFLOAT3 camFrontBeam = Player_Camera_GetFront();
+        XMFLOAT3 beamDir;
+        XMStoreFloat3(&beamDir, XMVector3Normalize(
+            XMVectorSet(camFrontBeam.x, 0.0f, camFrontBeam.z, 0.0f)));
+
+        g_pBeamWeapon->TryFire(beamOrigin, beamDir, g_PlayerDamageMultiplier);
     }
 
     //--------------------------------------------------------------------------
@@ -1017,8 +1186,11 @@ void Player_Draw() // プレイヤー描画（無敵点滅の考慮、モデル�
     // 各パーツのワールド行列を事前取得（法線パス・通常描画で共用）
     const XMMATRIX headWorld = g_pHeadModel ? Player_GetHeadWorldMatrix() : XMMatrixIdentity();
     const XMMATRIX thrusterWorld = g_pThrusterModel ? Player_GetThrusterWorldMatrix() : XMMatrixIdentity();
-    const XMMATRIX barrelWorld = g_pBarrelModel ? Player_GetBarrelWorldMatrix() : XMMatrixIdentity();
-    const XMMATRIX shieldWorld = g_pShieldModel ? Player_GetShieldWorldMatrix() : XMMatrixIdentity();
+    const XMMATRIX barrelWorld      = g_pBarrelModel     ? Player_GetBarrelWorldMatrix()      : XMMatrixIdentity();
+    const XMMATRIX shieldWorld      = g_pShieldModel     ? Player_GetShieldWorldMatrix()      : XMMatrixIdentity();
+    const XMMATRIX rightShieldWorld = (g_pShieldModel && g_RightWeaponIdx == WEAPON_SHIELD)
+                                        ? Player_GetRightShieldWorldMatrix() : XMMatrixIdentity();
+    const XMMATRIX leftBarrelWorld  = g_pLeftBarrelModel ? Player_GetLeftBarrelWorldMatrix()  : XMMatrixIdentity();
 
     //--------------------------------------------------------------------------
     // 法線パス（エッジ検出用）
@@ -1038,12 +1210,24 @@ void Player_Draw() // プレイヤー描画（無敵点滅の考慮、モデル�
         ShaderEdge_SetWorldMatrix(thrusterWorld);
         ModelDrawWithoutBegin(g_pThrusterModel, thrusterWorld);
     }
-    if (g_pBarrelModel)
+    // 右腕：バレル or シールド
+    if (g_RightWeaponIdx == WEAPON_SHIELD && g_pShieldModel)
+    {
+        ShaderEdge_SetWorldMatrix(rightShieldWorld);
+        ModelDrawWithoutBegin(g_pShieldModel, rightShieldWorld);
+    }
+    else if (g_pBarrelModel)
     {
         ShaderEdge_SetWorldMatrix(barrelWorld);
         ModelDrawWithoutBegin(g_pBarrelModel, barrelWorld);
     }
-    if (g_pShieldModel)
+    // 左腕：バレル or シールド
+    if (g_pLeftBarrelModel)
+    {
+        ShaderEdge_SetWorldMatrix(leftBarrelWorld);
+        ModelDrawWithoutBegin(g_pLeftBarrelModel, leftBarrelWorld);
+    }
+    else if (g_pShieldModel)
     {
         ShaderEdge_SetWorldMatrix(shieldWorld);
         ModelDrawWithoutBegin(g_pShieldModel, shieldWorld);
@@ -1074,14 +1258,17 @@ void Player_Draw() // プレイヤー描画（無敵点滅の考慮、モデル�
     {
         ModelDrawToon(g_pThrusterModel, thrusterWorld);
     }
-    if (g_pBarrelModel)
-    {
+    // 右腕：バレル or シールド
+    if (g_RightWeaponIdx == WEAPON_SHIELD && g_pShieldModel)
+        ModelDrawToon(g_pShieldModel, rightShieldWorld);
+    else if (g_pBarrelModel)
         ModelDrawToon(g_pBarrelModel, barrelWorld);
-    }
-    if (g_pShieldModel)
-    {
+
+    // 左腕：バレル or シールド
+    if (g_pLeftBarrelModel)
+        ModelDrawToon(g_pLeftBarrelModel, leftBarrelWorld);
+    else if (g_pShieldModel)
         ModelDrawToon(g_pShieldModel, shieldWorld);
-    }
 
     //--------------------------------------------------------------------------
     // スラスターパーティクル
@@ -1314,6 +1501,12 @@ bool Player_TakeDamage(int damage) // ダメージ処理（無敵中は無効、
     if (g_InvincibleTimer > 0.0 || !g_PlayerEnable)
         return false;
 
+    // 両腕シールド → ダメージ無効（-100%）
+    const bool rightIsShield = (g_NormalWeaponIdx >= NORMAL_WEAPON_COUNT); // 右腕がシールド
+    const bool leftIsShield  = (g_LeftWeaponIdx == WEAPON_SHIELD);
+    if (rightIsShield && leftIsShield && Shield_IsActive())
+        return false;
+
     // シールドガード中はダメージ軽減（最低 1 ダメージは通す）
     if (Shield_IsActive())
     {
@@ -1420,6 +1613,38 @@ void Player_SetSpeedMultiplier(float m) // スピード倍率を設定する。m
 //------------------------------------------------------------------------------
 void Player_SetNormalWeaponIndex(int idx)
 {
-    if (idx >= 0 && idx < NORMAL_WEAPON_COUNT)
-        g_NormalWeaponIdx = idx;
+    if (idx < 0 || idx >= WEAPON_COUNT) return;
+
+    g_RightWeaponIdx = idx;
+
+    // バレル系ならモデルをロード、シールドならバレルを解放
+    ModelRelease(g_pBarrelModel);
+    g_pBarrelModel = nullptr;
+
+    if (idx != WEAPON_SHIELD)
+    {
+        g_NormalWeaponIdx = idx;  // 武器クラスのインデックスも更新
+        g_pBarrelModel = ModelLoad(k_WeaponDefs[idx].modelPath, k_WeaponDefs[idx].scale);
+    }
+    // SHIELD の場合は g_pShieldModel（常時ロード済み）を右腕にも使う
+}
+
+void Player_SetLeftWeaponIndex(int idx)
+{
+    if (idx < 0 || idx >= WEAPON_COUNT) return;
+
+    g_LeftWeaponIdx = idx;
+
+    // 既存の左腕リソースを解放
+    ModelRelease(g_pLeftBarrelModel); g_pLeftBarrelModel = nullptr;
+    if (g_pLeftWeapon) { g_pLeftWeapon->Finalize(); delete g_pLeftWeapon; g_pLeftWeapon = nullptr; }
+
+    if (idx != WEAPON_SHIELD)
+    {
+        // バレル系：モデルと武器インスタンスをロード
+        g_pLeftBarrelModel = ModelLoad(k_WeaponDefs[idx].modelPath, k_WeaponDefs[idx].scale);
+        g_pLeftWeapon      = CreateWeaponByID(idx);
+        if (g_pLeftWeapon) g_pLeftWeapon->Initialize();
+    }
+    // SHIELD の場合は g_pShieldModel（常時ロード済み）をそのまま使う
 }

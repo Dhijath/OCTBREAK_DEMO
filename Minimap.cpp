@@ -68,7 +68,7 @@ void MiniMap_Draw2D()
     //============================================================
 
     // バックバッファ横幅（右上配置用）
-    const float screenW = (float)Direct3D_GetBackBufferWidth();
+    const float screenW = (float)SPRITE_SCREEN_W;
 
     // ミニマップ本体の表示サイズ（正方形）
     const float mapSize = 220.0f;

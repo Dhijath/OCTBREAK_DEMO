@@ -28,6 +28,9 @@
 bool ShaderEdge_Initialize(ID3D11Device* pDevice, ID3D11DeviceContext* pContext);
 void ShaderEdge_Finalize();
 
+// バックバッファリサイズ時にノーマル/深度テクスチャを再生成する
+void ShaderEdge_ResizeBuffers();
+
 //==============================================================================
 // パラメータ設定
 //==============================================================================

@@ -13,6 +13,7 @@
 ==============================================================================*/
 #include "Pause.h"
 #include "sprite.h"
+#include "audio.h"
 #include "texture.h"
 #include "direct3d.h"
 #include "key_logger.h"
@@ -41,6 +42,10 @@ namespace
     static bool g_PrevDown  = false;
     static bool g_PrevEnter = false;
     static bool g_PrevEsc   = false;
+
+    // SE
+    static int g_SeCursorMove = -1;
+    static int g_SeSelect     = -1;
 }
 
 //==============================================================================
@@ -54,6 +59,9 @@ void Pause_Initialize()
     g_PrevDown  = false;
     g_PrevEnter = false;
     g_PrevEsc   = false;
+
+    if (g_SeCursorMove < 0) g_SeCursorMove = LoadAudio("resource/Sound/ui_cursor_move.wav");
+    if (g_SeSelect     < 0) g_SeSelect     = LoadAudio("resource/Sound/ui_select.wav");
 
     if (g_TexWhite < 0)
         g_TexWhite  = Texture_Load(L"resource/texture/white.png");
@@ -79,8 +87,8 @@ PauseResult Pause_Update()
     const bool nowDown = KeyLogger_IsPressed(KK_S) || KeyLogger_IsPressed(KK_DOWN)
                        || PadLogger_IsPressed(PAD_DPAD_DOWN);
 
-    if (nowUp   && !g_PrevUp)   g_Cursor = (g_Cursor - 1 + ITEM_COUNT) % ITEM_COUNT;
-    if (nowDown && !g_PrevDown) g_Cursor = (g_Cursor + 1) % ITEM_COUNT;
+    if (nowUp   && !g_PrevUp)   { g_Cursor = (g_Cursor - 1 + ITEM_COUNT) % ITEM_COUNT; PlayAudio(g_SeCursorMove, false); }
+    if (nowDown && !g_PrevDown) { g_Cursor = (g_Cursor + 1) % ITEM_COUNT;              PlayAudio(g_SeCursorMove, false); }
 
     g_PrevUp   = nowUp;
     g_PrevDown = nowDown;
@@ -107,6 +115,7 @@ PauseResult Pause_Update()
 
     if (triggered)
     {
+        PlayAudio(g_SeSelect, false);
         switch (g_Cursor)
         {
         case 0: return PauseResult::Resume;
@@ -124,8 +133,8 @@ void Pause_Draw()
 {
     if (g_TexWhite < 0) return;
 
-    const float W = static_cast<float>(Direct3D_GetBackBufferWidth());
-    const float H = static_cast<float>(Direct3D_GetBackBufferHeight());
+    const float W = static_cast<float>(SPRITE_SCREEN_W);
+    const float H = static_cast<float>(SPRITE_SCREEN_H);
 
     Sprite_Begin(); // 2D パイプライン
 

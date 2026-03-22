@@ -482,28 +482,14 @@ void HUD_Draw()
     // 左下：ステータスUI（スタック表示）
     //--------------------------------------------------------------------------
     {
-        ID3D11DeviceContext* ctx = Direct3D_GetContext();
-        UINT vpCount = 1;
-        D3D11_VIEWPORT vp{};
-        ctx->RSGetViewports(&vpCount, &vp);
-
-        const float screenW = vp.Width;
-        const float screenH = vp.Height;
-        const float scale = HUD_ComputeUIScale(screenW, screenH);
-
-        HUD_DrawAttackStackUI(scale, screenW, screenH);
-        HUD_DrawSpeedStackUI(scale, screenW, screenH);
+        const float scale = HUD_ComputeUIScale(SPRITE_SCREEN_W, SPRITE_SCREEN_H);
+        HUD_DrawAttackStackUI(scale, SPRITE_SCREEN_W, SPRITE_SCREEN_H);
+        HUD_DrawSpeedStackUI(scale, SPRITE_SCREEN_W, SPRITE_SCREEN_H);
     }
 
     // モード切り替え表示（画面上部中央、常時表示）
     {
-        ID3D11DeviceContext* ctx = Direct3D_GetContext();
-        UINT vpCount = 1;
-        D3D11_VIEWPORT vp{};
-        ctx->RSGetViewports(&vpCount, &vp);
-        const float screenW = vp.Width;
-
-        const float iconX = screenW * 0.5f - MODE_ICON_SIZE * 0.5f;
+        const float iconX = SPRITE_SCREEN_W * 0.5f - MODE_ICON_SIZE * 0.5f;
         const float iconY = 20.0f;
 
         const int texID = s_IsBeamMode ? s_TexBeam : s_TexNormal;
@@ -516,16 +502,8 @@ void HUD_Draw()
 
     // サイト（照準）表示（画面中央、モードで切り替え）
     {
-        ID3D11DeviceContext* ctx = Direct3D_GetContext();
-        UINT vpCount = 1;
-        D3D11_VIEWPORT vp{};
-        ctx->RSGetViewports(&vpCount, &vp);
-
-        const float screenW = vp.Width;
-        const float screenH = vp.Height;
-
-        const float sightX = screenW * 0.5f - SIGHT_SIZE * 0.5f;
-        const float sightY = screenH * 0.5f - SIGHT_SIZE * 0.5f;
+        const float sightX = SPRITE_SCREEN_W * 0.5f - SIGHT_SIZE * 0.5f;
+        const float sightY = SPRITE_SCREEN_H * 0.5f - SIGHT_SIZE * 0.5f;
 
         const int sightTex = s_IsBeamMode ? s_TexSightBeam : s_TexSightNormal;
 

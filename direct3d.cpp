@@ -80,7 +80,7 @@ bool Direct3D_Initialize(HWND hWnd)
     swap_chain_desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
     swap_chain_desc.OutputWindow = hWnd;
 
-    UINT device_flags = 0;
+    UINT device_flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;  // D2D1 interop に必須
 
 #if defined(DEBUG) || defined(_DEBUG)
     device_flags |= D3D11_CREATE_DEVICE_DEBUG; // デバッグレイヤーON
@@ -145,10 +145,6 @@ bool Direct3D_Initialize(HWND hWnd)
     bd.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
     bd.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
     bd.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
-
-
-
-  
 
     // カラー書き込みマスク
     bd.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
@@ -320,6 +316,11 @@ ID3D11DeviceContext* Direct3D_GetContext()
     return g_pDeviceContext;
 }
 
+IDXGISwapChain* Direct3D_GetSwapChain()
+{
+    return g_pSwapChain;
+}
+
 
 /*==============================================================================
 
@@ -463,6 +464,10 @@ bool Direct3D_ResizeBackBuffer(unsigned int width, unsigned int height)
     // （バインドしたまま ResizeBuffers を呼ぶと D3D 警告が出る）
     g_pDeviceContext->OMSetRenderTargets(0, nullptr, nullptr);
     releaseBackBuffer();
+
+    // GPU コマンドキューを強制フラッシュ
+    // （ResizeBuffers 前に GPU 側の参照を確実に終わらせる）
+    g_pDeviceContext->Flush();
 
     // バッファ数・フォーマットはそのまま（0 / UNKNOWN で引き継ぎ）
     HRESULT hr = g_pSwapChain->ResizeBuffers(

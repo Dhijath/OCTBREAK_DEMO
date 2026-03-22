@@ -20,6 +20,7 @@
 
 #include "WeaponSelect.h"
 #include "direct3d.h"
+#include "audio.h"
 #include "texture.h"
 #include "sprite.h"
 #include "debug_text.h"
@@ -61,6 +62,9 @@ namespace
 {
     int                g_Selected = 0;
     WeaponSelectResult g_Result   = WeaponSelectResult::None;
+
+    int g_SeCursorMove = -1;
+    int g_SeSelect     = -1;
     double             g_Time     = 0.0;
 
     int g_BgTexID    = -1;
@@ -105,6 +109,9 @@ void WeaponSelect_Initialize()
     g_Result   = WeaponSelectResult::None;
     g_Time     = 0.0;
 
+    if (g_SeCursorMove < 0) g_SeCursorMove = LoadAudio("resource/Sound/ui_cursor_move.wav");
+    if (g_SeSelect     < 0) g_SeSelect     = LoadAudio("resource/Sound/ui_select.wav");
+
     // 既存リソースを解放
     if (g_BgTexID    >= 0) { Texture_Release(g_BgTexID);    g_BgTexID    = -1; }
     if (g_WhiteTexID >= 0) { Texture_Release(g_WhiteTexID); g_WhiteTexID = -1; }
@@ -116,8 +123,8 @@ void WeaponSelect_Initialize()
 
     auto*      dev = Direct3D_GetDevice();
     auto*      ctx = Direct3D_GetContext();
-    const UINT sw  = Direct3D_GetBackBufferWidth();
-    const UINT sh  = Direct3D_GetBackBufferHeight();
+    const UINT sw  = SPRITE_SCREEN_W;
+    const UINT sh  = SPRITE_SCREEN_H;
 
     // DebugText 1 個（main.cpp の dt と同等のパラメータ）
     // offsetX=0, offsetY=65 を原点として '\n' で行を進める
@@ -136,6 +143,9 @@ void WeaponSelect_Initialize()
 //------------------------------------------------------------------------------
 void WeaponSelect_Finalize()
 {
+    UnloadAudio(g_SeCursorMove); g_SeCursorMove = -1;
+    UnloadAudio(g_SeSelect);     g_SeSelect     = -1;
+
     delete g_pText; g_pText = nullptr;
     if (g_BgTexID    >= 0) { Texture_Release(g_BgTexID);    g_BgTexID    = -1; }
     if (g_WhiteTexID >= 0) { Texture_Release(g_WhiteTexID); g_WhiteTexID = -1; }
@@ -153,6 +163,7 @@ void WeaponSelect_Update(double elapsed_time)
         PadLogger_IsTrigger(PAD_DPAD_LEFT))
     {
         g_Selected = (g_Selected + 2) % 3;
+        PlayAudio(g_SeCursorMove, false);
     }
 
     if (KeyLogger_IsTrigger(KK_RIGHT) ||
@@ -160,10 +171,12 @@ void WeaponSelect_Update(double elapsed_time)
         PadLogger_IsTrigger(PAD_DPAD_RIGHT))
     {
         g_Selected = (g_Selected + 1) % 3;
+        PlayAudio(g_SeCursorMove, false);
     }
 
     if (KeyLogger_IsTrigger(KK_ENTER) || PadLogger_IsTrigger(PAD_A))
     {
+        PlayAudio(g_SeSelect, false);
         g_Result = WeaponSelectResult::Decided;
     }
 }

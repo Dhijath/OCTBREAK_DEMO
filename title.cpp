@@ -18,6 +18,7 @@
 #include "key_logger.h"
 #include "pad_logger.h"
 #include "direct3d.h"
+#include "audio.h"
 #include <DirectXMath.h>
 #include <algorithm>
 #include <cmath>
@@ -41,6 +42,10 @@ static float g_Time = 0.0f;                 // 経過時間（アニメ用）
 static TitleResult g_Result = TitleResult::None; // 選択結果
 static bool g_OneShotStart = false;         // 旧API互換フラグ
 
+// SE
+static int g_SeCursorMove = -1;
+static int g_SeSelect     = -1;
+
 // -----------------------------------------------------------------------------
 // 初期化
 // -----------------------------------------------------------------------------
@@ -63,6 +68,9 @@ void Title_Initialize()
     g_Time = 0.0f;
     g_Result = TitleResult::None;
     g_OneShotStart = false;
+
+    if (g_SeCursorMove < 0) g_SeCursorMove = LoadAudio("resource/Sound/ui_cursor_move.wav");
+    if (g_SeSelect     < 0) g_SeSelect     = LoadAudio("resource/Sound/ui_select.wav");
 }
 
 // -----------------------------------------------------------------------------
@@ -71,6 +79,8 @@ void Title_Initialize()
 void Title_Finalize()
 {
     // 今回は個別解放不要（Texture_Finalizeでまとめて解放）
+    UnloadAudio(g_SeCursorMove); g_SeCursorMove = -1;
+    UnloadAudio(g_SeSelect);     g_SeSelect     = -1;
 }
 
 // -----------------------------------------------------------------------------
@@ -86,17 +96,20 @@ void Title_Update(double elapsed_time)
     if (KeyLogger_IsTrigger(KK_W) || PadLogger_IsTrigger(PAD_DPAD_UP))
     {
         g_Selected = (g_Selected + MENU_COUNT - 1) % MENU_COUNT;
+        PlayAudio(g_SeCursorMove, false);
     }
 
     // 下キー（S または 十字キー下）で次の項目へ
     if (KeyLogger_IsTrigger(KK_S) || PadLogger_IsTrigger(PAD_DPAD_DOWN))
     {
         g_Selected = (g_Selected + 1) % MENU_COUNT;
+        PlayAudio(g_SeCursorMove, false);
     }
 
     // Enter または Aボタンで決定
     if (KeyLogger_IsTrigger(KK_ENTER) || PadLogger_IsTrigger(PAD_A))
     {
+        PlayAudio(g_SeSelect, false);
         if (g_Selected == 0) {
             g_Result = TitleResult::Start;
             g_OneShotStart = true; // 旧API互換
@@ -117,8 +130,8 @@ void Title_Draw()
 {
     Direct3D_SetDepthEnable(false); // タイトル(2D)中は深度を切る
 
-    const int sw = Direct3D_GetBackBufferWidth();
-    const int sh = Direct3D_GetBackBufferHeight();
+    const int sw = SPRITE_SCREEN_W;
+    const int sh = SPRITE_SCREEN_H;
 
     // ------------------------------
     // 背景（画面全体にフィット）

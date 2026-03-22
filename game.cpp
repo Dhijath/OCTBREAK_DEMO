@@ -620,7 +620,7 @@ void Game_Draw()
             XMVECTOR ePos = XMLoadFloat3(&lockOnPos);
             float dist = XMVectorGetX(XMVector3Length(ePos - camPos));
 
-            // ワールド座標 → スクリーン座標
+            // ワールド座標 → スクリーン座標（実解像度で投影）
             XMVECTOR sc = XMVector3Project(
                 ePos, 0.0f, 0.0f, W, H, 0.0f, 1.0f,
                 proj, view, XMMatrixIdentity()
@@ -628,6 +628,10 @@ void Game_Draw()
             const float sx = XMVectorGetX(sc);
             const float sy = XMVectorGetY(sc);
             const float sz = XMVectorGetZ(sc);
+
+            // 仮想座標系に変換（スプライトは1600×900空間で描画）
+            const float vsx = sx * (static_cast<float>(SPRITE_SCREEN_W) / W);
+            const float vsy = sy * (static_cast<float>(SPRITE_SCREEN_H) / H);
 
             // カメラ前方かつ画面内のみ描画
             if (sz > 0.0f && sz < 1.0f &&
@@ -644,8 +648,8 @@ void Game_Draw()
 
                     Sprite_Draw(
                         sightTex,
-                        sx - drawSize * 0.5f,
-                        sy - drawSize * 0.5f,
+                        vsx - drawSize * 0.5f,
+                        vsy - drawSize * 0.5f,
                         drawSize,
                         drawSize,
                         { 1.0f, 1.0f, 1.0f, 0.9f }

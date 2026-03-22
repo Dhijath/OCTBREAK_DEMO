@@ -109,6 +109,8 @@ void DamagePopup_Draw()
 
     const float W = static_cast<float>(Direct3D_GetBackBufferWidth());
     const float H = static_cast<float>(Direct3D_GetBackBufferHeight());
+    const float scaleX = static_cast<float>(SPRITE_SCREEN_W) / W;
+    const float scaleY = static_cast<float>(SPRITE_SCREEN_H) / H;
 
     XMMATRIX view = XMLoadFloat4x4(&Player_Camera_GetViewMatrix());
     XMMATRIX proj = XMLoadFloat4x4(&Player_Camera_GetProjectionMatrix());
@@ -119,7 +121,7 @@ void DamagePopup_Draw()
     {
         if (!p.active) continue;
 
-        // ワールド → スクリーン変換（lock-on サイトと同じ方法）
+        // ワールド → スクリーン変換（実解像度で投影）
         XMVECTOR wPos = XMLoadFloat3(&p.worldPos);
         XMVECTOR sc   = XMVector3Project(
             wPos, 0.0f, 0.0f, W, H, 0.0f, 1.0f,
@@ -129,10 +131,14 @@ void DamagePopup_Draw()
         const float sy = XMVectorGetY(sc);
         const float sz = XMVectorGetZ(sc);
 
-        // 背面・画面外はスキップ
+        // 背面・画面外はスキップ（実座標で判定）
         if (sz <= 0.0f || sz >= 1.0f)            continue;
         if (sx < -200.0f || sx > W + 200.0f)     continue;
         if (sy < -200.0f || sy > H + 200.0f)     continue;
+
+        // 仮想座標系に変換（スプライトは1600×900空間で描画）
+        const float vsx = sx * scaleX;
+        const float vsy = sy * scaleY;
 
         const float alpha = p.life * p.life; // 二乗フェード
 
@@ -152,9 +158,9 @@ void DamagePopup_Draw()
             tmp /= 10;
         }
 
-        // 数字列全体の中心を (sx, sy) に合わせて左から右へ描画
+        // 数字列全体の中心を (vsx, vsy) に合わせて左から右へ描画
         const float totalW = dCount * DRAW_W;
-        const float startX = sx - totalW * 0.5f;
+        const float startX = vsx - totalW * 0.5f;
 
         for (int i = dCount - 1; i >= 0; --i)
         {
@@ -162,7 +168,7 @@ void DamagePopup_Draw()
             Sprite_Draw(
                 g_TexSuji,
                 dx,
-                sy - DRAW_H * 0.5f,
+                vsy - DRAW_H * 0.5f,
                 DRAW_W, DRAW_H,
                 SRC_W * digitArr[i], 0, SRC_W, SRC_H,
                 col

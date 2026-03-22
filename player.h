@@ -1,4 +1,25 @@
-﻿#ifndef PLAYER_H
+﻿/*==============================================================================
+
+   プレイヤー制御 [player.h]
+                                                         Author : 51106
+                                                         Date   : 2025/12/19
+--------------------------------------------------------------------------------
+   プレイヤーの移動・射撃・HP・当たり判定を管理するモジュールのパブリック API。
+
+   ■主な機能
+     - 移動 / ジャンプ / 重力処理（WASD + パッド）
+     - マウス / スティックによる視点回転
+     - 弾発射（PlayerWeapon 経由）
+     - OBB ↔ AABB による壁・床の衝突判定
+     - HP 管理・無敵時間・ダメージ受け付け
+     - ロックオン対象位置の取得
+
+   ■OBB 情報
+     Player_GetOBB() でプレイヤーの OBB（向き込みの当たり判定）を取得できる。
+     エネミーの衝突判定や弾の当たり判定に使用する。
+
+==============================================================================*/
+#ifndef PLAYER_H
 #define PLAYER_H
 
 #include <DirectXMath.h>
@@ -302,6 +323,7 @@ void  Player_SetSpeedMultiplier(float multiplier);
 // ・idx : 0=Normal  1=Shotgun  2=Missile
 //==============================================================================
 void Player_SetNormalWeaponIndex(int idx);
+void Player_SetLeftWeaponIndex(int idx);   // 左腕武器を設定（WeaponID）
 
 
 #endif // PLAYER_H

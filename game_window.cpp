@@ -26,6 +26,7 @@
 #include "keyboard.h"
 #include "mouse.h"
 #include "Game_Manager.h"
+#include "ShaderEdge.h"
 
 /* ウィンドウプロシージャ プロトタイプ宣言 */
 LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
@@ -40,14 +41,29 @@ bool g_ExitDialogJustClosed = false;
 //==============================================================================
 // フルスクリーン管理
 //==============================================================================
+static HWND             g_hWnd              = nullptr; // 生成済みウィンドウハンドル
 static bool             g_IsFullscreen      = false;  // 現在フルスクリーンか
 static WINDOWPLACEMENT  g_WindowedPlacement = {};     // ウィンドウモード時の位置・サイズ保存
+static bool             g_PendingToggle     = false;  // 遅延フルスクリーン切替フラグ
 
 // ウィンドウモード時のスタイル（リサイズ・最大化は無効のまま）
 static constexpr DWORD WINDOWED_STYLE =
     WS_OVERLAPPEDWINDOW ^ (WS_THICKFRAME | WS_MAXIMIZEBOX);
 
+HWND GameWindow_GetHWND()      { return g_hWnd; }
 bool GameWindow_IsFullscreen() { return g_IsFullscreen; }
+
+void GameWindow_RequestFullscreenToggle()
+{
+    g_PendingToggle = true;   // フラグだけ立てる（実行は次フレーム先頭）
+}
+
+void GameWindow_ApplyPendingToggle()
+{
+    if (!g_PendingToggle) return;
+    g_PendingToggle = false;
+    GameWindow_ToggleFullscreen(g_hWnd);   // フレーム間（Present 直後）に安全に実行
+}
 
 void GameWindow_ToggleFullscreen(HWND hWnd)
 {
@@ -68,14 +84,18 @@ void GameWindow_ToggleFullscreen(HWND hWnd)
         const RECT& r = mi.rcMonitor;
 
         // スタイルを WS_POPUP に変更してモニター全体へ展開
-        // バックバッファは 1600×900 のまま維持し DWM にスケーリングさせる
-        // → HUD・3D 描画すべてが等倍で引き伸ばされ、相対サイズが変わらない
         SetWindowLong(hWnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
         SetWindowPos(hWnd, HWND_TOP,
             r.left, r.top,
             r.right  - r.left,
             r.bottom - r.top,
             SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+
+        // バックバッファをモニター解像度にリサイズ（ネイティブ解像度で描画）
+        Direct3D_ResizeBackBuffer(
+            static_cast<unsigned int>(r.right  - r.left),
+            static_cast<unsigned int>(r.bottom - r.top));
+        ShaderEdge_ResizeBuffers();
 
         g_IsFullscreen = true;
     }
@@ -95,7 +115,10 @@ void GameWindow_ToggleFullscreen(HWND hWnd)
         SetWindowPos(hWnd, nullptr, 0, 0, 0, 0,
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
             SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
-        // バックバッファはリサイズ不要（1600×900 のまま）
+
+        // バックバッファを元のウィンドウ解像度に戻す
+        Direct3D_ResizeBackBuffer(1600, 900);
+        ShaderEdge_ResizeBuffers();
 
         g_IsFullscreen = false;
     }
@@ -145,6 +168,7 @@ HWND GameWindow_Create(HINSTANCE hInstance)
         WINDOW_HEIGHT,
         nullptr, nullptr, hInstance, nullptr);
 
+    g_hWnd = hWnd;   // ゲッター用に保存
     return hWnd;
 }
 
@@ -163,13 +187,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     // キー入力（通常キー）
     //--------------------------------------------------------------------------
     case WM_KEYDOWN:
-        // F11：フルスクリーン トグル
-        if (wParam == VK_F11)
-        {
-            GameWindow_ToggleFullscreen(hWnd);
-            return 0;
-        }
-
         if (wParam == VK_ESCAPE)
         {
             // Playing 中は ESC をポーズシステムに委譲する（window 側では何もしない）
@@ -178,19 +195,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 g_IsExitDialogOpen = true;
                 SendMessage(hWnd, WM_CLOSE, 0, 0);
             }
-            return 0;
-        }
-        break;
-
-    //--------------------------------------------------------------------------
-    // システムキー（Alt+〇 が WM_SYSKEYDOWN で来る）
-    //--------------------------------------------------------------------------
-    case WM_SYSKEYDOWN:
-        // Alt+Enter：フルスクリーン トグル
-        // lParam の bit29 が立っているとき Alt キーが押されている
-        if (wParam == VK_RETURN && (lParam & (1 << 29)))
-        {
-            GameWindow_ToggleFullscreen(hWnd);
             return 0;
         }
         break;

@@ -336,6 +336,65 @@ bool ShaderEdge_Initialize(ID3D11Device* pDevice, ID3D11DeviceContext* pContext)
 }
 
 //==============================================================================
+// バックバッファリサイズ時にテクスチャを再生成
+//==============================================================================
+void ShaderEdge_ResizeBuffers()
+{
+    if (!g_pDevice) return;
+
+    // サイズ依存リソースを解放
+    SAFE_RELEASE(g_pNormalSRV);
+    SAFE_RELEASE(g_pNormalRTV);
+    SAFE_RELEASE(g_pNormalTex);
+    SAFE_RELEASE(g_pDepthSRV);
+    SAFE_RELEASE(g_pDepthDSV);
+    SAFE_RELEASE(g_pDepthTex);
+
+    const UINT W = Direct3D_GetBackBufferWidth();
+    const UINT H = Direct3D_GetBackBufferHeight();
+
+    // 法線テクスチャ再生成
+    {
+        D3D11_TEXTURE2D_DESC desc{};
+        desc.Width = W; desc.Height = H;
+        desc.MipLevels = 1; desc.ArraySize = 1;
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+        g_pDevice->CreateTexture2D(&desc, nullptr, &g_pNormalTex);
+        g_pDevice->CreateRenderTargetView(g_pNormalTex, nullptr, &g_pNormalRTV);
+        g_pDevice->CreateShaderResourceView(g_pNormalTex, nullptr, &g_pNormalSRV);
+    }
+
+    // 深度テクスチャ再生成
+    {
+        D3D11_TEXTURE2D_DESC desc{};
+        desc.Width = W; desc.Height = H;
+        desc.MipLevels = 1; desc.ArraySize = 1;
+        desc.Format = DXGI_FORMAT_R24G8_TYPELESS;
+        desc.SampleDesc.Count = 1;
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
+        g_pDevice->CreateTexture2D(&desc, nullptr, &g_pDepthTex);
+
+        D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc{};
+        dsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+        dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+        g_pDevice->CreateDepthStencilView(g_pDepthTex, &dsvDesc, &g_pDepthDSV);
+
+        D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+        srvDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+        srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+        srvDesc.Texture2D.MipLevels = 1;
+        g_pDevice->CreateShaderResourceView(g_pDepthTex, &srvDesc, &g_pDepthSRV);
+    }
+
+    // texelSize を更新
+    ShaderEdge_SetParam(0.01f, 0.4f, { 0.0f, 0.0f, 0.0f, 1.0f });
+}
+
+//==============================================================================
 // 終了
 //==============================================================================
 void ShaderEdge_Finalize()
