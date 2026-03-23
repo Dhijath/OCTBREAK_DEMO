@@ -8,14 +8,17 @@
 ==============================================================================*/
 
 #include "EnemyBullet.h"
+#include "Trail.h"
 #include "model.h"
 #include "map.h"
 #include "Player.h"
 #include "collision.h"
 #include "collision_obb.h"
 #include "bullet_hit_effect.h"
+#include "particle_spark.h"
 #include <cmath>
 #include <algorithm>
+#include <utility>
 #include "light.h"
 
 using namespace DirectX;
@@ -41,6 +44,8 @@ struct EnemyBulletData
     double   accumulatedTime;  // 経過時間（寿命管理用）
     int      damage;           // プレイヤーへのダメージ量
     bool     destroyed;        // 消滅フラグ（trueで次のUpdate処理時に削除）
+    MODEL*   pModel;           // 使用するモデル（nullptr で g_pModel にフォールバック）
+    Trail    trail;            // リボントレイル
 };
 
 //==============================================================================
@@ -74,14 +79,18 @@ void EnemyBullet_Initialize()
 //==============================================================================
 void EnemyBullet_Finalize()
 {
+    for (int i = 0; i < g_Count; ++i)
+        g_Bullets[i].trail.Finalize();
+    g_Count = 0;
     ModelRelease(g_pModel);
     g_pModel = nullptr;
-    g_Count = 0;
 }
 
 // アセットを解放せず弾だけ全消去（ルーム遷移時用）
 void EnemyBullet_ClearAll()
 {
+    for (int i = 0; i < g_Count; ++i)
+        g_Bullets[i].trail.Finalize();
     g_Count = 0;
 }
 
@@ -111,6 +120,9 @@ void EnemyBullet_Update(double elapsed_time)
         pos += vel * static_cast<float>(elapsed_time);
         XMStoreFloat3(&b.position, pos);
 
+        // トレイル更新
+        b.trail.Update(elapsed_time, b.position);
+
         // 壁との衝突チェック
         CheckWallCollision(b);
         if (b.destroyed) continue;
@@ -124,8 +136,9 @@ void EnemyBullet_Update(double elapsed_time)
     {
         if (g_Bullets[i].destroyed)
         {
-            // 最後の要素と入れ替えて数を減らす
-            g_Bullets[i] = g_Bullets[g_Count - 1];
+            // Trail リソースを解放してから最後の要素とムーブ交換
+            g_Bullets[i].trail.Finalize();
+            std::swap(g_Bullets[i], g_Bullets[g_Count - 1]);
             g_Count--;
         }
         else
@@ -160,27 +173,35 @@ void EnemyBullet_Draw()
 
         XMMATRIX trans = XMMatrixTranslation(b.position.x, b.position.y, b.position.z);
 
-        ModelDraw(g_pModel, rot * trans);
+        // 弾ごとのモデルを優先、なければ共通モデルを使用
+        MODEL* pDrawModel = b.pModel ? b.pModel : g_pModel;
+        ModelDraw(pDrawModel, rot * trans);
     }
 
     Light_SetAmbient({ 1.0, 1.0, 1.0 });
+
+    // トレイル描画（加算ブレンド・不透明物の後）
+    for (int i = 0; i < g_Count; ++i)
+        g_Bullets[i].trail.Draw();
 }
 
 //==============================================================================
 // エネミー弾生成
 //==============================================================================
-void EnemyBullet_Create(const XMFLOAT3& position, const XMFLOAT3& velocity, int damage, float speed)
+void EnemyBullet_Create(const XMFLOAT3& position, const XMFLOAT3& velocity, int damage, float speed, MODEL* pModel)
 {
     // 上限チェック
     if (g_Count >= MAX_ENEMY_BULLET) return;
 
     EnemyBulletData& b = g_Bullets[g_Count];
 
-    b.position = position;
-    b.prevPosition = position;
+    b.position        = position;
+    b.prevPosition    = position;
     b.accumulatedTime = 0.0;
-    b.damage = damage;
-    b.destroyed = false;
+    b.damage          = damage;
+    b.destroyed       = false;
+    b.pModel          = pModel; // nullptr なら Draw 時に g_pModel にフォールバック
+    b.trail.Initialize(24, 0.08f, 0.20f, { 1.0f, 0.15f, 0.15f, 1.0f }); // 赤系トレイル
 
     // 速度を指定スピードに正規化する
     XMVECTOR v = XMLoadFloat3(&velocity);
@@ -227,7 +248,7 @@ static void CheckWallCollision(EnemyBulletData& b)
 
         if (Collision_IsHitAABB(bulletAABB, mo->Aabb).isHit)
         {
-            BulletHitEffect_Create(b.prevPosition); // エフェクトを前フレーム位置で生成する
+            SparkEffect_Create(b.prevPosition, 1.0f); // エフェクトを前フレーム位置で生成する
             b.destroyed = true;
             return;
         }
@@ -262,7 +283,7 @@ static void CheckPlayerCollision(EnemyBulletData& b)
     if (Collision_IsHitOBB_AABB(playerOBB, bulletAABB).isHit)
     {
         Player_TakeDamage(b.damage);            // プレイヤーにダメージを与える
-        BulletHitEffect_Create(b.position);     // ヒットエフェクトを生成する
+        SparkEffect_Create(b.position, 1.0f);   // ヒットエフェクトを生成する
         b.destroyed = true;
     }
 }

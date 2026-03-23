@@ -49,7 +49,7 @@ public:
     static constexpr float CHASE_SPD = 4.5f;  // 追跡速度（m/s）
     static constexpr float PATROL_SPD = 2.0f;  // 巡回速度（m/s）
     // 射撃パラメータ
-    static constexpr int   SHOOT_DAMAGE       = 24;    // 1発あたりのダメージ
+    static constexpr int   SHOOT_DAMAGE       = 216;   // 1発あたりのダメージ
     static constexpr float BOSS_BULLET_SPEED  = 4.0f;  // 弾速（遅め）
     // バレル配置（前面2×2）— 前面OBBサーフェスに上右・上左・下右・下左
     static constexpr int   BARREL_COUNT    = 4;      // バレル門数（前面2×2）
@@ -64,7 +64,7 @@ public:
     static constexpr float CHARGE_SPEED       = 34.0f; // 突進速度（m/s）
     static constexpr float CHARGE_INTERVAL    = 7.0f;  // 突進インターバル（秒）
     static constexpr float CHARGE_DAMAGE_DIST = 2.0f;  // 接触判定距離
-    static constexpr int   CHARGE_DAMAGE      = 40;    // 突進ダメージ
+    static constexpr int   CHARGE_DAMAGE      = 360;   // 突進ダメージ
     static constexpr float CHARGE_KNOCKBACK   = 25.0f; // ノックバック強さ
     static constexpr float KEEP_DISTANCE      = 5.0f;   // 距離を保つ閾値
     static constexpr float RETREAT_SPEED      = 13.0f;   // 後退速度（m/s）

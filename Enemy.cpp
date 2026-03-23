@@ -228,6 +228,10 @@ void Enemy::Update(double elapsed_time)
     XMStoreFloat3(&m_Position, pos);
     XMStoreFloat3(&m_Velocity, vel);
 
+    // 接触ダメージクールダウン
+    if (m_ContactDamageCooldown > 0.0f)
+        m_ContactDamageCooldown -= dt;
+
     // 弾ヒット処理
     ResolveBulletHits();
 
@@ -588,11 +592,7 @@ void Enemy::ResolveFloorCollision(XMVECTOR* ioPos, XMVECTOR* ioVel)
 //==============================================================================
 void Enemy::ResolvePlayerCollision(XMVECTOR* ioPos, XMVECTOR* ioVel)
 {
-    // プレイヤーが無効または無敵中はスキップ
-    if (!Player_IsEnable() || Player_IsInvincible())
-    {
-        return;
-    }
+    if (!Player_IsEnable()) return;
 
     OBB enemyOBB  = ConvertPositionToOBB(*ioPos);
     OBB playerOBB = Player_GetOBB();
@@ -601,13 +601,18 @@ void Enemy::ResolvePlayerCollision(XMVECTOR* ioPos, XMVECTOR* ioVel)
     if (!Collision_IsOverlapOBB(enemyOBB, playerOBB))
     {
         return;
+
     }
 
-    // 　ダメージ処理
-    constexpr int ENEMY_DAMAGE = 10;
-    Player_TakeDamage(ENEMY_DAMAGE);
-    // 射撃音再生（単発）
-    PlayAudio(g_enemy_hitSE, false);
+    // 接触ダメージ（クールダウン中はダメージとSEをスキップ）
+    constexpr int   ENEMY_DAMAGE            = 90;
+    constexpr float CONTACT_DAMAGE_INTERVAL = 0.5f; // 0.5秒に1回ダメージ
+    if (m_ContactDamageCooldown <= 0.0f)
+    {
+        Player_TakeDamage(ENEMY_DAMAGE);
+        PlayAudio(g_enemy_hitSE, false);
+        m_ContactDamageCooldown = CONTACT_DAMAGE_INTERVAL;
+    }
 
     // 　ノックバック処理（プレイヤーを押し出す）
     XMFLOAT3* playerVelPtr = Player_GetVelocityPtr();

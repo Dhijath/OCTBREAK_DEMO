@@ -1,12 +1,61 @@
+/*==============================================================================
+
+   DirectWrite テキスト描画 実装 [DirectWrite.cpp]
+                                                         Author : 51106
+                                                         Date   : 2026/03/11
+--------------------------------------------------------------------------------
+   Direct2D / DirectWrite を使い、日本語フォントを含む任意テキストを
+   DXGI バックバッファサーフェスに直接描画する。
+
+   ■初期化フロー
+     Init() → D2D1Factory 生成 → DXGI サーフェス取得 →
+     DXGI サーフェス RenderTarget 生成 → IDWriteFactory 生成 →
+     TextFormat / ブラシ生成
+
+   ■描画フロー
+     DrawString() → BeginDraw() → DrawTextLayout/DrawText() → EndDraw()
+     ※ BeginDraw/EndDraw はコール毎に呼ぶ（他の D3D 描画と混在注意）
+
+   ■フルスクリーン対応
+     バックバッファ再生成後は Init() を再度呼ぶか、SetScale() で
+     仮想座標系→実ピクセル座標系への行列変換を適用する。
+
+==============================================================================*/
 #include <d2d1.h>
+#include <d2d1helper.h>
 #include <dwrite.h>
+#include <dwrite_3.h>
 #include <dxgi.h>
 #include <string>
+#include <vector>
+#include <algorithm>
 #include "direct3d.h"
 #include "DirectWrite.h"
 
+//==============================================================================
+// 全インスタンスの追跡リスト（PreResize / PostResize 用）
+//==============================================================================
+static std::vector<DirectWrite*> s_AllInstances;
+
 #pragma comment(lib, "d2d1.lib")
 #pragma comment(lib, "dwrite.lib")
+
+//==============================================================================
+// コンストラクタ（FontData ポインタ）
+//==============================================================================
+DirectWrite::DirectWrite(FontData* set) : Setting(set)
+{
+    s_AllInstances.push_back(this);
+}
+
+//==============================================================================
+// デストラクタ（全インスタンスリストから除外）
+//==============================================================================
+DirectWrite::~DirectWrite()
+{
+    auto it = std::find(s_AllInstances.begin(), s_AllInstances.end(), this);
+    if (it != s_AllInstances.end()) s_AllInstances.erase(it);
+}
 
 //=================================================================================================================================
 // コンストラクタ（個別引数）
@@ -31,6 +80,7 @@ DirectWrite::DirectWrite(
     Setting->localeName     = localeName;
     Setting->textAlignment  = textAlignment;
     Setting->Color          = Color;
+    s_AllInstances.push_back(this);
 }
 
 //=============================================================================
@@ -179,10 +229,57 @@ void DirectWrite::Init()
         __uuidof(IDWriteFactory),
         reinterpret_cast<IUnknown**>(&pDWriteFactory));
 
+    // フォントコレクションの決定
+    // fontFilePath が指定されている場合はファイルから読み込む（配布exe対応）
+    IDWriteFontCollection* collectionToUse = Setting->fontCollection;
+    if (Setting->fontFilePath != nullptr)
+    {
+        IDWriteFactory3* factory3 = nullptr;
+        pDWriteFactory->QueryInterface(__uuidof(IDWriteFactory3),
+            reinterpret_cast<void**>(&factory3));
+        if (factory3)
+        {
+            IDWriteFontSetBuilder* builder = nullptr;
+            factory3->CreateFontSetBuilder(&builder);
+            if (builder)
+            {
+                // AddFontFile は IDWriteFontSetBuilder1 のメンバーなので QI で取得
+                IDWriteFontSetBuilder1* builder1 = nullptr;
+                builder->QueryInterface(__uuidof(IDWriteFontSetBuilder1),
+                    reinterpret_cast<void**>(&builder1));
+
+                // 相対パスを絶対パスに変換（exeからの相対パスを解決）
+                wchar_t absPath[MAX_PATH] = {};
+                GetFullPathNameW(Setting->fontFilePath, MAX_PATH, absPath, nullptr);
+
+                IDWriteFontFile* fontFile = nullptr;
+                factory3->CreateFontFileReference(absPath, nullptr, &fontFile);
+                if (fontFile)
+                {
+                    if (builder1) builder1->AddFontFile(fontFile);
+                    fontFile->Release();
+                }
+                IDWriteFontSet* fontSet = nullptr;
+                if (builder1) { builder1->CreateFontSet(&fontSet); builder1->Release(); }
+                else            builder->CreateFontSet(&fontSet);
+                builder->Release();
+                if (fontSet)
+                {
+                    IDWriteFontCollection1* col1 = nullptr;
+                    factory3->CreateFontCollectionFromFontSet(fontSet, &col1);
+                    fontSet->Release();
+                    pCustomFontCollection = col1;
+                    collectionToUse = col1;
+                }
+            }
+            factory3->Release();
+        }
+    }
+
     // テキストフォーマットの作成
     pDWriteFactory->CreateTextFormat(
         FontList[(int)Setting->font],
-        Setting->fontCollection,
+        collectionToUse,
         Setting->fontWeight,
         Setting->fontStyle,
         Setting->fontStretch,
@@ -211,13 +308,124 @@ void DirectWrite::SetScale(float sx, float sy)
 //=============================================================================
 void DirectWrite::Release()
 {
-    if (pTextLayout)    { pTextLayout->Release();   pTextLayout   = NULL; }
-    if (pSolidBrush)    { pSolidBrush->Release();   pSolidBrush   = NULL; }
-    if (pTextFormat)    { pTextFormat->Release();   pTextFormat   = NULL; }
-    if (pRT)            { pRT->Release();            pRT           = NULL; }
-    if (pBackBuffer)    { pBackBuffer->Release();    pBackBuffer   = NULL; }
-    if (pDWriteFactory) { pDWriteFactory->Release(); pDWriteFactory = NULL; }
-    if (pD2DFactory)    { pD2DFactory->Release();   pD2DFactory   = NULL; }
+    if (pTextLayout)         { pTextLayout->Release();          pTextLayout          = NULL; }
+    if (pSolidBrush)         { pSolidBrush->Release();          pSolidBrush          = NULL; }
+    if (pTextFormat)         { pTextFormat->Release();          pTextFormat          = NULL; }
+    if (pCustomFontCollection){ pCustomFontCollection->Release(); pCustomFontCollection = NULL; }
+    if (pRT)                 { pRT->Release();                  pRT                  = NULL; }
+    if (pBackBuffer)         { pBackBuffer->Release();          pBackBuffer          = NULL; }
+    if (pDWriteFactory)      { pDWriteFactory->Release();       pDWriteFactory       = NULL; }
+    if (pD2DFactory)         { pD2DFactory->Release();          pD2DFactory          = NULL; }
+}
+
+//==============================================================================
+// バッチ描画 ─ BeginBatch
+//   D3D11 RTV をアンバインドしてから D2D BeginDraw を呼ぶ
+//==============================================================================
+void DirectWrite::BeginBatch()
+{
+    if (!pRT) return;
+    // D3D11 と D2D が同じ DXGI サーフェスを共有するため、
+    // D2D 描画前に D3D11 RTV をアンバインドしておく（コンテキスト汚染防止）
+    Direct3D_GetContext()->OMSetRenderTargets(0, nullptr, nullptr);
+    pRT->BeginDraw();
+}
+
+//==============================================================================
+// バッチ描画 ─ EndBatch
+//   D2D EndDraw 後に D3D11 メイン RTV を再バインドする
+//==============================================================================
+void DirectWrite::EndBatch()
+{
+    if (!pRT) return;
+    pRT->EndDraw();
+    Direct3D_BindMainRenderTarget();
+}
+
+//==============================================================================
+// バッチ描画 ─ DrawAt（実ピクセル座標・中心揃え）
+//   cx,cy : 描画中心（実ピクセル座標）
+//   halfW : テキスト矩形の半幅（数字桁数に合わせて調整）
+//   color : RGBA（alpha はフェード等に使用）
+//==============================================================================
+void DirectWrite::DrawAt(const std::string& str, float cx, float cy, float halfW, D2D1_COLOR_F color, float outlinePx)
+{
+    DrawAt(StringToWString(str), cx, cy, halfW, color, outlinePx);
+}
+
+void DirectWrite::DrawAt(const std::wstring& wstr, float cx, float cy, float halfW, D2D1_COLOR_F color, float outlinePx)
+{
+    if (!pRT || !pTextFormat || !pSolidBrush) return;
+    const float halfH = Setting ? Setting->fontSize * 0.75f : 16.0f;
+
+    // 同じ矩形を指定色でまとめて描く補助ラムダ
+    auto draw = [&](float ox, float oy, D2D1_COLOR_F col)
+    {
+        pSolidBrush->SetColor(col);
+        pRT->DrawText(
+            wstr.c_str(), (UINT32)wstr.size(), pTextFormat,
+            D2D1::RectF(cx - halfW + ox, cy - halfH + oy,
+                        cx + halfW + ox, cy + halfH + oy),
+            pSolidBrush, D2D1_DRAW_TEXT_OPTIONS_NONE);
+    };
+
+    if (outlinePx > 0.0f)
+    {
+        // 縁取り：4方向オフセットで黒（テキストと同 alpha）を先に描く
+        const D2D1_COLOR_F outline = D2D1::ColorF(0.0f, 0.0f, 0.0f, color.a);
+        const float o = outlinePx;
+        draw(-o, -o, outline);
+        draw( o, -o, outline);
+        draw(-o,  o, outline);
+        draw( o,  o, outline);
+    }
+
+    // 本体テキストを最後に描いて縁の上に重ねる
+    draw(0.0f, 0.0f, color);
+}
+
+//==============================================================================
+// リサイズ対応 ─ ReleaseRT / ReinitRT（インスタンス単位）
+//==============================================================================
+void DirectWrite::ReleaseRT()
+{
+    if (pSolidBrush) { pSolidBrush->Release(); pSolidBrush = NULL; }
+    if (pRT)         { pRT->Release();          pRT         = NULL; }
+    if (pBackBuffer) { pBackBuffer->Release();  pBackBuffer = NULL; }
+}
+
+void DirectWrite::ReinitRT()
+{
+    if (!pD2DFactory) return;
+    Direct3D_GetSwapChain()->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer));
+    D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
+        D2D1_RENDER_TARGET_TYPE_DEFAULT,
+        D2D1::PixelFormat(DXGI_FORMAT_UNKNOWN, D2D1_ALPHA_MODE_PREMULTIPLIED),
+        96.0f, 96.0f);
+    pD2DFactory->CreateDxgiSurfaceRenderTarget(pBackBuffer, &props, &pRT);
+    if (pRT)
+    {
+        pRT->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE);
+        if (Setting)
+            pRT->CreateSolidColorBrush(Setting->Color, &pSolidBrush);
+    }
+}
+
+//==============================================================================
+// リサイズ対応 ─ PreResize / PostResize（全インスタンス一括）
+//   ResizeBuffers は全ての D2D RT（= DXGI サーフェス参照）を
+//   解放してから呼ばないと失敗するため、一括 Release → Resize → 一括 Reinit
+//==============================================================================
+void DirectWrite::PreResize()
+{
+    for (auto* inst : s_AllInstances)
+        inst->ReleaseRT();
+}
+
+void DirectWrite::PostResize()
+{
+    for (auto* inst : s_AllInstances)
+        inst->ReinitRT();
 }
 
 //=============================================================================

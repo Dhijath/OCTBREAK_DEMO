@@ -100,6 +100,9 @@ ID3D11ShaderResourceView* Direct3D_GetOffScreenSRV();
 // シャドウパス後にメインRTV+DSV+ビューポートを復元する
 void Direct3D_BindMainRenderTarget();
 
+// 深度バッファ全体をクリア（HUDミニプレビュー描画前に呼ぶ）
+void Direct3D_ClearDepth();
+
 
 #endif // DIRECT3D_H
 

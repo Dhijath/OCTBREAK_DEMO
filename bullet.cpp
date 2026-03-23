@@ -19,6 +19,7 @@
 #include "Trail.h"
 #include "model.h"
 #include "bullet_hit_effect.h"
+#include "particle_spark.h"
 #include "collision_obb.h"
 #include "texture.h"
 #include "map.h"
@@ -214,7 +215,7 @@ void BeamBullet::CheckWallCollision()
         if (Collision_IsOverLapAABB(beamAABB, mo->Aabb))
         {
             // エフェクト生成
-            BulletHitEffect_Create(m_prevPosition);
+            SparkEffect_Create(m_prevPosition, 1.0f);
 
             // 消滅フラグを立てる
             m_destroyed = true;
@@ -390,6 +391,7 @@ void MissileBullet::Update(double elapsed_time)
         m_accumulatedTime += elapsed_time;
         CheckWallCollision();
     }
+
 }
 
 //==============================================================================
@@ -460,8 +462,8 @@ void BulletManager::Initialize()
     // 再初期化に備えて既存リソースを解放
     Texture_Release(m_beamTexID);
     m_beamTexID = -1;
-    ModelRelease(m_pModel);
-    m_pModel = nullptr;
+    ModelRelease(m_pModelNormal);  m_pModelNormal  = nullptr;
+    ModelRelease(m_pModelMissile); m_pModelMissile = nullptr;
 
     for (int i = 0; i < m_count; i++)
     {
@@ -471,7 +473,8 @@ void BulletManager::Initialize()
     m_count = 0;
     m_explosionCount = 0;
 
-    m_pModel = ModelLoad("Resource/Models/bullet.fbx", 0.15f);
+    m_pModelNormal  = ModelLoad("Resource/Models/bullet.fbx",  0.15f);
+    m_pModelMissile = ModelLoad("Resource/Models/bullet.fbx",  0.15f);  // 後でミサイル用モデルに差し替え
     m_beamTexID = Texture_Load(L"Resource/Texture/effect000.jpg");
 }
 
@@ -486,8 +489,8 @@ void BulletManager::Finalize()
     Texture_Release(m_beamTexID);
     m_beamTexID = -1;
 
-    ModelRelease(m_pModel);
-    m_pModel = nullptr;
+    ModelRelease(m_pModelNormal);  m_pModelNormal  = nullptr;
+    ModelRelease(m_pModelMissile); m_pModelMissile = nullptr;
 
     for (int i = 0; i < m_count; i++)
     {
@@ -535,15 +538,14 @@ void BulletManager::Update(double elapsed_time)
 
             if (type == BulletType::Normal)
             {
-                // 通常弾のみ寿命切れエフェクト（ビームは内部で生成済み）
-                BulletHitEffect_Create(m_bullets[i]->GetPrevPosition());
+                // 寿命切れ時はエフェクトなし（ヒット時は Destroy() 側で生成）
             }
             else if (type == BulletType::Missile)
             {
-                // ミサイル：爆発登録 + ヒットエフェクト
+                // ミサイル：爆発登録 + 大型火花エフェクト
                 auto* m = static_cast<MissileBullet*>(m_bullets[i]);
                 AddExplosion(m->GetPrevPosition(), m->GetExplosionRadius(), m->GetDamage());
-                BulletHitEffect_Create(m->GetPrevPosition());
+                SparkEffect_Create(m->GetPrevPosition(), 3.0f);
             }
             // BulletType::Beam はCheckWallCollision()内でエフェクト生成済み
 
@@ -593,9 +595,11 @@ void BulletManager::DrawNormal(int index)
 
     const XMMATRIX trans = XMMatrixTranslationFromVector(pos);
 
-    const XMMATRIX world = rot * trans;
+    const bool isMissile = (m_bullets[index]->GetType() == BulletType::Missile);
+    const float s = isMissile ? 2.5f : 1.0f;
+    const XMMATRIX world = XMMatrixScaling(s, s, s) * rot * trans;
 
-    ModelDraw(m_pModel, world);
+    ModelDraw(isMissile ? m_pModelMissile : m_pModelNormal, world);
 
     Light_SetAmbient({ 1.0, 1.0, 1.0 });
 }
@@ -684,14 +688,17 @@ void BulletManager::Destroy(int index)
 {
     if (index < 0 || index >= m_count) return;  // 範囲チェック
 
-    // エフェクト生成
-    BulletHitEffect_Create(m_bullets[index]->GetPrevPosition());
-
-    // ミサイルの場合は爆発イベントも登録（敵への直撃時）
-    if (m_bullets[index]->GetType() == BulletType::Missile)
+    // エフェクト生成（敵への直撃）
+    const BulletType hitType = m_bullets[index]->GetType();
+    if (hitType == BulletType::Missile)
     {
         auto* m = static_cast<MissileBullet*>(m_bullets[index]);
         AddExplosion(m->GetPrevPosition(), m->GetExplosionRadius(), m->GetDamage());
+        SparkEffect_Create(m->GetPrevPosition(), 3.0f);
+    }
+    else
+    {
+        SparkEffect_Create(m_bullets[index]->GetPrevPosition(), 1.0f);
     }
 
     // 弾を削除して配列を詰める
@@ -754,7 +761,8 @@ bool BulletManager::IsBeam(int index) const
 //==============================================================================
 AABB BulletManager::GetAABB(int index) const
 {
-    return ModelGetAABB(m_pModel, m_bullets[index]->GetPosition());
+    const bool isMissile = (m_bullets[index]->GetType() == BulletType::Missile);
+    return ModelGetAABB(isMissile ? m_pModelMissile : m_pModelNormal, m_bullets[index]->GetPosition());
 }
 
 //==============================================================================

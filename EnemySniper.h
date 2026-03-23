@@ -31,7 +31,7 @@ public:
     static constexpr float PATROL_SPD     = 0.8f;  // 巡回速度（m/s）
     static constexpr float SHOOT_RANGE    = 8.0f;  // 射撃射程（m）
     static constexpr float SHOOT_INTERVAL = 1.5f;  // 射撃間隔（秒）
-    static constexpr int   SHOOT_DAMAGE   = 45;    // 1発のダメージ量
+    static constexpr int   SHOOT_DAMAGE   = 405;   // 1発のダメージ量
 
     //==========================================================================
     // 初期化処理

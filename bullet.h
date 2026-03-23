@@ -519,7 +519,8 @@ private:
 
     BulletBase* m_bullets[MAX_BULLET]{ nullptr };  // 全弾の配列
     int           m_count{ 0 };                       // 現在の弾数
-    struct MODEL* m_pModel{ nullptr };                // 通常弾のモデル
+    struct MODEL* m_pModelNormal { nullptr };          // 通常弾・ショットガンペレットのモデル
+    struct MODEL* m_pModelMissile{ nullptr };          // ミサイルのモデル
     int           m_beamTexID{ -1 };                  // ビームのパーティクル用テクスチャID
 
     // ミサイル爆発キュー（毎フレーム Enemy_Update 側で消費・クリア）

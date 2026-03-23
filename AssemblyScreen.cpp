@@ -35,6 +35,7 @@
 #include "key_logger.h"
 #include "keyboard.h"
 #include "pad_logger.h"
+#include "mouse.h"
 #include <DirectXMath.h>
 #include <d3d11.h>
 #include <cstdio>
@@ -236,15 +237,35 @@ bool AssemblyScreen_Update(double dt)
     g_Time += dt;
     g_PreviewAngle += static_cast<float>(dt) * 0.8f;  // プレビュー自動回転
 
-    // パネル切り替え（LB / RB or Q / W）
-    if (PadLogger_IsTrigger(PAD_LEFT_SHOULDER)  || KeyLogger_IsTrigger(KK_Q))
-    { g_ActivePanel = 0; PlayAudio(g_SeTabSwitch, false); }
-    if (PadLogger_IsTrigger(PAD_RIGHT_SHOULDER) || KeyLogger_IsTrigger(KK_W))
-    { g_ActivePanel = 1; PlayAudio(g_SeTabSwitch, false); }
+    // パネル切り替え（TAB = R-ARM ↔ L-ARM トグル）
+    {
+        static bool s_PrevMouseLeft = false;
+        Mouse_State ms{};
+        Mouse_GetState(&ms);
+        const bool mouseLeftTrig = ms.leftButton && !s_PrevMouseLeft;
+        s_PrevMouseLeft = ms.leftButton;
 
-    // カーソル移動（上下 or D-pad）
-    const bool up   = PadLogger_IsTrigger(PAD_DPAD_UP)   || KeyLogger_IsTrigger(KK_UP);
-    const bool down = PadLogger_IsTrigger(PAD_DPAD_DOWN)  || KeyLogger_IsTrigger(KK_DOWN);
+        // TAB / LB / RB：R-ARM ↔ L-ARM トグル
+        if (KeyLogger_IsTrigger(KK_TAB)              ||
+            PadLogger_IsTrigger(PAD_LEFT_SHOULDER)   ||
+            PadLogger_IsTrigger(PAD_RIGHT_SHOULDER))
+        { g_ActivePanel = 1 - g_ActivePanel; PlayAudio(g_SeTabSwitch, false); }
+
+        // 左クリック / ENTER / パッドA で決定
+        if (mouseLeftTrig || KeyLogger_IsTrigger(KK_ENTER) || PadLogger_IsTrigger(PAD_A))
+        {
+            if (CalcRemaining() >= 0)
+            {
+                PlayAudio(g_SeSelect, false);
+                g_Decided = true;
+                return true;
+            }
+        }
+    }
+
+    // カーソル移動（上下 / D-pad / W・S）
+    const bool up   = PadLogger_IsTrigger(PAD_DPAD_UP)   || KeyLogger_IsTrigger(KK_UP)  || KeyLogger_IsTrigger(KK_W);
+    const bool down = PadLogger_IsTrigger(PAD_DPAD_DOWN)  || KeyLogger_IsTrigger(KK_DOWN) || KeyLogger_IsTrigger(KK_S);
 
     if (g_ActivePanel == 0)
     {
@@ -255,17 +276,6 @@ bool AssemblyScreen_Update(double dt)
     {
         if (up)   { g_LeftCursor = (g_LeftCursor + WEAPON_COUNT - 1) % WEAPON_COUNT; PlayAudio(g_SeCursorMove, false); }
         if (down) { g_LeftCursor = (g_LeftCursor + 1)                % WEAPON_COUNT; PlayAudio(g_SeCursorMove, false); }
-    }
-
-    // 確定（残クレジット >= 0 のときのみ）
-    if (PadLogger_IsTrigger(PAD_A) || KeyLogger_IsTrigger(KK_ENTER))
-    {
-        if (CalcRemaining() >= 0)
-        {
-            PlayAudio(g_SeSelect, false);
-            g_Decided = true;
-            return true;
-        }
     }
 
     return false;
@@ -649,18 +659,6 @@ void AssemblyScreen_Draw()
             const std::string lbl = std::string(sel ? "> " : "  ") + k_WeaponDefs[i].name;
             g_pDWBody->DrawString(lbl, LEFT_X + 10.0f, iy, D2D1_DRAW_TEXT_OPTIONS_NONE);
         }
-
-        // ナビヒント
-        {
-            FontData fd;
-            fd.font = Font::Arial; fd.fontSize = 14.0f;
-            fd.Color = D2D1::ColorF(0.5f, 0.5f, 0.5f, 1.0f);
-            g_pDWBody->SetFont(&fd);
-        }
-        g_pDWBody->DrawString("Q/LB: R-ARM  W/RB: L-ARM",
-            LEFT_X + 4.0f, SH - 55.0f, D2D1_DRAW_TEXT_OPTIONS_NONE);
-        g_pDWBody->DrawString("UP/DOWN: Select  ENTER/A: OK",
-            LEFT_X + 4.0f, SH - 35.0f, D2D1_DRAW_TEXT_OPTIONS_NONE);
 
         // ── センターパネル ─────────────────────────────────
         {

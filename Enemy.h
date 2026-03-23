@@ -266,6 +266,9 @@ protected:
     float m_AttackCooldown = 0.0f;  // 攻撃後の再発動ウェイト
     bool  m_IsAttacking    = false; // 攻撃溜め中フラグ
 
+    // 接触ダメージクールダウン
+    float m_ContactDamageCooldown = 0.0f;
+
     // 速度上限オーバーライド（サブクラスが突進などで一時的に引き上げる用）
     // デフォルトは MAX_SPEED。Enemy::Update の ClampXZSpeed はこの値を参照する
     float m_SpeedCap = MAX_SPEED;

@@ -67,7 +67,7 @@ namespace
     //--------------------------------------------------------------------------
     // HP / 無敵
     //--------------------------------------------------------------------------
-    constexpr int PLAYER_MAX_HP = 100;
+    constexpr int PLAYER_MAX_HP = 8000;
     int g_PlayerHP = PLAYER_MAX_HP;      // 現在HP
     double g_InvincibleTimer = 0.0;
     constexpr double INVINCIBLE_DURATION = 1.3; // 無敵時間（秒）
@@ -361,8 +361,8 @@ namespace
 
         // 通常位置 → ガード構え位置をブレンドで補間
         const float b = g_ShieldGuardBlend;
-        const float SHIELD_SIDE_X        = -0.30f + b * 0.15f;  // 左横 → 正面寄り
-        const float SHIELD_FORWARD_OFFSET =  0.20f + b * 0.30f;  // 前方へ突き出す
+        const float SHIELD_SIDE_X        = -0.3f + b * 0.15f;  // 展開時は外側へ
+        const float SHIELD_FORWARD_OFFSET =  0.20f + b * 0.15f;  // 前方へ突き出す
         const float SHIELD_HEIGHT_OFFSET  =  0.10f + b * 0.15f;  // 少し持ち上げる
 
         const XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
@@ -445,8 +445,8 @@ namespace
         constexpr float SHIELD_TILT_DEG = 0.0f;
 
         const float b = g_ShieldGuardBlend;
-        const float SHIELD_SIDE_X        =  0.30f - b * 0.15f;  // 右横 → 正面寄り（左の逆）
-        const float SHIELD_FORWARD_OFFSET =  0.20f + b * 0.30f;
+        const float SHIELD_SIDE_X        =  0.3f - b * 0.15f;  // 展開時は内側へ（左と対称）
+        const float SHIELD_FORWARD_OFFSET =  0.20f + b * 0.15f;
         const float SHIELD_HEIGHT_OFFSET  =  0.10f + b * 0.15f;
 
         const XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
@@ -946,10 +946,10 @@ void Player_Update(double elapsed_time)
         bool shieldPressed = KeyLogger_IsPressed(KK_G);  // キーボード G は常に有効
         if (g_RightWeaponIdx == WEAPON_SHIELD)
             shieldPressed |= PadLogger_IsPressed(PAD_RIGHT_SHOULDER)
-                          || KeyLogger_IsPressed(KK_SPACE)
-                          || Player_Camera_IsMouseLeftPressed();
+                          || Player_Camera_IsMouseRightPressed();
         if (g_LeftWeaponIdx == WEAPON_SHIELD)
-            shieldPressed |= PadLogger_IsPressed(PAD_LEFT_SHOULDER);
+            shieldPressed |= PadLogger_IsPressed(PAD_LEFT_SHOULDER)
+                          || Player_Camera_IsMouseLeftPressed();
 
         Shield_Update(elapsed_time, shieldPressed);
 
@@ -981,18 +981,21 @@ void Player_Update(double elapsed_time)
 
     //--------------------------------------------------------------------------
     // 発射ボタン判定
-    //   RB(PAD_RIGHT_SHOULDER) = 右腕  LB(PAD_LEFT_SHOULDER) = 左腕
-    //   RT                     = ビーム  マウス左 = 右腕  マウス右 = ビーム
+    //   RB / マウス右 = 右腕  LB / マウス左 = 左腕
+    //   RT / マウス左右同時 = ビーム（両腕シールド時のみ）
     //--------------------------------------------------------------------------
-    const bool padRightFire = PadLogger_IsPressed(PAD_RIGHT_SHOULDER);
-    const bool padLeftFire  = PadLogger_IsPressed(PAD_LEFT_SHOULDER);
-    const bool padBeamFire  = (PadLogger_GetRightTrigger() > 0.5f);
-    const bool mouseAttack  = Player_Camera_IsMouseLeftPressed();
-    const bool keyAttack    = KeyLogger_IsPressed(KK_SPACE);
-    const bool beamAttack   = Player_Camera_IsMouseRightPressed() || padBeamFire;
+    const bool padRightFire  = PadLogger_IsPressed(PAD_RIGHT_SHOULDER);
+    const bool padLeftFire   = PadLogger_IsPressed(PAD_LEFT_SHOULDER);
+    const bool mouseRight    = Player_Camera_IsMouseRightPressed();
+    const bool mouseLeft     = Player_Camera_IsMouseLeftPressed();
+    const bool keyAttack     = KeyLogger_IsPressed(KK_SPACE);
 
-    const bool rightFire = keyAttack || mouseAttack || padRightFire;
-    const bool leftFire  = padLeftFire;
+    const bool bothShield = (g_RightWeaponIdx == WEAPON_SHIELD && g_LeftWeaponIdx == WEAPON_SHIELD);
+    const bool beamAttack = bothShield &&
+        (PadLogger_GetRightTrigger() > 0.5f || (mouseLeft && mouseRight));
+
+    const bool rightFire = keyAttack || mouseRight || padRightFire;
+    const bool leftFire  = mouseLeft || padLeftFire;
 
     //--------------------------------------------------------------------------
     // 右腕発射
@@ -1502,7 +1505,7 @@ bool Player_TakeDamage(int damage) // ダメージ処理（無敵中は無効、
         return false;
 
     // 両腕シールド → ダメージ無効（-100%）
-    const bool rightIsShield = (g_NormalWeaponIdx >= NORMAL_WEAPON_COUNT); // 右腕がシールド
+    const bool rightIsShield = (g_RightWeaponIdx == WEAPON_SHIELD);
     const bool leftIsShield  = (g_LeftWeaponIdx == WEAPON_SHIELD);
     if (rightIsShield && leftIsShield && Shield_IsActive())
         return false;
@@ -1517,7 +1520,7 @@ bool Player_TakeDamage(int damage) // ダメージ処理（無敵中は無効、
 
     g_PlayerHP -= damage;
 
-    g_InvincibleTimer = INVINCIBLE_DURATION;
+    //g_InvincibleTimer = INVINCIBLE_DURATION; // TODO: 無敵時間 一時無効化中
 
     if (g_PlayerHP <= 0)
     {
@@ -1599,6 +1602,16 @@ void Player_AddBeamEnergy(float amount)
 float Player_GetSpeedMultiplier() // スピード倍率を返す
 {
     return g_PlayerSpeedMultiplier;
+}
+
+int Player_GetNormalWeaponIndex()
+{
+    return g_NormalWeaponIdx;
+}
+
+int Player_GetLeftWeaponIndex()
+{
+    return g_LeftWeaponIdx;
 }
 
 void Player_SetSpeedMultiplier(float m) // スピード倍率を設定する。m=設定する倍率

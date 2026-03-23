@@ -23,4 +23,11 @@ void HUD_NotifyModeChange(bool isBeam); // 武器モード切り替え通知
 // 現在の武器モードに対応するサイトテクスチャIDを返す（Billboard描画用）
 int HUD_GetSightTexture();
 
+// HUDデザイン切り替え（false=現行, true=新デザイン）
+void HUD_SetUseNewDesign(bool useNew);
+bool HUD_GetUseNewDesign();
+
+// 死亡演出：GAME OVER テキストと暗幕を描画（alpha: 0.0=透明, 1.0=不透明）
+void HUD_DrawGameOver(float alpha);
+
 #endif // HUD_H

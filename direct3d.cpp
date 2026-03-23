@@ -280,6 +280,18 @@ void Direct3D_BindMainRenderTarget()
 }
 
 /*==============================================================================
+   深度バッファ全体クリア
+   HUD ミニプレビュー描画前に呼ぶことでゲームシーンの深度を除去し、
+   サブビューポート内のモデルが正しく深度テストされるようにする
+==============================================================================*/
+void Direct3D_ClearDepth()
+{
+    if (g_pDepthStencilView && g_pDeviceContext)
+        g_pDeviceContext->ClearDepthStencilView(
+            g_pDepthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
+}
+
+/*==============================================================================
 
    画面更新（Present）
 
@@ -484,7 +496,12 @@ bool Direct3D_ResizeBackBuffer(unsigned int width, unsigned int height)
     }
 
     // RTV / DSV / Viewport を再生成
-    return configureBackBuffer();
+    if (!configureBackBuffer()) return false;
+
+    // FLIP モード必須: ResizeBuffers 後の先頭 Present に RESTART フラグを渡す
+    // これを省くと DXGI が未送信フレームをリセットせず画面更新が止まる
+    g_pSwapChain->Present(0, DXGI_PRESENT_RESTART);
+    return true;
 }
 
 

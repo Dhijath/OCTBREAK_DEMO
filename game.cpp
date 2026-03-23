@@ -29,6 +29,7 @@ using namespace DirectX;
 #include "sprite_anim.h"
 #include "bullet.h"
 #include "bullet_hit_effect.h"
+#include "particle_spark.h"
 #include "direct3d.h"
 #include "cube.h"
 #include "sprite.h"
@@ -134,6 +135,7 @@ void Game_Initialize()
     // 弾・被弾エフェクトの初期化
     Bullet_Initialize();
     BulletHitEffect_Initialize();
+    SparkEffect_Initialize();
 
     // マップ初期化（ここでスポーン位置が確定する想定）
     Map_Initialize();
@@ -333,6 +335,10 @@ void Game_Update(double elapsed_time)
     }
 
     //--------------------------------------------------------------------------
+    // HUDデザイン切り替え（F2キー）
+    if (KeyLogger_IsTrigger(KK_F2))
+        HUD_SetUseNewDesign(!HUD_GetUseNewDesign());
+
     // ダンジョン再生成（Rキー）
     // ・マップを再生成して、プレイヤーを安全スポーン位置へ移動する
     //--------------------------------------------------------------------------
@@ -362,6 +368,7 @@ void Game_Update(double elapsed_time)
     EnemyBullet_Update(elapsed_time);
     Bullet_Update(elapsed_time);
     BulletHitEffect_Update();
+    SparkEffect_Update(elapsed_time);
 
     HUD_Update(elapsed_time);
 
@@ -560,6 +567,7 @@ void Game_Draw()
     Bullet_Draw();
     EnemyBullet_Draw();
     BulletHitEffect_Draw();
+    SparkEffect_Draw();
 
     Player_Draw();
 
@@ -689,6 +697,7 @@ void Game_Finalize()
     g_EnemyManager.Finalize();
 
     // エフェクト／弾
+    SparkEffect_Finalize();
     BulletHitEffect_Finalize();
     Bullet_Finalize();
 

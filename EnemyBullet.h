@@ -17,6 +17,8 @@
 
 #include <DirectXMath.h>
 
+struct MODEL;
+
 //==============================================================================
 // システム初期化
 //
@@ -71,11 +73,14 @@ void EnemyBullet_Draw();
 // ・position : 発射位置（ワールド座標）
 // ・velocity : 発射方向（内部でSPEEDに正規化される）
 // ・damage   : プレイヤーへのダメージ量
+// ・speed    : 弾速（省略時 8.0f）
+// ・pModel   : 使用するモデル（nullptr で共通のbullet.fbxを使用）
 //==============================================================================
 void EnemyBullet_Create(const DirectX::XMFLOAT3& position,
     const DirectX::XMFLOAT3& velocity,
-    int damage,
-    float speed = 8.0f);
+    int   damage,
+    float speed   = 8.0f,
+    MODEL* pModel = nullptr);
 
 //==============================================================================
 // 弾数取得

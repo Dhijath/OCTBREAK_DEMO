@@ -1,0 +1,46 @@
+/*==============================================================================
+
+   入力デバイス検出 & チュートリアルバー [input_hint.h]
+   Author : 51106
+   Date   : 2026/03/25
+
+--------------------------------------------------------------------------------
+   ■概要
+   ・最後に使われた入力デバイス（KB/マウス or ゲームパッド）を毎フレーム検出
+   ・画面下部にヒントバーを描画する
+     → KBモード時は kbmText、パッドモード時は padText を表示
+
+   ■使い方
+     // main.cpp の Update ループ内
+     InputHint_Update();
+
+     // 各 Draw 関数の末尾（Fade_Draw の直前）
+     InputHint_Draw(
+         "[TAB] ARM  [↑↓] Weapon  [Click] Decide",   // KB/Mouse
+         "[LB] ARM  [↑↓] Weapon  [A] Decide"          // Gamepad
+     );
+
+==============================================================================*/
+
+#pragma once
+
+enum class InputDevice
+{
+    KBMouse,   // キーボード + マウス
+    Gamepad,   // ゲームパッド
+};
+
+// 初期化 / 終了（main.cpp で一度だけ呼ぶ）
+void InputHint_Initialize();
+void InputHint_Finalize();
+
+// 毎フレーム入力デバイスを検出（KeyLogger_Update / PadLogger_Update の直後に呼ぶ）
+void InputHint_Update();
+
+// 現在アクティブなデバイスを返す
+InputDevice InputHint_GetActiveDevice();
+
+// ヒントバーを画面下部に描画する
+// kbmText : KB/マウス向け説明文
+// padText : ゲームパッド向け説明文
+void InputHint_Draw(const char* kbmText, const char* padText);

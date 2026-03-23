@@ -48,9 +48,17 @@ public:
 
     //==========================================================================
     // 終了処理（デストラクタからも自動呼び出し）
+    // ・Initialize() 前や Finalize() 後に呼んでも安全（冪等）
     //==========================================================================
     ~Trail() { Finalize(); }
     void Finalize();
+
+    // ムーブのみ許可（コピー禁止 ― m_pVB の二重解放を防ぐ）
+    Trail()                            = default;
+    Trail(const Trail&)                = delete;
+    Trail& operator=(const Trail&)     = delete;
+    Trail(Trail&&) noexcept;
+    Trail& operator=(Trail&&) noexcept;
 
     //==========================================================================
     // 毎フレーム更新
@@ -83,6 +91,7 @@ private:
         float             age; // 経過時間（秒）
     };
 
+    bool                    m_Initialized = false; // Initialize済みフラグ（Finalizeの二重呼び出し防止）
     std::vector<TrailPoint> m_Points;
     int                     m_MaxPoints = 32;
     float                   m_Width     = 0.1f;

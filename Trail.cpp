@@ -181,10 +181,11 @@ void Trail::SharedFinalize()
 //==============================================================================
 void Trail::Initialize(int maxPoints, float width, float maxAge, XMFLOAT4 color)
 {
-    m_MaxPoints = maxPoints > 2 ? maxPoints : 2;
-    m_Width     = width;
-    m_MaxAge    = maxAge > 0.0f ? maxAge : 0.01f;
-    m_Color     = color;
+    m_MaxPoints   = maxPoints > 2 ? maxPoints : 2;
+    m_Width       = width;
+    m_MaxAge      = maxAge > 0.0f ? maxAge : 0.01f;
+    m_Color       = color;
+    m_Initialized = true;
 
     m_Points.reserve(m_MaxPoints);
     SharedInit();
@@ -195,10 +196,55 @@ void Trail::Initialize(int maxPoints, float width, float maxAge, XMFLOAT4 color)
 //==============================================================================
 void Trail::Finalize()
 {
+    if (!m_Initialized) return; // 二重 Finalize / 未初期化ガード
+    m_Initialized = false;
+
     Clear();
     if (m_pVB) { m_pVB->Release(); m_pVB = nullptr; }
     m_VBCapacity = 0;
     SharedFinalize();
+}
+
+//==============================================================================
+// ムーブコンストラクタ
+//==============================================================================
+Trail::Trail(Trail&& o) noexcept
+    : m_Initialized(o.m_Initialized)
+    , m_Points     (std::move(o.m_Points))
+    , m_MaxPoints  (o.m_MaxPoints)
+    , m_Width      (o.m_Width)
+    , m_MaxAge     (o.m_MaxAge)
+    , m_Color      (o.m_Color)
+    , m_pVB        (o.m_pVB)
+    , m_VBCapacity (o.m_VBCapacity)
+{
+    // 移動元を「未初期化」状態にしてデストラクタを無害化
+    o.m_Initialized = false;
+    o.m_pVB         = nullptr;
+    o.m_VBCapacity  = 0;
+}
+
+//==============================================================================
+// ムーブ代入演算子
+//==============================================================================
+Trail& Trail::operator=(Trail&& o) noexcept
+{
+    if (this == &o) return *this;
+    Finalize(); // 現在保持しているリソースを解放
+
+    m_Initialized = o.m_Initialized;
+    m_Points      = std::move(o.m_Points);
+    m_MaxPoints   = o.m_MaxPoints;
+    m_Width       = o.m_Width;
+    m_MaxAge      = o.m_MaxAge;
+    m_Color       = o.m_Color;
+    m_pVB         = o.m_pVB;
+    m_VBCapacity  = o.m_VBCapacity;
+
+    o.m_Initialized = false;
+    o.m_pVB         = nullptr;
+    o.m_VBCapacity  = 0;
+    return *this;
 }
 
 //==============================================================================

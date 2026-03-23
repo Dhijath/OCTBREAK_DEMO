@@ -24,6 +24,7 @@
 #include "bullet.h"
 #include "EnemyBullet.h"
 #include "bullet_hit_effect.h"
+#include "particle_spark.h"
 #include "effect.h"
 #include "Clear.h"
 #include "Result.h"
@@ -36,6 +37,11 @@
 #include "BossIntro.h"
 #include "ItemManager.h"
 #include "player_camera.h"
+#include "HUD.h"
+#include "input_hint.h"
+#include <DirectXMath.h>
+#include <cstdlib>
+using namespace DirectX;
 
 // 現在/次の状態
 static GameState g_GameState = GameState::Title;
@@ -58,6 +64,10 @@ static bool g_PendingDungeonRegenerate = false;
 static bool g_InBossRoom = false;
 // ポーズ中フラグ（フェードなし即時停止）
 static bool g_IsPaused = false;
+
+// PlayerDeath 演出
+static double g_DeathTimer       = 0.0;  // 死亡後の経過時間（秒）
+static double g_DeathExplodeNext = 0.0;  // 次の爆発スポーンまでの残時間
 
 // BGMパス（必要に応じて差し替え）
 static const char* BGM_TITLE = "resource/sound/newspaper.wav";
@@ -246,9 +256,13 @@ void GameManager_Update(double elapsed_time)
         }
 
         // ゲームオーバー：プレイヤー無効化かつ演出中でないとき
+        // → 即 Result に飛ばさず、PlayerDeath 演出ステートへ移行
         if (!Player_IsEnable() && !BossIntro_IsPlaying())
         {
-            BeginTransition(GameState::Result, BGM_RESULT);
+            g_GameState        = GameState::PlayerDeath;
+            g_DeathTimer       = 0.0;
+            g_DeathExplodeNext = 0.0;
+            g_IsPaused = false;
             break;
         }
 
@@ -276,6 +290,43 @@ void GameManager_Update(double elapsed_time)
         {
             PlayAudio(g_PlayerclearSE);
             BeginTransition(GameState::Clear, BGM_RESULT);
+        }
+
+        break;
+    }
+
+    case GameState::PlayerDeath:
+    {
+        if (g_IsTransitioning) break;
+
+        g_DeathTimer       += elapsed_time;
+        g_DeathExplodeNext -= elapsed_time;
+
+        // パーティクル・カメラだけ更新（ゲームロジックは止める）
+        SparkEffect_Update(elapsed_time);
+        HUD_Update(elapsed_time);
+
+        // 爆発を連続スポーン（死亡後 2.5 秒間、だんだん密に）
+        if (g_DeathExplodeNext <= 0.0 && g_DeathTimer < 2.5)
+        {
+            XMFLOAT3 base = Player_GetPosition();
+            // プレイヤー中心付近にランダムオフセット
+            const float ox = ((rand() % 200) - 100) * 0.018f;
+            const float oz = ((rand() % 200) - 100) * 0.018f;
+            const XMFLOAT3 pos = { base.x + ox, base.y + 0.9f, base.z + oz };
+
+            // スケール 5〜8 のでかい爆発
+            const float sc = 5.0f + (rand() % 31) * 0.1f;
+            SparkEffect_Create(pos, sc);
+
+            // 序盤はゆっくり（0.35秒）→ 後半は密集（0.15秒）
+            g_DeathExplodeNext = (g_DeathTimer < 1.0) ? 0.35 : 0.15;
+        }
+
+        // 3.8 秒後にリザルト遷移
+        if (g_DeathTimer >= 3.8)
+        {
+            BeginTransition(GameState::Result, BGM_RESULT);
         }
 
         break;
@@ -353,6 +404,7 @@ void GameManager_Update(double elapsed_time)
             Bullet_ClearAll();             // ルーム遷移時に残弾・エフェクト・パーティクルをクリア
             EnemyBullet_ClearAll();
             BulletHitEffect_ClearAll();
+            SparkEffect_ClearAll();
             Effect_ClearAll();
             Player_ClearParticles();
             ItemManager_ClearAll();        // ドロップアイテムをクリア
@@ -426,10 +478,43 @@ void GameManager_Draw()
         if (g_IsPaused)
             Pause_Draw();
         break;
+    case GameState::PlayerDeath:
+        Game_Draw();
+        {
+            // 0.8秒後からフェードイン（0.7秒かけて完全表示）
+            float alpha = (float)((g_DeathTimer - 0.8) / 0.7);
+            if (alpha < 0.0f) alpha = 0.0f;
+            if (alpha > 1.0f) alpha = 1.0f;
+            HUD_DrawGameOver(alpha);
+        }
+        break;
     case GameState::Option:  Option_Draw();  break;
     case GameState::Result:  Result_Draw();  break;
     case GameState::Clear:   Clear_Draw();   break;
     case GameState::Exit:    /* 何も描かない */ break;
+    }
+
+    // ── チュートリアルヒントバー（フェードの直前）──────────────────────
+    switch (g_GameState)
+    {
+    case GameState::WeaponSelect:
+        InputHint_Draw(
+            "[TAB] R/L ARM   [W/S] Weapon   [Left Click] Decide",
+            "[LB/RB] R/L ARM   [Up/Down] Weapon   [A] Decide");
+        break;
+    case GameState::Title:
+        InputHint_Draw(
+            "[Enter] Select   [Up/Down] Move",
+            "[A] Select   [Up/Down] Move");
+        break;
+    case GameState::Playing:
+        if (g_IsPaused)
+            InputHint_Draw(
+                "[Enter] Resume / Exit",
+                "[A] Resume / Exit");
+        break;
+    default:
+        break;
     }
 
     // フェードは最後に重ねる

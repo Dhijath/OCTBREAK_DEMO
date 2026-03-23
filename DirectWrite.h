@@ -36,7 +36,13 @@ enum class Font
 {
     Meiryo,
     Arial,
-    MeiryoUI
+    MeiryoUI,
+    Consolas,
+    OCR_A,        // 機械読み取り文字風
+    CourierNew,   // タイプライター
+    AgencyFB,     // 圧縮・ミリタリー調
+    LucidaConsole,
+    DSEG7         // 7セグメントLED表示器風（要インストール）
 };
 
 //=============================================================================
@@ -48,7 +54,13 @@ namespace
     {
         L"メイリオ",
         L"Arial",
-        L"Meiryo UI"
+        L"Meiryo UI",
+        L"Consolas",
+        L"OCR A Extended",
+        L"Courier New",
+        L"Agency FB",
+        L"Lucida Console",
+        L"DSEG7 Modern"
     };
 }
 
@@ -57,8 +69,8 @@ namespace
 //=============================================================================
 struct FontData
 {
-    Font font;                          // フォント名
-    IDWriteFontCollection* fontCollection; // フォントコレクション
+    Font font;                          // フォント名（FontListのインデックスに対応）
+    IDWriteFontCollection* fontCollection; // フォントコレクション（通常nullptr）
     DWRITE_FONT_WEIGHT fontWeight;      // フォントの太さ
     DWRITE_FONT_STYLE fontStyle;        // フォントスタイル
     DWRITE_FONT_STRETCH fontStretch;    // フォントの幅
@@ -66,6 +78,11 @@ struct FontData
     WCHAR const* localeName;            // ロケール名
     DWRITE_TEXT_ALIGNMENT textAlignment; // テキストの配置
     D2D1_COLOR_F Color;                 // フォントの色
+
+    // フォントファイルパス（設定するとファイルから読み込み・配布時に使用）
+    // 例: L"resource/fonts/DSEG7Classic-Regular.ttf"
+    // nullptr の場合はシステムフォントを使用
+    const wchar_t* fontFilePath = nullptr;
 
     // デフォルト設定
     FontData()
@@ -79,6 +96,7 @@ struct FontData
         localeName = L"ja-jp";
         textAlignment = DWRITE_TEXT_ALIGNMENT::DWRITE_TEXT_ALIGNMENT_LEADING;
         Color = D2D1::ColorF(D2D1::ColorF::White);
+        fontFilePath = nullptr;
     }
 };
 
@@ -88,13 +106,14 @@ struct FontData
 class DirectWrite
 {
 private:
-    ID2D1Factory*           pD2DFactory     = NULL;
-    IDWriteFactory*         pDWriteFactory  = NULL;
-    IDWriteTextFormat*      pTextFormat     = NULL;
-    IDWriteTextLayout*      pTextLayout     = NULL;
-    ID2D1RenderTarget*      pRT             = NULL;
-    ID2D1SolidColorBrush*   pSolidBrush     = NULL;
-    IDXGISurface*           pBackBuffer     = NULL;
+    ID2D1Factory*           pD2DFactory          = NULL;
+    IDWriteFactory*         pDWriteFactory        = NULL;
+    IDWriteTextFormat*      pTextFormat           = NULL;
+    IDWriteTextLayout*      pTextLayout           = NULL;
+    ID2D1RenderTarget*      pRT                  = NULL;
+    ID2D1SolidColorBrush*   pSolidBrush          = NULL;
+    IDXGISurface*           pBackBuffer          = NULL;
+    IDWriteFontCollection*  pCustomFontCollection = NULL; // ファイルから生成した場合
 
     // フォントデータ
     FontData* Setting = new FontData();
@@ -102,13 +121,20 @@ private:
     // stringをwstringへ変換する
     std::wstring StringToWString(std::string oString);
 
+    // リサイズ時の RT 部分だけ解放／再生成
+    void ReleaseRT();
+    void ReinitRT();
+
 public:
     // デフォルトコンストラクタを制限
     DirectWrite() = delete;
 
+    // デストラクタ（全インスタンスリストから除外）
+    ~DirectWrite();
+
     // コンストラクタ
     // 第1引数：フォント設定
-    DirectWrite(FontData* set) :Setting(set) {};
+    DirectWrite(FontData* set);
 
     // コンストラクタ
     DirectWrite(
@@ -156,4 +182,26 @@ public:
 
     // 終了処理
     void Release();
+
+    //--------------------------------------------------------------------------
+    // バッチ描画 API（DamagePopup などで複数テキストを 1 パスで描く）
+    //   BeginBatch() → DrawAt() × N → EndBatch() の順で呼ぶ
+    //   BeginBatch が D3D11 RTV を自動アンバインドし、
+    //   EndBatch が描画後に RTV を再バインドする
+    //--------------------------------------------------------------------------
+    void BeginBatch();
+    void EndBatch();
+
+    // バッチ内テキスト描画（実ピクセル座標 cx,cy を中心に halfW 幅で描く）
+    // outlinePx > 0 のとき、4方向オフセット描画による縁取りを付ける
+    void DrawAt(const std::string&  str,  float cx, float cy, float halfW, D2D1_COLOR_F color, float outlinePx = 0.0f);
+    void DrawAt(const std::wstring& wstr, float cx, float cy, float halfW, D2D1_COLOR_F color, float outlinePx = 0.0f);
+
+    //--------------------------------------------------------------------------
+    // フルスクリーン切替対応（game_window.cpp の ToggleFullscreen から呼ぶ）
+    //   PreResize  : ResizeBuffers 前 – 全インスタンスの D2D RT を解放
+    //   PostResize : ResizeBuffers 後 – 全インスタンスの D2D RT を再生成
+    //--------------------------------------------------------------------------
+    static void PreResize();
+    static void PostResize();
 };

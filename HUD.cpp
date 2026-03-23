@@ -10,10 +10,22 @@
 
 #include "HUD.h"
 #include "Player.h"
+#include "WeaponDef.h"
 #include "sprite.h"
 #include "texture.h"
 #include "direct3d.h"
+#include "DirectWrite.h"
+#include "model.h"
+#include "ModelToon.h"
+#include "ShaderToon.h"
+#include "shader3d.h"
+#include "light.h"
+#include "player_camera.h"
+#include <d2d1helper.h>
+#include <d3d11.h>
 #include <DirectXMath.h>
+#include <cmath>
+#include <cstdio>
 
 using namespace DirectX;
 
@@ -197,6 +209,30 @@ static constexpr float STACK_X_GAP_X = 0.0f;
 // 数量表示（×N）の数字拡大率
 static constexpr float STACK_DIGIT_SCALE = 0.75f;
 
+//==============================================================================
+// 新HUD用 DirectWrite インスタンス
+// ・HUD_Initialize / HUD_Finalize で生成・破棄
+//==============================================================================
+static DirectWrite* s_pDW_Large    = nullptr;  // 大フォント（HP数値）
+static DirectWrite* s_pDW_Small    = nullptr;  // 小フォント（ラベル・武器名・速度など）
+static DirectWrite* s_pDW_GameOver = nullptr;  // GAME OVER テキスト
+
+//==============================================================================
+// HP カウントダウンアニメーション
+//==============================================================================
+static float s_HpDisplayed = -1.0f;  // 表示用HP（実HPに向けて毎フレーム近づく）
+
+//==============================================================================
+// 武器ミニプレビュー用
+//==============================================================================
+static MODEL* s_pWeaponPreviewModels[WEAPON_COUNT] = {};  // 各武器のプレビューモデル
+static float  s_WeaponPreviewAngle = 0.0f;                // 回転角（ラジアン）
+
+//==============================================================================
+// HUDデザイン切り替えフラグ
+//==============================================================================
+static bool s_UseNewDesign = false;
+
 //------------------------------------------------------------------------------
 // Forward declarations
 //------------------------------------------------------------------------------
@@ -207,6 +243,9 @@ static void HUD_DrawSpeedStackUI(float scale, float screenW, float screenH);
 static void HUD_DrawNumberLeftScaled(int digitTexId, int value, float x, float y, float scale);
 static float HUD_GetDigitW(int digitTexId);
 static float HUD_GetDigitH(int digitTexId);
+
+static void HUD_DrawLegacy();
+static void HUD_DrawNew();
 
 //==============================================================================
 // UI Scale 計算
@@ -340,6 +379,7 @@ void HUD_Initialize()
     // スタック数初期化
     s_AtkCount = 0;
     s_SpeedCount = 0;
+    s_HpDisplayed = -1.0f;
 
     // ATK スタック UI
     s_TexStackATTACKFrame = Texture_Load(L"resource/texture/ATTACK_Frame.png");
@@ -354,6 +394,53 @@ void HUD_Initialize()
     // 数量表示用
     s_TexStackX = Texture_Load(L"resource/texture/ui_x.png");
     s_TexDigits = Texture_Load(L"resource/texture/digits_0to9.png");
+
+    // ── 新HUD用 DirectWrite ──────────────────────────────
+    {
+        static FontData fdLarge;
+        fdLarge.font          = Font::DSEG7;
+        fdLarge.fontFilePath  = L"resource/fonts/DSEG7Modern-Regular.ttf";
+        fdLarge.fontWeight    = DWRITE_FONT_WEIGHT_BOLD;
+        fdLarge.fontStyle     = DWRITE_FONT_STYLE_NORMAL;
+        fdLarge.fontStretch   = DWRITE_FONT_STRETCH_NORMAL;
+        fdLarge.fontSize      = 36.0f;
+        fdLarge.localeName    = L"en-us";
+        fdLarge.textAlignment = DWRITE_TEXT_ALIGNMENT_CENTER;
+        fdLarge.Color         = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
+        s_pDW_Large = new DirectWrite(&fdLarge);
+        s_pDW_Large->Init();
+
+        static FontData fdSmall;
+        fdSmall.font          = Font::Arial;
+        fdSmall.fontWeight    = DWRITE_FONT_WEIGHT_BOLD;
+        fdSmall.fontStyle     = DWRITE_FONT_STYLE_NORMAL;
+        fdSmall.fontStretch   = DWRITE_FONT_STRETCH_NORMAL;
+        fdSmall.fontSize      = 18.0f;
+        fdSmall.localeName    = L"en-us";
+        fdSmall.textAlignment = DWRITE_TEXT_ALIGNMENT_CENTER;
+        fdSmall.Color         = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
+        s_pDW_Small = new DirectWrite(&fdSmall);
+        s_pDW_Small->Init();
+    }
+
+    // GAME OVER テキスト用（Agency FB 大フォント）
+    {
+        static FontData fdGO;
+        fdGO.font          = Font::MeiryoUI;
+        fdGO.fontWeight    = DWRITE_FONT_WEIGHT_BOLD;
+        fdGO.fontStyle     = DWRITE_FONT_STYLE_NORMAL;
+        fdGO.fontStretch   = DWRITE_FONT_STRETCH_NORMAL;
+        fdGO.fontSize      = 108.0f;
+        fdGO.localeName    = L"ja-jp";
+        fdGO.textAlignment = DWRITE_TEXT_ALIGNMENT_CENTER;
+        fdGO.Color         = D2D1::ColorF(1.0f, 0.1f, 0.1f, 1.0f);
+        s_pDW_GameOver = new DirectWrite(&fdGO);
+        s_pDW_GameOver->Init();
+    }
+
+    // 武器ミニプレビュー用モデルをロード
+    for (int i = 0; i < WEAPON_COUNT; ++i)
+        s_pWeaponPreviewModels[i] = ModelLoad(k_WeaponDefs[i].modelPath, k_WeaponDefs[i].scale);
 }
 
 //==============================================================================
@@ -386,6 +473,18 @@ void HUD_Finalize()
 
     s_TexStackX = -1;
     s_TexDigits = -1;
+
+    // 新HUD用 DirectWrite 解放
+    if (s_pDW_Large)    { s_pDW_Large->Release();    delete s_pDW_Large;    s_pDW_Large    = nullptr; }
+    if (s_pDW_Small)    { s_pDW_Small->Release();    delete s_pDW_Small;    s_pDW_Small    = nullptr; }
+    if (s_pDW_GameOver) { s_pDW_GameOver->Release(); delete s_pDW_GameOver; s_pDW_GameOver = nullptr; }
+
+    // 武器ミニプレビュー用モデルの解放
+    for (int i = 0; i < WEAPON_COUNT; ++i)
+    {
+        ModelRelease(s_pWeaponPreviewModels[i]);
+        s_pWeaponPreviewModels[i] = nullptr;
+    }
 }
 
 //==============================================================================
@@ -407,9 +506,20 @@ void HUD_AddCollectedItem(ItemType type)
 }
 
 //==============================================================================
-// Draw
+// Draw（デザイン切り替え）
 //==============================================================================
 void HUD_Draw()
+{
+    if (s_UseNewDesign)
+        HUD_DrawNew();
+    else
+        HUD_DrawLegacy();
+}
+
+//==============================================================================
+// 現行HUD
+//==============================================================================
+static void HUD_DrawLegacy()
 {
     if (s_BarTexID < 0) return;
 
@@ -517,6 +627,418 @@ void HUD_Draw()
                 SIGHT_SIZE,
                 { 1.0f, 1.0f, 1.0f, 1.0f }
             );
+        }
+    }
+
+    Direct3D_SetDepthEnable(true);
+}
+
+//==============================================================================
+// 新HUD ― ACシリーズ風レイアウト
+//
+//  ┌─────────────────────────────┐
+//  │[左上] APパネル(HP数値+バー)      [右] 武器パネル │
+//  │[左端] エネルギーバー（縦）                     │
+//  │                [中央] 照準                   │
+//  │[左下] 速度                                  │
+//  └─────────────────────────────┘
+//==============================================================================
+static void HUD_DrawNew()
+{
+    if (s_BarTexID < 0) return;
+
+    Direct3D_SetDepthEnable(false);
+    Direct3D_SetBlendState(true);
+    Sprite_Begin();
+
+    const float SW = (float)SPRITE_SCREEN_W;   // 1600
+    const float SH = (float)SPRITE_SCREEN_H;   // 900
+    const float BRD = 2.0f;                    // 枠線幅
+
+    // ── 共通カラー定義 ─────────────────────────────────
+    // 購入・アセンブリ画面風のネイビーブルー基調
+    const XMFLOAT4 colAmber    = { 1.0f, 0.70f, 0.00f, 1.0f };
+    const XMFLOAT4 colAmberDim = { 1.0f, 0.70f, 0.00f, 0.55f };
+    const XMFLOAT4 colDark     = { 0.04f, 0.07f, 0.20f, 0.88f };   // ← ネイビー
+    const XMFLOAT4 colHPGreen  = { 0.2f, 0.85f, 0.25f, 1.0f };
+    const XMFLOAT4 colHPRed    = { 1.0f, 0.18f, 0.08f, 1.0f };
+    const XMFLOAT4 colEnergy   = { 1.0f, 0.60f, 0.00f, 1.0f };
+    const XMFLOAT4 colWepSel   = { 0.05f, 0.55f, 0.15f, 0.88f };
+    const XMFLOAT4 colWepNorm  = { 0.05f, 0.09f, 0.24f, 0.88f };   // ← ネイビー
+    const XMFLOAT4 colWhite    = { 1.0f, 1.0f,  1.0f,  1.0f };
+    const XMFLOAT4 colBarBG    = { 0.08f, 0.13f, 0.32f, 0.95f };   // ← 少し明るいネイビー
+
+    // ── ローカルヘルパー: 4辺に枠線を引く ──────────────────
+    auto DrawBorder = [&](float x, float y, float w, float h, const XMFLOAT4& col)
+    {
+        Sprite_Draw(s_BarTexID, x,         y,             w,   BRD, col); // 上
+        Sprite_Draw(s_BarTexID, x,         y + h - BRD,   w,   BRD, col); // 下
+        Sprite_Draw(s_BarTexID, x,         y,              BRD, h,   col); // 左
+        Sprite_Draw(s_BarTexID, x + w - BRD, y,            BRD, h,   col); // 右
+    };
+
+    // ================================================================
+    // 1. APパネル（左上）― HP数値 + ゲージ
+    // ================================================================
+    const int   hp          = Player_GetHP();
+    const int   hpMax       = Player_GetMaxHP();
+    const int   displayedHP = (int)s_HpDisplayed;          // アニメーション用表示値
+    const float hpRatio     = (hpMax > 0) ? (float)hp / (float)hpMax : 0.0f;
+
+    const float AP_X  = 16.0f;
+    const float AP_Y  = 14.0f;
+    const float AP_W  = 300.0f;
+    const float AP_H  = 96.0f;   // 「AP」ラベル + 分数 + バーが収まる高さ
+
+    const float AP_BAR_X  = AP_X + 8.0f;
+    const float AP_BAR_Y  = AP_Y + 78.0f;  // 分数テキスト下に余白を取って配置
+    const float AP_BAR_W  = AP_W - 16.0f;
+    const float AP_BAR_H  = 12.0f;
+
+    // 背景
+    Sprite_Draw(s_BarTexID, AP_X, AP_Y, AP_W, AP_H, colDark);
+
+    // AP 数値 → DirectWrite セクションで描画
+
+    // ゲージ背景 + 充填
+    Sprite_Draw(s_BarTexID, AP_BAR_X, AP_BAR_Y, AP_BAR_W, AP_BAR_H, colBarBG);
+    const float hpFillW = AP_BAR_W * hpRatio;
+    if (hpFillW > 0.0f)
+    {
+        const XMFLOAT4 barCol = (hpRatio > 0.30f) ? colHPGreen : colHPRed;
+        Sprite_Draw(s_BarTexID, AP_BAR_X, AP_BAR_Y, hpFillW, AP_BAR_H, barCol);
+    }
+
+    // 枠線
+    DrawBorder(AP_X, AP_Y, AP_W, AP_H, colAmber);
+
+    // ================================================================
+    // 2. ビームエネルギーバー（左端・縦）
+    // ================================================================
+    const float bEnergy    = Player_GetBeamEnergy();
+    const float bEnergyMax = Player_GetBeamEnergyMax();
+    const float bRatio     = (bEnergyMax > 0.0f) ? (bEnergy / bEnergyMax) : 0.0f;
+
+    const float ENE_X = 16.0f;
+    const float ENE_Y = AP_Y + AP_H + 2.0f;   // APパネル直下に詰める
+    const float ENE_W = 18.0f;
+    const float ENE_H = 180.0f;
+
+    Sprite_Draw(s_BarTexID, ENE_X, ENE_Y, ENE_W, ENE_H, colBarBG);
+    {
+        const float fillH = ENE_H * bRatio;
+        if (fillH > 0.0f)
+            Sprite_Draw(s_BarTexID,
+                ENE_X, ENE_Y + ENE_H - fillH,
+                ENE_W, fillH,
+                colEnergy);
+    }
+    DrawBorder(ENE_X, ENE_Y, ENE_W, ENE_H, colAmber);
+
+    // ================================================================
+    // 3. 速度表示（左下）
+    // ================================================================
+    XMFLOAT3* vel = Player_GetVelocityPtr();
+    int speedInt = 0;
+    if (vel)
+    {
+        const float hSpd = sqrtf(vel->x * vel->x + vel->z * vel->z);
+        speedInt = (int)(hSpd * 36.0f);  // 単位系に合わせた係数
+    }
+
+    const float SPD_W = 160.0f;
+    const float SPD_H = 42.0f;
+    const float SPD_X = 16.0f;
+    const float SPD_Y = SH - SPD_H - 14.0f;
+
+    Sprite_Draw(s_BarTexID, SPD_X, SPD_Y, SPD_W, SPD_H, colDark);
+    DrawBorder(SPD_X, SPD_Y, SPD_W, SPD_H, colAmber);
+    // 速度数値 → DirectWrite セクションで描画
+
+    // ================================================================
+    // 4. 武器パネル（右側） ― R ARM / L ARM 各1スロット＋3Dミニプレビュー
+    // ================================================================
+    const float WEP_W      = 240.0f;
+    const float WEP_SLOT_H = 110.0f;
+    const float WEP_GAP    = 6.0f;
+    const float WEP_X      = SW - WEP_W - 10.0f;
+    // 下端から固定（ミニマップが右上を占有するため右下に配置）
+    // スタックパネル(104px) + ギャップ(8px) + 余白(16px) を含めて収まるよう計算
+    const float WEP_Y      = SH - 2.0f * (WEP_SLOT_H + WEP_GAP) - 104.0f - 8.0f - 16.0f;
+
+    // プレビュー領域（スロット内、左側に正方形配置）
+    const float PREV_SZ    = 90.0f;    // プレビューの一辺
+    const float PREV_PAD_X = 4.0f;
+    const float PREV_PAD_Y = (WEP_SLOT_H - PREV_SZ) * 0.5f;
+
+    const int rArmIdx = Player_GetNormalWeaponIndex();
+    const int lArmIdx = Player_GetLeftWeaponIndex();
+    const int armIdx[2] = { rArmIdx, lArmIdx };
+
+    // ── スロット背景＋枠（スプライト）─────────────────────────
+    for (int arm = 0; arm < 2; ++arm)
+    {
+        const float slotY = WEP_Y + arm * (WEP_SLOT_H + WEP_GAP);
+        Sprite_Draw(s_BarTexID, WEP_X, slotY, WEP_W, WEP_SLOT_H, colWepNorm);
+        DrawBorder(WEP_X, slotY, WEP_W, WEP_SLOT_H, colAmber);
+    }
+
+    // ── ATK / SPEED スタック表示（武器パネル下） ────────────
+    {
+        const float STA_Y   = WEP_Y + 2.0f * (WEP_SLOT_H + WEP_GAP) + 8.0f;
+        const float STA_H   = 104.0f;
+        const float COL_W   = WEP_W * 0.5f;   // 1アイテムあたりの列幅
+        const float ICON_SZ = 56.0f;
+
+        // 常時描画（0個でも表示）
+        {
+            Sprite_Draw(s_BarTexID, WEP_X, STA_Y, WEP_W, STA_H, colDark);
+            DrawBorder(WEP_X, STA_Y, WEP_W, STA_H, colAmberDim);
+
+            // ATK列（アイコンは常時表示、カウントは0でも出す）
+            if (s_TexAtk >= 0)
+            {
+                const float cx = WEP_X + COL_W * 0.5f;
+                Sprite_Draw(s_TexAtk,
+                    cx - ICON_SZ * 0.5f, STA_Y + 8.0f,
+                    ICON_SZ, ICON_SZ, colWhite);
+            }
+            // SPEED列
+            if (s_TexSpeed >= 0)
+            {
+                const float cx = WEP_X + COL_W + COL_W * 0.5f;
+                Sprite_Draw(s_TexSpeed,
+                    cx - ICON_SZ * 0.5f, STA_Y + 8.0f,
+                    ICON_SZ, ICON_SZ, colWhite);
+            }
+        }
+    }
+
+    // ── 3D ミニプレビュー ──────────────────────────────────────
+    // スプライト描画後に depth を復元して 3D 描画し、終わったら depth を戻す
+    {
+        const float vpScaleX = (float)Direct3D_GetBackBufferWidth()  / 1600.0f;
+        const float vpScaleY = (float)Direct3D_GetBackBufferHeight() / 900.0f;
+
+        // プレビューカメラ（AssemblyScreen と同じ設定）
+        const XMFLOAT3 eyeF3  = { 0.25f, 0.18f, 0.55f };
+        const XMVECTOR eyeV   = XMLoadFloat3(&eyeF3);
+        const XMVECTOR target = XMVectorZero();
+        const XMVECTOR upV    = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+
+        // ゆっくり Y 軸回転
+        const XMMATRIX world = XMMatrixRotationY(s_WeaponPreviewAngle);
+
+        // ゲームシーンが書いた深度値をクリア（モデルが地形に埋まるのを防ぐ）
+        Direct3D_ClearDepth();
+        Direct3D_SetDepthEnable(true);
+
+        // ── プレビュー用ライト設定（他に影響しないよう事前に保存）──────────
+        const XMFLOAT3 savedAmbient = Light_GetAmbient();
+        Light_SetSpecularWorld(eyeF3, 100.0f, { 0.6f, 0.5f, 0.4f, 1.0f });
+        Light_SetAmbient({ 2.5f, 2.5f, 2.5f });   // プレビュー用に明るく
+
+        for (int arm = 0; arm < 2; ++arm)
+        {
+            const int wIdx = armIdx[arm];
+            if (wIdx < 0 || wIdx >= WEAPON_COUNT) continue;
+            MODEL* mdl = s_pWeaponPreviewModels[wIdx];
+            if (!mdl) continue;
+
+            const float slotY = WEP_Y + arm * (WEP_SLOT_H + WEP_GAP);
+            const float PV_X  = WEP_X + PREV_PAD_X;
+            const float PV_Y  = slotY + PREV_PAD_Y;
+
+            const XMMATRIX view = XMMatrixLookAtLH(eyeV, target, upV);
+            const XMMATRIX proj = XMMatrixPerspectiveFovLH(
+                XMConvertToRadians(45.0f), PREV_SZ / PREV_SZ, 0.01f, 100.0f);
+
+            Shader3d_SetViewMatrix(view);
+            Shader3d_SetProjectMatrix(proj);
+            ShaderToon_SetViewMatrix(view);
+            ShaderToon_SetProjectMatrix(proj);
+
+            D3D11_VIEWPORT vp{};
+            vp.TopLeftX = PV_X * vpScaleX;
+            vp.TopLeftY = PV_Y * vpScaleY;
+            vp.Width    = PREV_SZ * vpScaleX;
+            vp.Height   = PREV_SZ * vpScaleY;
+            vp.MinDepth = 0.0f;
+            vp.MaxDepth = 1.0f;
+            Direct3D_GetContext()->RSSetViewports(1, &vp);
+
+            ModelDrawToon(mdl, world);
+        }
+
+        // フルビューポートを復元
+        D3D11_VIEWPORT fullVP{};
+        fullVP.TopLeftX = 0.0f;
+        fullVP.TopLeftY = 0.0f;
+        fullVP.Width    = (float)Direct3D_GetBackBufferWidth();
+        fullVP.Height   = (float)Direct3D_GetBackBufferHeight();
+        fullVP.MinDepth = 0.0f;
+        fullVP.MaxDepth = 1.0f;
+        Direct3D_GetContext()->RSSetViewports(1, &fullVP);
+
+        // プレビューカメラで上書きしたシェーダー行列をゲームカメラに戻す
+        // （戻さないと ESC 等で Camera_Update が呼ばれないフレームで
+        //   ゲームシーンがHUDカメラで描画されて消えてしまう）
+        Player_Camera_ApplyMainViewProj();
+
+        // ── ライトをプレビュー前の状態に完全に戻す ───────────────────────
+        Light_SetAmbient(savedAmbient);
+
+        Direct3D_SetDepthEnable(false);
+        Direct3D_SetBlendState(true);
+    }
+
+    // ================================================================
+    // 5. 照準（中央）
+    // ================================================================
+    {
+        const float sightX = SW * 0.5f - SIGHT_SIZE * 0.5f;
+        const float sightY = SH * 0.5f - SIGHT_SIZE * 0.5f;
+        const int sightTex = s_IsBeamMode ? s_TexSightBeam : s_TexSightNormal;
+        if (sightTex >= 0)
+            Sprite_Draw(sightTex, sightX, sightY, SIGHT_SIZE, SIGHT_SIZE, colWhite);
+    }
+
+    // ================================================================
+    // 6. テキスト描画（DirectWrite）
+    //    スプライト描画完了後に D2D バッチで一括描画
+    // ================================================================
+    {
+        // 仮想 1600x900 座標系 → 実ピクセル座標系へのスケール
+        const float sx = (float)Direct3D_GetBackBufferWidth()  / 1600.0f;
+        const float sy = (float)Direct3D_GetBackBufferHeight() / 900.0f;
+
+        const D2D1_COLOR_F d2Amber = D2D1::ColorF(1.0f, 0.70f, 0.00f, 1.0f);
+        const D2D1_COLOR_F d2White = D2D1::ColorF(1.0f, 1.0f,  1.0f,  1.0f);
+        const D2D1_COLOR_F d2Dim   = D2D1::ColorF(0.5f, 0.5f,  0.5f,  1.0f);
+
+        // ── 大フォント: HP数値 ──────────────────────────────
+        if (s_pDW_Large)
+        {
+            s_pDW_Large->SetScale(sx, sy);
+            s_pDW_Large->BeginBatch();
+
+            char buf[16];
+            snprintf(buf, sizeof(buf), "%d/%d", displayedHP, hpMax);
+            // APパネル中央に大きく表示
+            s_pDW_Large->DrawAt(buf,
+                AP_X + AP_W * 0.5f, AP_Y + 50.0f,  // パネル中央寄り、スケール等倍
+                AP_W * 0.5f - 8.0f,
+                d2White);
+
+            s_pDW_Large->EndBatch();
+        }
+
+        // ── 小フォント: ラベル・武器名・速度・スタックカウント ────
+        if (s_pDW_Small)
+        {
+            s_pDW_Small->SetScale(sx, sy);
+            s_pDW_Small->BeginBatch();
+
+            // "AP" ラベル（HPパネル左上）
+            s_pDW_Small->DrawAt("AP",
+                AP_X + 22.0f, AP_Y + 18.0f,   // 枠上辺から8px確保
+                18.0f, d2Amber);
+
+            // "ENE" ラベル（エネルギーバー下）
+            s_pDW_Small->DrawAt("ENE",
+                ENE_X + ENE_W * 0.5f, ENE_Y + ENE_H + 13.0f,
+                22.0f, d2Amber);
+
+            // 速度値
+            {
+                char buf[16];
+                snprintf(buf, sizeof(buf), "%d km/h", speedInt);
+                s_pDW_Small->DrawAt(buf,
+                    SPD_X + SPD_W * 0.5f, SPD_Y + SPD_H * 0.5f,
+                    SPD_W * 0.5f - 4.0f, d2White);
+            }
+
+            // 武器スロット（R-ARM / L-ARM）ラベル＋武器名＋ATK
+            {
+                // テキスト領域: プレビュー右端〜スロット右端
+                const float textAreaX  = WEP_X + PREV_PAD_X + PREV_SZ + 6.0f;
+                const float textAreaW  = WEP_X + WEP_W - 4.0f - textAreaX;
+                const float textCX     = textAreaX + textAreaW * 0.5f;
+
+                static const char* ARM_LABEL[2] = { "R-ARM", "L-ARM" };
+
+                for (int arm = 0; arm < 2; ++arm)
+                {
+                    const float slotY = WEP_Y + arm * (WEP_SLOT_H + WEP_GAP);
+                    const int   wIdx  = armIdx[arm];
+
+                    // ARM ラベル
+                    s_pDW_Small->DrawAt(ARM_LABEL[arm],
+                        textCX, slotY + 22.0f,  // 枠上辺から10px確保
+                        textAreaW * 0.5f, d2Amber);
+
+                    if (wIdx >= 0 && wIdx < WEAPON_COUNT)
+                    {
+                        const WeaponDef& def = k_WeaponDefs[wIdx];
+
+                        // 武器名
+                        s_pDW_Small->DrawAt(def.name,
+                            textCX, slotY + 50.0f,
+                            textAreaW * 0.5f, d2White);
+
+                        // ATK 値
+                        char buf[16];
+                        snprintf(buf, sizeof(buf), "ATK %d", def.damage);
+                        s_pDW_Small->DrawAt(buf,
+                            textCX, slotY + 82.0f,
+                            textAreaW * 0.5f, d2Amber);
+                    }
+                    else
+                    {
+                        s_pDW_Small->DrawAt("---",
+                            textCX, slotY + WEP_SLOT_H * 0.5f,
+                            textAreaW * 0.5f, d2Dim);
+                    }
+                }
+            }
+
+            // 常時描画・2桁対応（幅を20.0fに拡張）
+            {
+                const float STA_Y = WEP_Y + 2.0f * (WEP_SLOT_H + WEP_GAP) + 8.0f;
+                const float STA_H = 104.0f;
+                const float COL_W = WEP_W * 0.5f;
+                const float ICON_SZ = 56.0f;
+                const float NAME_CY = STA_Y + 8.0f + ICON_SZ + 6.0f + 10.0f;
+
+                // ATK列（常時）
+                {
+                    const float cx = WEP_X + COL_W * 0.5f;
+                    char buf[8];
+                    snprintf(buf, sizeof(buf), "x%d", s_AtkCount);
+                    s_pDW_Small->DrawAt(buf,
+                        cx + ICON_SZ * 0.5f + 16.0f,  // 2桁分の横幅を確保
+                        STA_Y + 18.0f,
+                        20.0f, d2White);               // 14.0f → 20.0f
+                    s_pDW_Small->DrawAt("ATK UP",
+                        cx, NAME_CY,
+                        COL_W * 0.5f - 4.0f, d2Amber);
+                }
+                // SPEED列（常時）
+                {
+                    const float cx = WEP_X + COL_W + COL_W * 0.5f;
+                    char buf[8];
+                    snprintf(buf, sizeof(buf), "x%d", s_SpeedCount);
+                    s_pDW_Small->DrawAt(buf,
+                        cx + ICON_SZ * 0.5f + 16.0f,
+                        STA_Y + 18.0f,
+                        20.0f, d2White);
+                    s_pDW_Small->DrawAt("SPD UP",
+                        cx, NAME_CY,
+                        COL_W * 0.5f - 4.0f, d2Amber);
+                }
+            }
+
+            s_pDW_Small->EndBatch();
         }
     }
 
@@ -667,6 +1189,9 @@ int HUD_GetSightTexture()
     return s_IsBeamMode ? s_TexSightBeam : s_TexSightNormal;
 }
 
+void HUD_SetUseNewDesign(bool useNew) { s_UseNewDesign = useNew; }
+bool HUD_GetUseNewDesign()            { return s_UseNewDesign; }
+
 //==============================================================================
 // HUD更新
 //
@@ -683,4 +1208,71 @@ void HUD_Update(double elapsed_time)
         s_ModeTimer -= elapsed_time;
         if (s_ModeTimer < 0.0) s_ModeTimer = 0.0;
     }
+
+    // 武器ミニプレビュー回転角を更新
+    s_WeaponPreviewAngle += static_cast<float>(elapsed_time * 1.2);
+
+    // HP カウントダウンアニメーション
+    // HP が減ったときだけ数字をゆっくりカウントダウン、回復は即時反映
+    {
+        const float realHP = (float)Player_GetHP();
+        if (s_HpDisplayed < 0.0f)
+        {
+            s_HpDisplayed = realHP;  // 初回: 即時同期
+        }
+        else if (s_HpDisplayed > realHP)
+        {
+            // ダメージ: 800 HP/秒でカウントダウン
+            s_HpDisplayed -= 800.0f * (float)elapsed_time;
+            if (s_HpDisplayed < realHP) s_HpDisplayed = realHP;
+        }
+        else
+        {
+            s_HpDisplayed = realHP;  // 回復: 即時
+        }
+    }
+}
+
+//==============================================================================
+// GAME OVER オーバーレイ描画
+//
+// ■役割
+// ・死亡演出中に「GAME OVER」テキストと暗幕を重ねる
+// ■引数
+// ・alpha : 0.0=完全透明, 1.0=完全不透明（フェードインに使う）
+//==============================================================================
+void HUD_DrawGameOver(float alpha)
+{
+    if (!s_pDW_GameOver || s_BarTexID < 0) return;
+    if (alpha <= 0.0f) return;
+    if (alpha > 1.0f)  alpha = 1.0f;
+
+    const float SW = (float)SPRITE_SCREEN_W;
+    const float SH = (float)SPRITE_SCREEN_H;
+    const float sx = (float)Direct3D_GetBackBufferWidth()  / 1600.0f;
+    const float sy = (float)Direct3D_GetBackBufferHeight() / 900.0f;
+
+    // ── 半透明暗幕 ────────────────────────────────────────
+    Direct3D_SetDepthEnable(false);
+    Direct3D_SetBlendState(true);
+    Sprite_Begin();
+    Sprite_Draw(s_BarTexID, 0.0f, 0.0f, SW, SH,
+        { 0.0f, 0.0f, 0.0f, 0.55f * alpha });
+
+    // ── "GAME OVER" テキスト（赤・中央）────────────────────
+    s_pDW_GameOver->SetScale(sx, sy);
+    s_pDW_GameOver->BeginBatch();
+
+    // 縁取り付きで視認性確保
+    const D2D1_COLOR_F col = D2D1::ColorF(1.0f, 0.10f, 0.10f, alpha);
+    s_pDW_GameOver->DrawAt(
+        std::wstring(L"損傷甚大"),
+        SW * 0.5f, SH * 0.5f,
+        SW * 0.5f - 20.0f,
+        col,
+        /*outlinePx=*/3.0f);
+
+    s_pDW_GameOver->EndBatch();
+
+    Direct3D_SetDepthEnable(true);
 }

@@ -52,6 +52,6 @@ const WeaponDef k_WeaponDefs[WEAPON_COUNT] =
         "resource/Models/Weapon_Round_Shield.fbx",  0.15f,
           0.0f,   0.0f, 0.0f,  0.30f, 0.20f, 0.10f,
         0.00f,  0.00f,  0.00f,
-        L"構えている間、被ダメージを軽減する防御装備。\nLTボタンでガード姿勢を取る。"
+        L"ボタン長押しでガード、被ダメージ50%軽減。\n両腕装備時は両ボタン同時押しでビーム発射。"
     },
 };

@@ -27,6 +27,7 @@
 #include "mouse.h"
 #include "Game_Manager.h"
 #include "ShaderEdge.h"
+#include "DirectWrite.h"
 
 /* ウィンドウプロシージャ プロトタイプ宣言 */
 LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
@@ -92,10 +93,15 @@ void GameWindow_ToggleFullscreen(HWND hWnd)
             SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
 
         // バックバッファをモニター解像度にリサイズ（ネイティブ解像度で描画）
+        DirectWrite::PreResize();   // D2D RT を解放（ResizeBuffers の前提条件）
         Direct3D_ResizeBackBuffer(
             static_cast<unsigned int>(r.right  - r.left),
             static_cast<unsigned int>(r.bottom - r.top));
         ShaderEdge_ResizeBuffers();
+        DirectWrite::PostResize();  // D2D RT を新バックバッファで再生成
+        // PostResize 後は D2D が DXGI サーフェスを触るため D3D11 RTV が未バインドになる
+        // → 明示的に再バインドして次フレームのフェード等スプライト描画を保護する
+        Direct3D_BindMainRenderTarget();
 
         g_IsFullscreen = true;
     }
@@ -117,8 +123,11 @@ void GameWindow_ToggleFullscreen(HWND hWnd)
             SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
 
         // バックバッファを元のウィンドウ解像度に戻す
+        DirectWrite::PreResize();
         Direct3D_ResizeBackBuffer(1600, 900);
         ShaderEdge_ResizeBuffers();
+        DirectWrite::PostResize();
+        Direct3D_BindMainRenderTarget();   // D2D RT 再生成後に RTV を確実に再バインド
 
         g_IsFullscreen = false;
     }

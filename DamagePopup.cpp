@@ -14,9 +14,12 @@
 #include "sprite.h"
 #include "texture.h"
 #include "direct3d.h"
+#include "DirectWrite.h"
 #include "Player_Camera.h"
 #include <DirectXMath.h>
+#include <d2d1helper.h>
 #include <cmath>
+#include <cstdio>
 
 using namespace DirectX;
 
@@ -25,10 +28,6 @@ namespace
     static constexpr int   MAX_POPUPS = 64;
     static constexpr float POPUP_LIFE = 1.0f;   // 生存時間（秒）
     static constexpr float POPUP_RISE = 1.5f;   // 上昇速度（m/s）
-    static constexpr int   SRC_W      = 32;     // suji.png 1桁の幅（px）
-    static constexpr int   SRC_H      = 35;     // suji.png 1桁の高さ（px）
-    static constexpr float DRAW_W     = 20.0f;  // 画面上の描画幅
-    static constexpr float DRAW_H     = 26.0f;  // 画面上の描画高さ
 
     struct Popup
     {
@@ -38,8 +37,8 @@ namespace
         bool     active;     // 使用中フラグ
     };
 
-    static Popup g_Popups[MAX_POPUPS];
-    static int   g_TexSuji = -1;
+    static Popup       g_Popups[MAX_POPUPS];
+    static DirectWrite* g_pDW = nullptr;    // ダメージ数字描画用 DirectWrite
 }
 
 //==============================================================================
@@ -50,7 +49,20 @@ void DamagePopup_Initialize()
     for (auto& p : g_Popups)
         p.active = false;
 
-    g_TexSuji = Texture_Load(L"resource/texture/suji.png");
+    if (!g_pDW)
+    {
+        static FontData fd;
+        fd.font          = Font::Arial;
+        fd.fontWeight    = DWRITE_FONT_WEIGHT_BOLD;
+        fd.fontStyle     = DWRITE_FONT_STYLE_NORMAL;
+        fd.fontStretch   = DWRITE_FONT_STRETCH_NORMAL;
+        fd.fontSize      = 22.0f;
+        fd.localeName    = L"en-us";
+        fd.textAlignment = DWRITE_TEXT_ALIGNMENT_CENTER;
+        fd.Color         = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
+        g_pDW = new DirectWrite(&fd);
+        g_pDW->Init();
+    }
 }
 
 //==============================================================================
@@ -60,6 +72,8 @@ void DamagePopup_Finalize()
 {
     for (auto& p : g_Popups)
         p.active = false;
+
+    if (g_pDW) { g_pDW->Release(); delete g_pDW; g_pDW = nullptr; }
 }
 
 //==============================================================================
@@ -105,17 +119,17 @@ void DamagePopup_Update(float dt)
 //==============================================================================
 void DamagePopup_Draw()
 {
-    if (g_TexSuji < 0) return;
+    if (!g_pDW) return;
 
     const float W = static_cast<float>(Direct3D_GetBackBufferWidth());
     const float H = static_cast<float>(Direct3D_GetBackBufferHeight());
-    const float scaleX = static_cast<float>(SPRITE_SCREEN_W) / W;
-    const float scaleY = static_cast<float>(SPRITE_SCREEN_H) / H;
 
     XMMATRIX view = XMLoadFloat4x4(&Player_Camera_GetViewMatrix());
     XMMATRIX proj = XMLoadFloat4x4(&Player_Camera_GetProjectionMatrix());
 
-    Sprite_Begin(); // 2D パイプラインをセット
+    // D3D11 RTV をアンバインド → D2D BeginDraw
+    // （BeginBatch 内で自動的に OMSetRenderTargets(0,...) を呼ぶ）
+    g_pDW->BeginBatch();
 
     for (auto& p : g_Popups)
     {
@@ -131,48 +145,26 @@ void DamagePopup_Draw()
         const float sy = XMVectorGetY(sc);
         const float sz = XMVectorGetZ(sc);
 
-        // 背面・画面外はスキップ（実座標で判定）
-        if (sz <= 0.0f || sz >= 1.0f)            continue;
-        if (sx < -200.0f || sx > W + 200.0f)     continue;
-        if (sy < -200.0f || sy > H + 200.0f)     continue;
+        // 背面・画面外はスキップ（実ピクセル座標で判定）
+        if (sz <= 0.0f || sz >= 1.0f)        continue;
+        if (sx < -200.0f || sx > W + 200.0f) continue;
+        if (sy < -200.0f || sy > H + 200.0f) continue;
 
-        // 仮想座標系に変換（スプライトは1600×900空間で描画）
-        const float vsx = sx * scaleX;
-        const float vsy = sy * scaleY;
-
-        const float alpha = p.life * p.life; // 二乗フェード
+        const float alpha = p.life * p.life; // 二乗フェード（後半急速フェード）
 
         // ダメージ量による色分け
-        XMFLOAT4 col;
-        if      (p.damage >= 500) col = { 1.0f, 0.4f, 0.1f, alpha }; // 橙赤
-        else if (p.damage >= 100) col = { 1.0f, 1.0f, 0.0f, alpha }; // 黄
-        else                      col = { 1.0f, 1.0f, 1.0f, alpha }; // 白
+        D2D1_COLOR_F col;
+        if      (p.damage >= 500) col = D2D1::ColorF(1.0f, 0.4f, 0.1f, alpha); // 橙赤
+        else if (p.damage >= 100) col = D2D1::ColorF(1.0f, 1.0f, 0.0f, alpha); // 黄
+        else                      col = D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha); // 白
 
-        // 桁数配列生成（最下位から格納）
-        int digitArr[10] = {};
-        int dCount = 0;
-        int tmp = p.damage;
-        while (tmp > 0 && dCount < 10)
-        {
-            digitArr[dCount++] = tmp % 10;
-            tmp /= 10;
-        }
-
-        // 数字列全体の中心を (vsx, vsy) に合わせて左から右へ描画
-        const float totalW = dCount * DRAW_W;
-        const float startX = vsx - totalW * 0.5f;
-
-        for (int i = dCount - 1; i >= 0; --i)
-        {
-            const float dx = startX + static_cast<float>(dCount - 1 - i) * DRAW_W;
-            Sprite_Draw(
-                g_TexSuji,
-                dx,
-                vsy - DRAW_H * 0.5f,
-                DRAW_W, DRAW_H,
-                SRC_W * digitArr[i], 0, SRC_W, SRC_H,
-                col
-            );
-        }
+        // 数字文字列を生成して実ピクセル座標に描画
+        // （DirectWrite は実ピクセル空間で描くため仮想座標変換不要）
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d", p.damage);
+        g_pDW->DrawAt(buf, sx, sy, 80.0f, col, 1.5f); // 縁取り付き（背景に溶け込まない）
     }
+
+    // D2D EndDraw → D3D11 RTV を再バインド
+    g_pDW->EndBatch();
 }

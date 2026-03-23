@@ -120,6 +120,7 @@ void EnemySniper::Update(double elapsed_time)
     XMStoreFloat3(&m_Position, pos);
     XMStoreFloat3(&m_Velocity, vel);
 
+    if (m_ContactDamageCooldown > 0.0f) m_ContactDamageCooldown -= dt;
     ResolveBulletHits();
 
     if (IsDead())

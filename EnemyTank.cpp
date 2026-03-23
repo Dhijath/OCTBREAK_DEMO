@@ -90,6 +90,7 @@ void EnemyTank::Update(double elapsed_time)
     XMStoreFloat3(&m_Position, pos);
     XMStoreFloat3(&m_Velocity, vel);
 
+    if (m_ContactDamageCooldown > 0.0f) m_ContactDamageCooldown -= dt;
     CheckShieldBulletHits(); // 盾判定（盾で消費した弾は本体に当たらない）
     ResolveBulletHits();
 

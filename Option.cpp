@@ -4,7 +4,7 @@
    Author : 51106
    Date   : 2026/03/23
 --------------------------------------------------------------------------------
-   WeaponSelect と同スタイル（DebugText + Sprite）のオプション画面。
+   DirectWrite（Arial）で描画するオプション画面。
    フルスクリーン切替はオプション画面からのみ行う（F11/Alt+Enter は削除済み）。
 
    ■項目
@@ -16,16 +16,13 @@
      LEFT / RIGHT (A/D / 十字←→): 値変更
      ENTER / PAD_B              : タイトルへ戻る
 
-   ■行レイアウト（lineSpacing=21, offsetY=65 の場合）
-     line  0  y=  65 : "OPTIONS"
-     line  8  y= 233 : VOLUME 行
-     line 11  y= 296 : FULLSCREEN 行
-     line 27  y= 632 : フッター
-
-   ■列レイアウト（charSpacing=21）
-     col  7 (x=147) : 項目先頭（カーソル ">" 位置）
-     col 53 (x=1113): 値表示（% / ON-OFF）
-     BAR_X=650, BAR_W_MAX=400 → x=650〜1050 がバー領域
+   ■描画座標（仮想 1600×900 空間 ─ DirectWrite::SetScale で実解像度にマップ）
+     タイトル "OPTIONS" : cx=800, cy=78
+     VOLUME 行          : ラベル cx=350 / 値 cx=1200 / y=237
+     FULLSCREEN 行      : ラベル cx=380 / 値 cx=1200 / y=300
+     フッター           : cx=800, cy=660
+     パネル             : x=100, y=205, w=1400, h=215
+     ボリュームバー     : x=650, y=237, w=400
 
 ==============================================================================*/
 
@@ -36,8 +33,9 @@
 #include "pad_logger.h"
 #include "Audio.h"
 #include "direct3d.h"
-#include "debug_text.h"
+#include "DirectWrite.h"
 #include "game_window.h"
+#include <d2d1helper.h>
 #include <DirectXMath.h>
 #include <algorithm>
 #include <cstdio>
@@ -52,7 +50,9 @@ namespace
     //==========================================================================
     int g_BgTexID    = -1;
     int g_WhiteTexID = -1;
-    hal::DebugText* g_pText = nullptr;
+
+    DirectWrite* g_pDWTitle = nullptr;  // タイトル "OPTIONS"（Arial Bold 30pt）
+    DirectWrite* g_pDWBody  = nullptr;  // 項目ラベル・値・フッター（Arial 22pt）
 
     int g_SeCursorMove = -1;
     int g_SeTabSwitch  = -1;
@@ -61,34 +61,26 @@ namespace
     //==========================================================================
     // 状態
     //==========================================================================
-    int    g_CursorItem       = 0;
-    bool   g_End              = false;
-    double g_Time             = 0.0;
+    int    g_CursorItem        = 0;
+    bool   g_End               = false;
+    double g_Time              = 0.0;
 
-    float  g_Volume           = 0.5f;
+    float  g_Volume            = 0.5f;
     bool   g_VolumeInitialized = false;
 }
 
 //------------------------------------------------------------------------------
-// レイアウト定数
+// レイアウト定数（仮想 1600×900 空間）
 //------------------------------------------------------------------------------
-// パネル（ラベルも内側に収まる幅）
-static constexpr float PNL_X  = 100.0f;
-static constexpr float PNL_Y  = 205.0f;
-static constexpr float PNL_W  = 1400.0f;
-static constexpr float PNL_H  = 215.0f;
+static constexpr float PNL_X     = 100.0f;
+static constexpr float PNL_Y     = 205.0f;
+static constexpr float PNL_W     = 1400.0f;
+static constexpr float PNL_H     = 215.0f;
 
-// line 8  → y = 65 + 8×21 = 233
-// line 11 → y = 65 + 11×21 = 296
-static constexpr float ITEM_Y0 = 233.0f;   // VOLUME 行 Y
-
-// VOLUME バー（Sprite）
-// col 7+4+6 = 17 → x=357 がラベル末尾
-// BAR_X=650 (col~31) → バーはラベルと値の間に来る
 static constexpr float BAR_X     = 650.0f;
+static constexpr float BAR_Y     = 237.0f;
 static constexpr float BAR_W_MAX = 400.0f;
 static constexpr float BAR_H     = 18.0f;
-static constexpr float BAR_Y_OFF = 2.0f;
 
 //==============================================================================
 // 初期化
@@ -105,23 +97,45 @@ void Option_Initialize()
 
     if (g_BgTexID    >= 0) { Texture_Release(g_BgTexID);    g_BgTexID    = -1; }
     if (g_WhiteTexID >= 0) { Texture_Release(g_WhiteTexID); g_WhiteTexID = -1; }
-    delete g_pText; g_pText = nullptr;
 
     g_BgTexID    = Texture_Load(L"resource/Texture/titleBg.png");
     g_WhiteTexID = Texture_Load(L"resource/Texture/white.png");
 
-    g_pText = new hal::DebugText(
-        Direct3D_GetDevice(), Direct3D_GetContext(),
-        L"Resource/Texture/consolab_ascii_512.png",
-        SPRITE_SCREEN_W, SPRITE_SCREEN_H,
-        0.0f, 65.0f,
-        0, 0,
-        21.0f, 21.0f
-    );
+    // タイトルフォント（Arial Bold 30pt・中央揃え）
+    if (!g_pDWTitle)
+    {
+        static FontData fdTitle;
+        fdTitle.font          = Font::Arial;
+        fdTitle.fontWeight    = DWRITE_FONT_WEIGHT_BOLD;
+        fdTitle.fontStyle     = DWRITE_FONT_STYLE_NORMAL;
+        fdTitle.fontStretch   = DWRITE_FONT_STRETCH_NORMAL;
+        fdTitle.fontSize      = 30.0f;
+        fdTitle.localeName    = L"en-us";
+        fdTitle.textAlignment = DWRITE_TEXT_ALIGNMENT_CENTER;
+        fdTitle.Color         = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
+        g_pDWTitle = new DirectWrite(&fdTitle);
+        g_pDWTitle->Init();
+    }
+
+    // 本文フォント（Arial 22pt・中央揃え）
+    if (!g_pDWBody)
+    {
+        static FontData fdBody;
+        fdBody.font          = Font::Arial;
+        fdBody.fontWeight    = DWRITE_FONT_WEIGHT_NORMAL;
+        fdBody.fontStyle     = DWRITE_FONT_STYLE_NORMAL;
+        fdBody.fontStretch   = DWRITE_FONT_STRETCH_NORMAL;
+        fdBody.fontSize      = 22.0f;
+        fdBody.localeName    = L"en-us";
+        fdBody.textAlignment = DWRITE_TEXT_ALIGNMENT_CENTER;
+        fdBody.Color         = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
+        g_pDWBody = new DirectWrite(&fdBody);
+        g_pDWBody->Init();
+    }
 
     if (!g_VolumeInitialized)
     {
-        g_Volume           = 0.5f;
+        g_Volume            = 0.5f;
         g_VolumeInitialized = true;
     }
     SetMasterVolume(g_Volume);
@@ -136,7 +150,9 @@ void Option_Finalize()
     UnloadAudio(g_SeTabSwitch);  g_SeTabSwitch  = -1;
     UnloadAudio(g_SeCancel);     g_SeCancel     = -1;
 
-    delete g_pText; g_pText = nullptr;
+    if (g_pDWTitle) { g_pDWTitle->Release(); delete g_pDWTitle; g_pDWTitle = nullptr; }
+    if (g_pDWBody)  { g_pDWBody->Release();  delete g_pDWBody;  g_pDWBody  = nullptr; }
+
     if (g_BgTexID    >= 0) { Texture_Release(g_BgTexID);    g_BgTexID    = -1; }
     if (g_WhiteTexID >= 0) { Texture_Release(g_WhiteTexID); g_WhiteTexID = -1; }
 }
@@ -204,12 +220,10 @@ void Option_Update(double elapsed_time)
 void Option_Draw()
 {
     static const XMFLOAT4 WHITE    = { 1.0f, 1.0f, 1.0f, 1.0f };
-    static const XMFLOAT4 GRAY     = { 0.55f, 0.55f, 0.55f, 1.0f };
     static const XMFLOAT4 PANEL_BG = { 0.0f,  0.0f,  0.0f,  0.70f };
     static const XMFLOAT4 BORDER   = { 1.0f,  1.0f,  1.0f,  0.40f };
     static const XMFLOAT4 BAR_FILL = { 0.2f,  0.72f, 1.0f,  1.0f  };
     static const XMFLOAT4 BAR_MPTY = { 0.12f, 0.12f, 0.12f, 1.0f  };
-    static const XMFLOAT4 SEL_CLR  = { 0.2f,  0.72f, 1.0f,  1.0f  };
 
     //--------------------------------------------------------------------------
     // 背景
@@ -217,11 +231,10 @@ void Option_Draw()
     if (g_BgTexID >= 0)
         Sprite_Draw(g_BgTexID, 0.0f, 0.0f, 1600.0f, 900.0f, WHITE);
 
-    if (g_WhiteTexID < 0 || !g_pText) return;
+    if (g_WhiteTexID < 0 || !g_pDWTitle || !g_pDWBody) return;
 
     //--------------------------------------------------------------------------
     // パネル（枠 + 背景）
-    // x=100 〜 1500 でラベル（col7, x=147）から値（col53, x=1113）まで内包
     //--------------------------------------------------------------------------
     Sprite_Draw(g_WhiteTexID,
         PNL_X - 2.0f, PNL_Y - 2.0f, PNL_W + 4.0f, PNL_H + 4.0f, BORDER);
@@ -230,82 +243,61 @@ void Option_Draw()
 
     //--------------------------------------------------------------------------
     // VOLUME バー（Sprite）
-    // ラベル末尾 x=357（col17）とバー x=650 の間に視覚的スペースを取る
     //--------------------------------------------------------------------------
-    const float barY = ITEM_Y0 + BAR_Y_OFF;
-    Sprite_Draw(g_WhiteTexID, BAR_X, barY, BAR_W_MAX, BAR_H, BAR_MPTY);
+    Sprite_Draw(g_WhiteTexID, BAR_X, BAR_Y, BAR_W_MAX, BAR_H, BAR_MPTY);
     const float filled = g_Volume * BAR_W_MAX;
     if (filled >= 1.0f)
-        Sprite_Draw(g_WhiteTexID, BAR_X, barY, filled, BAR_H, BAR_FILL);
+        Sprite_Draw(g_WhiteTexID, BAR_X, BAR_Y, filled, BAR_H, BAR_FILL);
 
     //--------------------------------------------------------------------------
-    // テキスト（DebugText）
+    // DirectWrite テキスト描画
     //
-    // 列レイアウト（charSpacing=21）:
-    //   col  0 (x=  0) : 画面左端
-    //   col  7 (x=147) : 項目開始（パネル内: PNL_X=100）
-    //   col 11 (x=231) : ラベル開始（cursor=2chars 込み）
-    //   col 53 (x=1113): 値列（%, ON/OFF）
-    //   col 76 (x=1596): 画面右端
-    //
-    // VOLUME行:   [7sp][" > " or "   "][VOLUME][36sp → col53][  50%\n]
-    // FULLSCREEN: [7sp]["   " or " > "][FULLSCREEN][32sp → col53][< OFF >\n]
+    // SetScale で仮想 1600×900 座標 → 実ピクセル座標に変換する。
+    // BeginBatch が D3D11 RTV をアンバインドし、EndBatch が再バインドする。
     //--------------------------------------------------------------------------
-    g_pText->Clear();
+    const float scaleX = static_cast<float>(Direct3D_GetBackBufferWidth())  / 1600.0f;
+    const float scaleY = static_cast<float>(Direct3D_GetBackBufferHeight()) / 900.0f;
 
-    // ── タイトル（line 0, y=65）
-    // "OPTIONS" 7chars → 中央揃え: (76-7)/2 ≈ 34 スペース
-    g_pText->SetText("                                  OPTIONS\n", WHITE);
+    const D2D1_COLOR_F dCYAN  = D2D1::ColorF(0.2f,  0.72f, 1.0f,  1.0f);
+    const D2D1_COLOR_F dWHITE = D2D1::ColorF(1.0f,  1.0f,  1.0f,  1.0f);
+    const D2D1_COLOR_F dGRAY  = D2D1::ColorF(0.55f, 0.55f, 0.55f, 1.0f);
 
-    // ── 空行 ×7 → line 8 (y=233)
-    g_pText->SetText("\n\n\n\n\n\n\n", WHITE);
+    // ── タイトル ─────────────────────────────────────────────────────────
+    g_pDWTitle->SetScale(scaleX, scaleY);
+    g_pDWTitle->BeginBatch();
+    g_pDWTitle->DrawAt("OPTIONS", 800.0f, 78.0f, 400.0f, dWHITE, 2.0f);
+    g_pDWTitle->EndBatch();
+    g_pDWTitle->SetScale(1.0f, 1.0f);
 
-    // ── VOLUME（line 8, y=233）
-    // col 7+2=9 始まり: 7sp + cursor(2) = 9, + " " + "VOLUME" = col 16
-    // → col53 まで: 53-16=37sp, その後 "%3d%%\n"
-    {
-        const bool sel = (g_CursorItem == 0);
-        char line[128];
-        int  pct = static_cast<int>(roundf(g_Volume * 100.0f));
+    // ── 項目ラベル・値・フッター ──────────────────────────────────────────
+    const bool selVol = (g_CursorItem == 0);
+    const bool selFs  = (g_CursorItem == 1);
+    const bool fs     = GameWindow_IsFullscreen();
 
-        g_pText->SetText("       ", WHITE);                              // 7sp → col7
-        g_pText->SetText(sel ? "> " : "  ", sel ? SEL_CLR : GRAY);      // cursor 2chars
-        g_pText->SetText(" VOLUME", WHITE);                              // 7chars → col16
+    char pctStr[8];
+    snprintf(pctStr, sizeof(pctStr), "%d%%", static_cast<int>(roundf(g_Volume * 100.0f)));
 
-        // col16 → col53: 37sp + "100%\n" (4chars) = 41chars
-        snprintf(line, sizeof(line),
-            "                                     %3d%%\n", pct);       // 37sp + val
-        g_pText->SetText(line, sel ? WHITE : GRAY);
-    }
+    g_pDWBody->SetScale(scaleX, scaleY);
+    g_pDWBody->BeginBatch();
 
-    // ── 空行 ×2 → line 11 (y=296)
-    g_pText->SetText("\n\n", WHITE);
+    // VOLUME 行（y=237）
+    g_pDWBody->DrawAt(selVol ? "> VOLUME" : "  VOLUME",
+                      350.0f, 237.0f, 200.0f, selVol ? dCYAN : dWHITE, 1.5f);
+    g_pDWBody->DrawAt(pctStr,
+                      1200.0f, 237.0f, 100.0f, selVol ? dCYAN : dGRAY, 1.5f);
 
-    // ── FULLSCREEN（line 11, y=296）
-    // 7sp + cursor(2) + " FULLSCREEN" (11) = col20
-    // col20 → col53: 33sp + "< ON  >" or "< OFF >"
-    {
-        const bool sel = (g_CursorItem == 1);
-        const bool fs  = GameWindow_IsFullscreen();
+    // FULLSCREEN 行（y=300）
+    g_pDWBody->DrawAt(selFs ? "> FULLSCREEN" : "  FULLSCREEN",
+                      380.0f, 300.0f, 230.0f, selFs ? dCYAN : dWHITE, 1.5f);
+    g_pDWBody->DrawAt(fs ? "< ON  >" : "< OFF >",
+                      1200.0f, 300.0f, 130.0f, selFs ? dCYAN : dGRAY, 1.5f);
 
-        g_pText->SetText("       ", WHITE);                              // 7sp
-        g_pText->SetText(sel ? "> " : "  ", sel ? SEL_CLR : GRAY);      // cursor
-        g_pText->SetText(" FULLSCREEN", WHITE);                          // 11chars → col20
+    // フッター（y=660）
+    g_pDWBody->DrawAt("UP/DOWN : ITEM   LEFT/RIGHT : CHANGE   ENTER / B : BACK",
+                      800.0f, 660.0f, 750.0f, dGRAY, 1.5f);
 
-        // col20 → col53: 33sp
-        g_pText->SetText("                                 ", WHITE);    // 33sp
-        g_pText->SetText(fs ? "< ON  >" : "< OFF >", sel ? SEL_CLR : GRAY);
-    }
-
-    // ── 空行 ×16 → line 27 (y=632)
-    g_pText->SetText("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n", WHITE);
-
-    // ── フッター（line 27, y=632）
-    g_pText->SetText(
-        "     UP/DOWN : ITEM    LEFT/RIGHT : CHANGE    ENTER / B : BACK", GRAY);
-
-    g_pText->Draw();
-    Sprite_Begin();   // DebugText 後のパイプライン再設定
+    g_pDWBody->EndBatch();
+    g_pDWBody->SetScale(1.0f, 1.0f);
 }
 
 //==============================================================================

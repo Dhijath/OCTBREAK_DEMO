@@ -50,6 +50,7 @@ void Light_Finalize(void);
 // color : 環境光のRGB値
 //------------------------------------
 void Light_SetAmbient(const DirectX::XMFLOAT3& color);
+XMFLOAT3 Light_GetAmbient();   // 現在のアンビエント値を取得
 
 //------------------------------------
 // Light_SetDirectionalWorld

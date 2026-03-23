@@ -16,6 +16,7 @@
 #include "sprite.h"
 #include "sprite_anim.h"
 #include "fade.h"
+#include "input_hint.h"
 #include "debug_text.h"
 #include <sstream>
 #include "system_timer.h"
@@ -99,6 +100,7 @@ int APIENTRY WinMain(
 	Sprite_Initialize(Direct3D_GetDevice(), Direct3D_GetContext());
 	SpriteAnim_Initialize();
 	Fade_Initialize();
+	InputHint_Initialize();
 
 	Sampler_Initialize(Direct3D_GetDevice(), Direct3D_GetContext());
 
@@ -201,6 +203,7 @@ int APIENTRY WinMain(
 				GameManager_Update(elapsed_time);
 				SpriteAnim_Update(elapsed_time);
 				Fade_Update(elapsed_time);
+				InputHint_Update();
 
 				//==========================================================
 				// 描画
@@ -247,6 +250,7 @@ int APIENTRY WinMain(
 
 	ShadowMap::Finalize();
 
+	InputHint_Finalize();
 	Fade_Finalize();
 	SpriteAnim_Finalize();
 	Sprite_Finalize();

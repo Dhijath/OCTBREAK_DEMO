@@ -71,6 +71,10 @@ void Fade_Draw()
     if (g_State == FADE_STATE_FINISHED_IN) return;
     if (g_FadeTexID < 0) return;  // テクスチャ未ロード時は描画しない
 
+    // DirectWrite / MiniMap 等が RTV を切り離したまま戻さないケースがあるため
+    // フェード描画前に必ずメインRTVを再バインドする（これで「偶に消える」問題を防ぐ）
+    Direct3D_BindMainRenderTarget();
+
     // 深度テストを無効化してから描画（前段の処理で深度が戻っていても確実に最前面に出す）
     Direct3D_SetDepthEnable(false);
     // 2D正射影を確実にセット（フェードは常に最前面に描画する）

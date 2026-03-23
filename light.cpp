@@ -58,6 +58,9 @@ namespace {
 	ID3D11Buffer* g_pPSConstantBuffer4 = nullptr;
 
 	PointLightList g_pointLights{};
+
+    // Light_GetAmbient() のために現在値をCPU側でも保持する
+    XMFLOAT3 g_currentAmbient = { 1.0f, 1.0f, 1.0f };
 }
 
 //==============================================================================
@@ -109,10 +112,16 @@ void Light_Finalize(void)
 //==============================================================================
 void Light_SetAmbient(const DirectX::XMFLOAT3& color)
 {
+	g_currentAmbient = color;   // CPU側に保存（GetAmbient 用）
 	g_pContext->UpdateSubresource(g_pPSConstantBuffer1, 0, nullptr, &color, 0, 0);
 	g_pContext->PSSetConstantBuffers(1, 1, &g_pPSConstantBuffer1);
 
 	WallShader_SetAmbient(color);
+}
+
+XMFLOAT3 Light_GetAmbient()
+{
+	return g_currentAmbient;
 }
 
 //==============================================================================

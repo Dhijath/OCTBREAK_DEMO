@@ -170,6 +170,8 @@
     <ClCompile Include="direct3d.cpp" />
     <ClCompile Include="AssemblyScreen.cpp" />
     <ClCompile Include="DirectWrite.cpp" />
+    <ClCompile Include="input_hint.cpp" />
+    <ClCompile Include="particle_spark.cpp" />
     <ClCompile Include="WeaponDef.cpp" />
     <ClCompile Include="effect.cpp" />
     <ClCompile Include="Enemy.cpp" />
@@ -255,6 +257,8 @@
     <ClInclude Include="direct3d.h" />
     <ClInclude Include="AssemblyScreen.h" />
     <ClInclude Include="DirectWrite.h" />
+    <ClInclude Include="input_hint.h" />
+    <ClInclude Include="particle_spark.h" />
     <ClInclude Include="WeaponDef.h" />
     <ClInclude Include="Easing.h" />
     <ClInclude Include="effect.h" />
