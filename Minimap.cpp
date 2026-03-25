@@ -71,10 +71,10 @@ void MiniMap_Draw2D()
     const float screenW = (float)SPRITE_SCREEN_W;
 
     // ミニマップ本体の表示サイズ（正方形）
-    const float mapSize = 220.0f;
+    const float mapSize = 270.0f;
 
     // 画面端からの余白
-    const float margin = 16.0f;
+    const float margin = 20.0f;
 
     // ミニマップ本体の左上座標（右上配置）
     const float sx = screenW - mapSize - margin;
@@ -153,25 +153,8 @@ void MiniMap_Draw2D()
     ctx->OMSetBlendState(oldBlend, oldFactor, oldMask);
     SAFE_RELEASE(additiveBlend);
     SAFE_RELEASE(oldBlend);
-    //============================================================
-    // ミニマップフレーム描画
-    //============================================================
-
-    // ミニマップ枠テクスチャの読み込み
-    int frameTexID = Texture_Load(L"Resource/Texture/minimap_frame.png");
-
     // 通常スプライト描画開始
     Sprite_Begin();
-
-    // フレームを先に描画（背景扱い）
-    Sprite_Draw(
-        frameTexID,
-        frameSx,
-        frameSy,
-        frameSize,
-        frameSize,
-        { 1,1,1,1 } // 色補正なし（白）
-    );
 
 
     //============================================================

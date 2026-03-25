@@ -324,7 +324,8 @@ void  Player_SetSpeedMultiplier(float multiplier);
 //==============================================================================
 void Player_SetNormalWeaponIndex(int idx);
 void Player_SetLeftWeaponIndex(int idx);   // 左腕武器を設定（WeaponID）
-int  Player_GetNormalWeaponIndex();        // 現在の右腕武器インデックスを取得
+int  Player_GetNormalWeaponIndex();        // 右腕の通常武器スロット（0-2のみ、シールド除く）
+int  Player_GetRightWeaponIndex();         // 右腕の実際の武器ID（シールド含む 0-3）
 int  Player_GetLeftWeaponIndex();          // 現在の左腕武器インデックスを取得
 
 

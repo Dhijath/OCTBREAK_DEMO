@@ -5,20 +5,25 @@
                                                          Date   : 2026/03/13
 --------------------------------------------------------------------------------
    ■フェーズ
-     ORBIT  (3.0秒) : ボス位置を中心に半径 5m、270度旋回
+     ORBIT  (2.0秒) : ボス位置を中心に半径 5m、270度旋回
                        高さ: sin 波で 1.0〜3.0m の間を変動
                        カメラは常にボスを注視
      RETURN (1.0秒) : 軌道終了位置からプレイヤーカメラ位置へ lerp
+                       視点ターゲットもボスから自然前方へ補間
      DONE           : Player_SetEnable(true) で操作権を返す
 
    ■カメラ上書き
      Player_Camera_OverrideCinematic(eyePos, targetPos) を毎フレーム呼ぶ
+
+   ■壁抜け防止
+     Map_RaycastWalls(target→eye) でヒット時にカメラをクリップ
 
 ==============================================================================*/
 #include "BossIntro.h"
 #include "Player_Camera.h"
 #include "Player.h"
 #include "game.h"
+#include "map.h"
 #include <DirectXMath.h>
 #include <cmath>
 
@@ -43,6 +48,9 @@ namespace
     // 演出開始時のプレイヤーカメラ座標（RETURN の終点）
     static XMFLOAT3 g_PreIntroEye = {};
 
+    // RETURN 終点の視点ターゲット（プレイヤーの自然な前方向の点）
+    static XMFLOAT3 g_ReturnEndTarget = {};
+
     // ORBIT 開始角度（演出開始時のカメラ方向に合わせる）
     static float g_OrbitStartAngle = 0.0f;
 
@@ -53,6 +61,7 @@ namespace
     static constexpr float  ORBIT_ANGLE_RAD = XM_PI * 1.5f; // 270度（rad）
     static constexpr float  HEIGHT_MIN      = 1.0f;  // 最低高さ（m）
     static constexpr float  HEIGHT_MAX      = 3.0f;  // 最高高さ（m）
+    static constexpr float  WALL_MARGIN     = 0.15f; // 壁からの離隔（m）
 
     //----------------------------------------------------------
     // ORBIT 進行 t=0〜1 のカメラ eye 座標を計算
@@ -67,6 +76,27 @@ namespace
         const float height = HEIGHT_MIN + (HEIGHT_MAX - HEIGHT_MIN) * sinH;
         const float ey     = g_BossPos.y + height;
         return XMFLOAT3{ ex, ey, ez };
+    }
+
+    //----------------------------------------------------------
+    // target から eye へのレイキャストで壁ヒット時に eye をクリップ
+    //----------------------------------------------------------
+    static XMFLOAT3 ClipEyeToWall(const XMFLOAT3& target, const XMFLOAT3& eye)
+    {
+        XMFLOAT3 hitPos;
+        if (!Map_RaycastWalls(target, eye, &hitPos))
+            return eye;   // 壁なし：そのまま
+
+        // ヒット点をターゲット方向へ MARGIN だけ引き戻す
+        XMVECTOR t   = XMLoadFloat3(&target);
+        XMVECTOR e   = XMLoadFloat3(&eye);
+        XMVECTOR h   = XMLoadFloat3(&hitPos);
+        XMVECTOR dir = XMVector3Normalize(e - t);     // target→eye の向き
+        XMVECTOR clipped = h - dir * WALL_MARGIN;     // 壁手前
+
+        XMFLOAT3 result;
+        XMStoreFloat3(&result, clipped);
+        return result;
     }
 }
 
@@ -88,22 +118,27 @@ void BossIntro_Start(const XMFLOAT3& bossSpawnPos)
     }
 
     // カメラをボス方向・水平に即スナップしてから g_PreIntroEye をキャプチャ
-    // SetYawPitch + Update だとその後 Mouse_GetState が同フレームのデルタを加算して
-    // gYaw が再び上書きされるため、マウス入力をバイパスする SnapToYawPitch を使う
+    float yawToBoss = 0.0f;
     {
         float dx = bossSpawnPos.x - playerPos.x;
         float dz = bossSpawnPos.z - playerPos.z;
-        float yawToBoss = atan2f(dx, dz); // atan2(x, z) → Z+ を 0 とする LH 慣習
-        Player_Camera_SnapToYawPitch(yawToBoss, 0.0f); // マウス入力なしで即 g_Pos 確定
+        yawToBoss = atan2f(dx, dz); // atan2(x, z) → Z+ を 0 とする LH 慣習
+        Player_Camera_SnapToYawPitch(yawToBoss, 0.0f);
     }
     g_PreIntroEye = Player_Camera_GetPosition(); // RETURN の終点
+
+    // RETURN 終点の視点ターゲット = プレイヤー自然前方の遠点
+    // （ボスの方向へ向いていた yaw からそのまま前方 10m 先）
+    g_ReturnEndTarget = {
+        g_PreIntroEye.x + sinf(yawToBoss) * 10.0f,
+        g_PreIntroEye.y,
+        g_PreIntroEye.z + cosf(yawToBoss) * 10.0f
+    };
 
     // プレイヤー入力を無効化
     Player_SetEnable(false);
 
     // ボスをプレイヤー方向に向ける
-    // ※ BossIntro 中は Game_Update がスキップされ EnemyBoss::Update が呼ばれないため
-    //   m_Front がゼロのままになり壁を向いて見える問題を防ぐ
     {
         float dx = playerPos.x - g_BossPos.x;
         float dz = playerPos.z - g_BossPos.z;
@@ -127,9 +162,13 @@ void BossIntro_Update(double dt)
         //------------------------------------------------------
         // ORBIT フェーズ：ボスを中心に旋回
         //------------------------------------------------------
-        const float t   = static_cast<float>(g_Timer / ORBIT_DURATION);
-        const float tc  = (t < 0.0f) ? 0.0f : (t > 1.0f) ? 1.0f : t;
-        const XMFLOAT3 eye = CalcOrbitEye(tc);
+        const float tc  = static_cast<float>(g_Timer / ORBIT_DURATION);
+        const float tcC = (tc < 0.0f) ? 0.0f : (tc > 1.0f) ? 1.0f : tc;
+
+        XMFLOAT3 eye = CalcOrbitEye(tcC);
+
+        // 壁抜け防止：ボス→カメラ間をレイキャスト
+        eye = ClipEyeToWall(g_BossPos, eye);
 
         Player_Camera_OverrideCinematic(eye, g_BossPos);
 
@@ -143,33 +182,41 @@ void BossIntro_Update(double dt)
     else if (g_Phase == Phase::Return)
     {
         //------------------------------------------------------
-        // RETURN フェーズ：軌道終点 → プレイヤーカメラ位置へ lerp
+        // RETURN フェーズ：軌道終点 → プレイヤー視点へ lerp
+        //   ・eye    : g_OrbitEndEye → g_PreIntroEye
+        //   ・target : g_BossPos     → g_ReturnEndTarget（自然前方）
         //------------------------------------------------------
-        const float t   = static_cast<float>(g_Timer / RETURN_DURATION);
-        const float tc  = (t < 0.0f) ? 0.0f : (t > 1.0f) ? 1.0f : t;
+        const float tc     = static_cast<float>(g_Timer / RETURN_DURATION);
+        const float tcC    = (tc < 0.0f) ? 0.0f : (tc > 1.0f) ? 1.0f : tc;
+        const float smooth = tcC * tcC * (3.0f - 2.0f * tcC); // smoothstep
 
-        // 滑らかな補間（ease-in/out）
-        const float smooth = tc * tc * (3.0f - 1.0f * tc);
-
-        XMVECTOR start  = XMLoadFloat3(&g_OrbitEndEye);
-        XMVECTOR end    = XMLoadFloat3(&g_PreIntroEye);
-        XMVECTOR eye    = XMVectorLerp(start, end, smooth);
-
+        // eye 補間
+        XMVECTOR eyeV = XMVectorLerp(
+            XMLoadFloat3(&g_OrbitEndEye),
+            XMLoadFloat3(&g_PreIntroEye),
+            smooth);
         XMFLOAT3 eyeF;
-        XMStoreFloat3(&eyeF, eye);
+        XMStoreFloat3(&eyeF, eyeV);
 
-        // ターゲットはボスから徐々にプレイヤー視点の先方向へ
-        Player_Camera_OverrideCinematic(eyeF, g_BossPos);
+        // target 補間（ボス → プレイヤー自然前方）
+        XMVECTOR tgtV = XMVectorLerp(
+            XMLoadFloat3(&g_BossPos),
+            XMLoadFloat3(&g_ReturnEndTarget),
+            smooth);
+        XMFLOAT3 tgtF;
+        XMStoreFloat3(&tgtF, tgtV);
+
+        // 壁抜け防止：補間ターゲット→カメラ間をレイキャスト
+        eyeF = ClipEyeToWall(tgtF, eyeF);
+
+        Player_Camera_OverrideCinematic(eyeF, tgtF);
 
         if (g_Timer >= RETURN_DURATION)
         {
             g_Phase = Phase::Done;
 
-            // プレイヤー入力を有効化（先に有効化してから Camera_Update を呼ぶ）
+            // プレイヤー入力を有効化してカメラを即時再計算
             Player_SetEnable(true);
-
-            // イントロ中のプレイヤー移動（重力など）による位置ずれをカメラに即反映
-            // ApplyMainViewProj の代わりに Update(0) で現在プレイヤー位置から再計算
             Player_Camera_Update(0.0);
 
             // イントロ終了時点のプレイヤー位置へボスを向ける

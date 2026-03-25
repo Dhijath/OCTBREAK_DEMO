@@ -19,6 +19,7 @@
 #include "pad_logger.h"
 #include "direct3d.h"
 #include "audio.h"
+#include "text_logo.h"
 #include <DirectXMath.h>
 #include <algorithm>
 #include <cmath>
@@ -29,8 +30,6 @@ using namespace DirectX;
 // グローバルリソース
 // -----------------------------------------------------------------------------
 static int g_TitleBgTex = -1;               // 背景テクスチャ
-static int g_TitleLogoTex = -1;             // タイトルロゴ
-static int g_MenuTex[3] = { -1,-1,-1 };     // 各メニューボタン画像
 static int g_WhiteTex = -1;                 // 白テクスチャ（縁や発光に使用）
 
 // -----------------------------------------------------------------------------
@@ -51,14 +50,8 @@ static int g_SeSelect     = -1;
 // -----------------------------------------------------------------------------
 void Title_Initialize()
 {
-    // 背景・ロゴ・ボタン画像を読み込み
+    // 背景・ボタン周りのグロー用テクスチャを読み込み
     g_TitleBgTex = Texture_Load(L"resource/texture/titleBg.png");
-    g_TitleLogoTex = Texture_Load(L"resource/texture/title_logo.png");
-
-    g_MenuTex[0] = Texture_Load(L"resource/texture/btn_start.png");//btn_start
-    g_MenuTex[1] = Texture_Load(L"resource/texture/btn_option.png");
-    g_MenuTex[2] = Texture_Load(L"resource/texture/btn_exit.png");
-
     // 白テクスチャ（1x1）… 縁や発光に使う
     g_WhiteTex = Texture_Load(L"resource/texture/white.png");
 
@@ -124,81 +117,101 @@ void Title_Update(double elapsed_time)
 }
 
 // -----------------------------------------------------------------------------
-// 描画処理：背景・ロゴ・メニューを描画
+// 描画処理：背景・ロゴ（TextLogo）・メニュー（TextLogo）を描画
 // -----------------------------------------------------------------------------
 void Title_Draw()
 {
     Direct3D_SetDepthEnable(false); // タイトル(2D)中は深度を切る
+    Direct3D_SetBlendState(true);
 
     const int sw = SPRITE_SCREEN_W;
     const int sh = SPRITE_SCREEN_H;
 
-    // ------------------------------
+    // メニューレイアウト定数（テクスチャ不要でも白グロー計算に使う）
+    static constexpr float MENU_BOX_W = 260.0f; // ボタン枠推定幅（全項目共通）
+    static constexpr float MENU_BOX_H = 82.0f;  // ボタン枠推定高さ
+    const float baseX = (float)sw * 0.5f;
+    const float baseY = (float)sh * 0.55f;
+    const float gapY  = 100.0f;
+
+    // ──────────────────────────────────────────
+    // 1) スプライト描画（背景 + ボタン枠グロー）
+    // ──────────────────────────────────────────
+    Sprite_Begin();
+
     // 背景（画面全体にフィット）
-    // ------------------------------
-    if (g_TitleBgTex >= 0) {
+    if (g_TitleBgTex >= 0)
+    {
         const float tw = (float)Texture_Width(g_TitleBgTex);
         const float th = (float)Texture_Height(g_TitleBgTex);
         const float sx = (float)sw / std::max(1.0f, tw);
         const float sy = (float)sh / std::max(1.0f, th);
         Sprite_Draw(g_TitleBgTex, 0, 0, tw * sx, th * sy, XMFLOAT4(1, 1, 1, 1));
-        Sprite_Begin();
     }
 
-
-    // ------------------------------
-    // ロゴ（画像サイズ通りに中央上部に表示）
-    // ------------------------------
-    if (g_TitleLogoTex >= 0) {
-        const float lw = (float)Texture_Width(g_TitleLogoTex);   // ロゴ画像の幅
-        const float lh = (float)Texture_Height(g_TitleLogoTex);  // ロゴ画像の高さ
-        const float lx = ((float)sw - lw) * 0.5f;                // 中央揃えX座標
-        const float ly = (float)sh * 0.12f;                      // 上部に配置
-        Sprite_Draw(g_TitleLogoTex, lx, ly, lw, lh, XMFLOAT4(1, 1, 1, 1));
-        Sprite_Begin();
-    }
-
-    // ------------------------------
-    // メニュー（全項目を画像サイズ通りに表示）
-    // ------------------------------
-    const float baseX = (float)sw * 0.5f;
-    const float baseY = (float)sh * 0.55f; // ロゴと被らない位置
-    const float gapY = 100.0f;            // 項目間隔
-
-    for (int i = 0; i < MENU_COUNT; ++i)
+    // ボタン枠：常時白縁 + 選択中パルスグロー（白テクスチャで描画）
+    if (g_WhiteTex >= 0)
     {
-        if (g_MenuTex[i] < 0) continue;
+        for (int i = 0; i < MENU_COUNT; ++i)
+        {
+            const bool  sel   = (i == g_Selected);
+            const float scale = sel ? 1.1f : 1.0f;
+            const float bob   = sel ? std::sin(g_Time * 6.0f) * 5.0f : 0.0f;
+            const float bw    = MENU_BOX_W * scale;
+            const float bh    = MENU_BOX_H * scale;
+            const float bx    = baseX - bw * 0.5f;
+            const float by    = baseY + i * gapY - bh * 0.5f + bob;
 
-        const bool sel = (i == g_Selected);
+            // 常時：薄い白縁
+            Sprite_Draw(g_WhiteTex, bx - 5, by - 5, bw + 10, bh + 10,
+                        XMFLOAT4(1, 1, 1, 0.3f));
 
-        // 画像の実サイズを取得
-        const float tw = (float)Texture_Width(g_MenuTex[i]);
-        const float th = (float)Texture_Height(g_MenuTex[i]);
-
-        // 選択時は拡大＋上下ユラユラ
-        const float scale = sel ? 1.1f : 1.0f;
-        const float bob = sel ? std::sin(g_Time * 6.0f) * 5.0f : 0.0f;
-
-        const float bw = tw * scale;
-        const float bh = th * scale;
-        const float bx = baseX - bw * 0.5f;
-        const float by = baseY + i * gapY - bh * 0.5f + bob;
-
-        // --- 常時：薄い白縁 ---
-        if (g_WhiteTex >= 0) {
-            Sprite_Draw(g_WhiteTex, bx - 5, by - 5, bw + 10, bh + 10, XMFLOAT4(1, 1, 1, 0.3f));
+            // 選択中：発光パルス
+            if (sel)
+            {
+                const float pulse = std::sin(g_Time * 8.0f) * 0.5f + 0.5f;
+                const float a     = 0.25f + 0.25f * pulse;
+                Sprite_Draw(g_WhiteTex, bx - 12, by - 12, bw + 24, bh + 24,
+                            XMFLOAT4(1, 1, 1, a));
+            }
         }
+    }
 
-        // --- 選択中：発光パルス ---
-        if (sel && g_WhiteTex >= 0) {
-            float pulse = (std::sin(g_Time * 8.0f) * 0.5f + 0.5f);
-            float a = 0.25f + 0.25f * pulse;
-            Sprite_Draw(g_WhiteTex, bx - 12, by - 12, bw + 24, bh + 24, XMFLOAT4(1, 1, 1, a));
+    // ──────────────────────────────────────────
+    // 2) TextLogo 描画（D2D でテキストをグラデーション塗り）
+    // ──────────────────────────────────────────
+
+    // タイトルロゴ
+    {
+        LogoStyle s;
+        s.fontSize     = 148.0f;
+        s.fontName     = L"Agency FB";
+        s.colorTop     = D2D1::ColorF(0.95f, 0.95f, 1.00f, 1.0f); // 白銀ハイライト
+        s.colorBottom  = D2D1::ColorF(0.35f, 0.35f, 0.40f, 1.0f); // クールグレー
+        s.outlineColor = D2D1::ColorF(0.06f, 0.06f, 0.08f, 1.0f); // チャコール
+        s.outlineWidth = 5.0f;
+        TextLogo_Draw(L"Oct Break", (float)sw * 0.5f, (float)sh * 0.20f, s);
+    }
+
+    // メニューボタン（START / OPTION / EXIT）
+    {
+        LogoStyle s;
+        s.fontSize     = 68.0f;
+        s.fontName     = L"Agency FB";
+        s.colorTop     = D2D1::ColorF(1.0f, 0.92f, 0.70f, 1.0f); // 薄いゴールド
+        s.colorBottom  = D2D1::ColorF(0.85f, 0.55f, 0.10f, 1.0f); // ゴールド
+        s.outlineColor = D2D1::ColorF(0.05f, 0.02f, 0.00f, 1.0f);
+        s.outlineWidth = 2.5f;
+
+        static const wchar_t* labels[MENU_COUNT] = { L"START", L"OPTION", L"EXIT" };
+        for (int i = 0; i < MENU_COUNT; ++i)
+        {
+            const bool  sel   = (i == g_Selected);
+            const float sc    = sel ? 1.1f : 1.0f;
+            const float bob   = sel ? std::sin(g_Time * 6.0f) * 5.0f : 0.0f;
+            const float cy    = baseY + i * gapY + bob;
+            TextLogo_Draw(labels[i], baseX, cy, s, sc);
         }
-
-        // --- 本体（ボタン画像）---
-        Sprite_Draw(g_MenuTex[i], bx, by, bw, bh, XMFLOAT4(1, 1, 1, 1));
-        Sprite_Begin();
     }
 }
 

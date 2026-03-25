@@ -61,6 +61,13 @@ PlayerCamera_Mode Player_Camera_GetMode();
 void Player_Camera_SetMode(PlayerCamera_Mode mode);
 void Player_Camera_ToggleMode();
 
+float Player_Camera_GetMouseSensitivity();           // 横感度（Yaw）
+void  Player_Camera_SetMouseSensitivity(float yawSens);
+float Player_Camera_GetMouseSensitivityPitch();      // 縦感度（Pitch）
+void  Player_Camera_SetMouseSensitivityPitch(float pitchSens);
+bool  Player_Camera_GetMouseInvertY();               // Y軸反転
+void  Player_Camera_SetMouseInvertY(bool invert);
+
 bool Player_Camera_IsMouseLeftTrigger();
 bool Player_Camera_IsMouseLeftPressed();
 bool Player_Camera_IsMouseRightPressed();

@@ -81,6 +81,8 @@ public:
 
     bool IsEmpty() const { return m_Points.empty(); }
 
+    void SetColor(const DirectX::XMFLOAT4& color) { m_Color = color; }
+
 private:
     //----------------------------------------------------------------------
     // CPU 側ポイント

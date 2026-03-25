@@ -42,7 +42,11 @@ enum class Font
     CourierNew,   // タイプライター
     AgencyFB,     // 圧縮・ミリタリー調
     LucidaConsole,
-    DSEG7         // 7セグメントLED表示器風（要インストール）
+    DSEG7,        // 7セグメントLED表示器風（要インストール）
+    MSMincho,     // MS 明朝（日本語セリフ体）
+    MSGothic,     // MS ゴシック
+    YuMincho,     // 游明朝（Win8.1以降）
+    YuGothic      // 游ゴシック（Win8.1以降）
 };
 
 //=============================================================================
@@ -60,7 +64,11 @@ namespace
         L"Courier New",
         L"Agency FB",
         L"Lucida Console",
-        L"DSEG7 Modern"
+        L"DSEG7 Modern",
+        L"MS Mincho",
+        L"MS Gothic",
+        L"Yu Mincho",
+        L"Yu Gothic"
     };
 }
 

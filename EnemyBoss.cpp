@@ -255,8 +255,7 @@ void EnemyBoss::Update(double elapsed_time)
             m_chargeTimer       = 0.0f;
             m_chargeDamageDealt = false;
             m_shootTimer        = 0.0f; // 溜め開始時に射撃タイマーをリセット
-        }
-        break;
+        }        break;
     }
 
     case BossPhase::CHARGE_WINDUP:

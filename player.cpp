@@ -981,8 +981,9 @@ void Player_Update(double elapsed_time)
 
     //--------------------------------------------------------------------------
     // 発射ボタン判定
-    //   RB / マウス右 = 右腕  LB / マウス左 = 左腕
-    //   RT / マウス左右同時 = ビーム（両腕シールド時のみ）
+    //   RB / マウス右          = 右腕
+    //   LB / マウス左          = 左腕
+    //   RB+LB / マウス左右同時 = ビーム（両腕シールド時のみ）
     //--------------------------------------------------------------------------
     const bool padRightFire  = PadLogger_IsPressed(PAD_RIGHT_SHOULDER);
     const bool padLeftFire   = PadLogger_IsPressed(PAD_LEFT_SHOULDER);
@@ -992,7 +993,7 @@ void Player_Update(double elapsed_time)
 
     const bool bothShield = (g_RightWeaponIdx == WEAPON_SHIELD && g_LeftWeaponIdx == WEAPON_SHIELD);
     const bool beamAttack = bothShield &&
-        (PadLogger_GetRightTrigger() > 0.5f || (mouseLeft && mouseRight));
+        ((padRightFire && padLeftFire) || (mouseLeft && mouseRight)); // RB+LB同時 / 左右クリック同時
 
     const bool rightFire = keyAttack || mouseRight || padRightFire;
     const bool leftFire  = mouseLeft || padLeftFire;
@@ -1048,7 +1049,7 @@ void Player_Update(double elapsed_time)
     }
 
     //--------------------------------------------------------------------------
-    // ビーム発射（RT / マウス右）：胴体中心から発射
+    // ビーム発射（RB+LB / マウス左右同時）：胴体中心から発射
     //--------------------------------------------------------------------------
     if (beamAttack && g_pBeamWeapon)
     {
@@ -1606,7 +1607,12 @@ float Player_GetSpeedMultiplier() // スピード倍率を返す
 
 int Player_GetNormalWeaponIndex()
 {
-    return g_NormalWeaponIdx;
+    return g_NormalWeaponIdx;   // 通常武器スロット（0-2）
+}
+
+int Player_GetRightWeaponIndex()
+{
+    return g_RightWeaponIdx;    // 実際の右腕武器ID（シールド含む 0-3）
 }
 
 int Player_GetLeftWeaponIndex()

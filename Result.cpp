@@ -13,6 +13,7 @@
 #include "sprite.h"
 #include "direct3d.h"
 #include "Score.h"
+#include "text_logo.h"
 #include <DirectXMath.h>
 using namespace DirectX;
 
@@ -20,10 +21,8 @@ using namespace DirectX;
 // リソース
 //------------------------------------------------------------------------------
 static int g_ResultBgTex = -1;  // 背景
-static int g_ResultLogoTex = -1;  // 「GAME OVER」ロゴ
-static int g_WhiteTex = -1;  // 1x1 白
-static int g_DigitTex = -1;  // 数字スプライト（0～9 が横並び）
-static int g_CaptionTex = -1;  // スコア下に置く任意のテキスト画像
+static int g_WhiteTex    = -1;  // 1x1 白
+static int g_DigitTex    = -1;  // 数字スプライト（0～9 が横並び）
 
 // 数字1桁あたりの切り出しサイズ（suji.png 想定）
 static constexpr int DIGIT_W = 32;
@@ -42,11 +41,8 @@ static void DrawNumberLineCenteredScaled(
 void Result_Initialize()
 {
     g_ResultBgTex = Texture_Load(L"resource/texture/title_bg.png");
-    g_ResultLogoTex = Texture_Load(L"resource/texture/result_logo.png");
-    g_WhiteTex = Texture_Load(L"resource/texture/white.png");
-    g_DigitTex = Texture_Load(L"resource/texture/suji.png");
-
-    g_CaptionTex = Texture_Load(L"resource/texture/enter_menu.png");
+    g_WhiteTex    = Texture_Load(L"resource/texture/white.png");
+    g_DigitTex    = Texture_Load(L"resource/texture/suji.png");
 }
 
 //------------------------------------------------------------------------------
@@ -75,6 +71,10 @@ void Result_Draw()
     const int sw = SPRITE_SCREEN_W;
     const int sh = SPRITE_SCREEN_H;
 
+    // ──────────────────────────────────────────
+    // 1) スプライト描画（背景 + スコアパネル）
+    // ──────────────────────────────────────────
+
     // 背景（フィット）
     if (g_ResultBgTex >= 0)
     {
@@ -85,21 +85,11 @@ void Result_Draw()
         Sprite_Draw(g_ResultBgTex, 0, 0, tw * sx, th * sy, XMFLOAT4(1, 1, 1, 1));
     }
 
-    // ロゴ
-    if (g_ResultLogoTex >= 0)
-    {
-        const float lw = 720.0f;
-        const float lh = 200.0f;
-        const float lx = sw * 0.5f - lw * 0.5f;
-        const float ly = sh * 0.18f;
-        Sprite_Draw(g_ResultLogoTex, lx, ly, lw, lh, XMFLOAT4(1, 1, 1, 1));
-    }
-
     // スコアパネル（半透明＋縁）
-    float panelW = 680.0f;
-    float panelH = 180.0f;
-    float panelX = sw * 0.5f - panelW * 0.5f;
-    float panelY = sh * 0.50f - panelH * 0.5f;
+    const float panelW = 680.0f;
+    const float panelH = 180.0f;
+    const float panelX = sw * 0.5f - panelW * 0.5f;
+    const float panelY = sh * 0.50f - panelH * 0.5f;
 
     if (g_WhiteTex >= 0)
     {
@@ -113,40 +103,26 @@ void Result_Draw()
     // スコア（中央に大きく）
     if (g_DigitTex >= 0)
     {
-        const int score = (int)Score_GetScore();
+        const int   score   = (int)Score_GetScore();
         const float digitsY = panelY + panelH * 0.5f - (DIGIT_H * DIGIT_SCALE) * 0.6f;
-
-        DrawNumberLineCenteredScaled(
-            g_DigitTex, score, sw * 0.5f, digitsY, DIGIT_SCALE);
+        DrawNumberLineCenteredScaled(g_DigitTex, score, sw * 0.5f, digitsY, DIGIT_SCALE);
     }
 
-    // スコア直下の任意テキスト画像（存在すれば描画）
-// 
-// 下辺長方形とキャプションを描画
-    if (g_WhiteTex >= 0)
+    // ──────────────────────────────────────────
+    // 2) TextLogo 描画（スプライトより後に D2D で描く）
+    // ──────────────────────────────────────────
+
+    // ロゴ（TextLogo: "GAME OVER"）
     {
-        const float bw = 420.0f;
-        const float bh = 36.0f;
-        const float bx = sw * 0.5f - bw * 0.5f;
-        const float by = sh * 0.82f;
-
-        // 下辺長方形（半透明）
-        Sprite_Draw(g_WhiteTex, bx, by, bw, bh, XMFLOAT4(1, 1, 1, 0.12f));
-
-        // キャプションを中央に配置
-        if (g_CaptionTex >= 0)
-        {
-            const float tw = (float)Texture_Width(g_CaptionTex);
-            const float th = (float)Texture_Height(g_CaptionTex);
-
-            // 長方形の中央に合わせる
-            const float cx = bx + bw * 0.5f - tw * 0.5f;
-            const float cy = by + bh * 0.5f - th * 0.5f;
-
-            Sprite_Draw(g_CaptionTex, cx, cy, tw, th, XMFLOAT4(1, 1, 1, 1));
-        }
+        LogoStyle s;
+        s.fontSize     = 100.0f;
+        s.fontName     = L"Agency FB";
+        s.colorTop     = D2D1::ColorF(1.00f, 0.30f, 0.10f, 1.0f); // 明るい赤
+        s.colorBottom  = D2D1::ColorF(0.60f, 0.05f, 0.00f, 1.0f); // 暗い赤
+        s.outlineColor = D2D1::ColorF(0.15f, 0.00f, 0.00f, 1.0f);
+        s.outlineWidth = 3.5f;
+        TextLogo_Draw(L"GAME OVER", sw * 0.5f, sh * 0.22f, s);
     }
-
 
 }
 

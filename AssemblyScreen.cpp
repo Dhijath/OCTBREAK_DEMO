@@ -167,38 +167,46 @@ void AssemblyScreen_Initialize()
     if (g_WhiteTexID < 0) g_WhiteTexID = Texture_Load(L"resource/Texture/white.png");
     if (g_BgTexID    < 0) g_BgTexID    = Texture_Load(L"resource/Texture/titleBg.png");
 
-    // プレビューモデルをロード（WeaponDef のパスを使用）
+    // プレビューモデル（古いものを解放してから再ロード）
     for (int i = 0; i < WEAPON_COUNT; ++i)
+    {
+        if (g_pPreviewModels[i]) { ModelRelease(g_pPreviewModels[i]); g_pPreviewModels[i] = nullptr; }
         g_pPreviewModels[i] = ModelLoad(k_WeaponDefs[i].modelPath, k_WeaponDefs[i].scale);
+    }
 
-    // プレイヤープレビューモデル
+    // プレイヤープレビューモデル（同様に解放→再ロード）
+    if (g_pPlayerPreviewBody)     { ModelRelease(g_pPlayerPreviewBody);     g_pPlayerPreviewBody     = nullptr; }
+    if (g_pPlayerPreviewHead)     { ModelRelease(g_pPlayerPreviewHead);     g_pPlayerPreviewHead     = nullptr; }
+    if (g_pPlayerPreviewThruster) { ModelRelease(g_pPlayerPreviewThruster); g_pPlayerPreviewThruster = nullptr; }
     g_pPlayerPreviewBody     = ModelLoad("resource/Models/body.fbx",     0.3f);
     g_pPlayerPreviewHead     = ModelLoad("resource/Models/Head.fbx",     0.3f);
     g_pPlayerPreviewThruster = ModelLoad("resource/Models/Thruster.fbx", 0.3f);
 
     g_PreviewAngle = 0.0f;
 
-    // DirectWrite 大文字ヘッダ（32pt, 白）
+    // DirectWrite 大文字ヘッダ（32pt, 白）— 2回目以降は再生成しない
+    if (!g_pDWLarge)
     {
-        FontData fd;
-        fd.font          = Font::Arial;
-        fd.fontSize      = 32.0f;
-        fd.fontWeight    = DWRITE_FONT_WEIGHT_BOLD;
-        fd.Color         = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
-        fd.textAlignment = DWRITE_TEXT_ALIGNMENT_LEADING;
-        g_pDWLarge = new DirectWrite(&fd);
+        static FontData fdLarge;
+        fdLarge.font          = Font::Arial;
+        fdLarge.fontSize      = 32.0f;
+        fdLarge.fontWeight    = DWRITE_FONT_WEIGHT_BOLD;
+        fdLarge.Color         = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
+        fdLarge.textAlignment = DWRITE_TEXT_ALIGNMENT_LEADING;
+        g_pDWLarge = new DirectWrite(&fdLarge);
         g_pDWLarge->Init();
     }
 
-    // DirectWrite ボディ（20pt, 白）
+    // DirectWrite ボディ（20pt, 白）— 2回目以降は再生成しない
+    if (!g_pDWBody)
     {
-        FontData fd;
-        fd.font          = Font::Arial;
-        fd.fontSize      = 20.0f;
-        fd.fontWeight    = DWRITE_FONT_WEIGHT_NORMAL;
-        fd.Color         = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
-        fd.textAlignment = DWRITE_TEXT_ALIGNMENT_LEADING;
-        g_pDWBody = new DirectWrite(&fd);
+        static FontData fdBody;
+        fdBody.font          = Font::Arial;
+        fdBody.fontSize      = 20.0f;
+        fdBody.fontWeight    = DWRITE_FONT_WEIGHT_NORMAL;
+        fdBody.Color         = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
+        fdBody.textAlignment = DWRITE_TEXT_ALIGNMENT_LEADING;
+        g_pDWBody = new DirectWrite(&fdBody);
         g_pDWBody->Init();
     }
 }

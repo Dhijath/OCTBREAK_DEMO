@@ -499,19 +499,34 @@ void GameManager_Draw()
     {
     case GameState::WeaponSelect:
         InputHint_Draw(
-            "[TAB] R/L ARM   [W/S] Weapon   [Left Click] Decide",
-            "[LB/RB] R/L ARM   [Up/Down] Weapon   [A] Decide");
+            "{TAB} R/L ARM    {W}{S} Weapon    {MOUSE_L} Decide",
+            "{LB}{RB} R/L ARM    {DPAD_UP}{DPAD_DN} Weapon    {A} Decide");
         break;
     case GameState::Title:
         InputHint_Draw(
-            "[Enter] Select   [Up/Down] Move",
-            "[A] Select   [Up/Down] Move");
+            "{ENTER} Select    {UP}{DOWN} Move",
+            "{A} Select    {DPAD_UP}{DPAD_DN} Move");
         break;
     case GameState::Playing:
         if (g_IsPaused)
             InputHint_Draw(
-                "[Enter] Resume / Exit",
-                "[A] Resume / Exit");
+                "{ENTER} Decide",
+                "{A} Decide");
+        else
+            InputHint_Draw(
+                "{W}{K_A}{S}{K_D} Move    {MOUSE_MOVE} Aim    {MOUSE_R} R-ARM    {MOUSE_L} L-ARM    {ESC} Pause",
+                "{L_STICK} Move    {R_STICK} Aim    {RB} R-ARM    {LB} L-ARM    {START} Pause");
+        break;
+    case GameState::Option:
+        InputHint_Draw(
+            "{UP}{DOWN} Select    {LEFT}{RIGHT} Change    {ENTER} Back",
+            "{DPAD_UP}{DPAD_DN} Select    {DPAD_LR} Change    {B} Back");
+        break;
+    case GameState::Result:
+    case GameState::Clear:
+        InputHint_Draw(
+            "{ENTER} Back to Title",
+            "{A} Back to Title");
         break;
     default:
         break;

@@ -15,6 +15,7 @@
 #include "sprite.h"
 #include "direct3d.h"
 #include "Score.h"
+#include "text_logo.h"
 #include <DirectXMath.h>
 using namespace DirectX;
 
@@ -22,10 +23,8 @@ using namespace DirectX;
    リソース
 ----------------------------------------------------------------------------- */
 static int g_ClearBgTex = -1; // 背景
-static int g_ClearLogoTex = -1; // 「GAME CLEAR」ロゴ
-static int g_WhiteTex = -1; // 1x1 白
-static int g_DigitTex = -1; // 数字（suji.png）
-static int g_CaptionTex = -1; // 下部帯の上に載せるキャプション画像
+static int g_WhiteTex   = -1; // 1x1 白
+static int g_DigitTex   = -1; // 数字（suji.png）
 
 /* -----------------------------------------------------------------------------
    数字スプライトの元サイズ（Score.cpp と揃える）
@@ -93,10 +92,8 @@ static void DrawNumberLineCenteredScaled(int texId, int value, float centerX, fl
 void Clear_Initialize()
 {
     g_ClearBgTex = Texture_Load(L"resource/texture/title_bg.png");
-    g_ClearLogoTex = Texture_Load(L"resource/texture/clear_logo.png");
-    g_WhiteTex = Texture_Load(L"resource/texture/white.png");
-    g_DigitTex = Texture_Load(L"resource/texture/suji.png");
-    g_CaptionTex = Texture_Load(L"resource/texture/enter_menu.png"); // 任意のキャプション画像
+    g_WhiteTex   = Texture_Load(L"resource/texture/white.png");
+    g_DigitTex   = Texture_Load(L"resource/texture/suji.png");
 }
 
 /* -----------------------------------------------------------------------------
@@ -120,6 +117,10 @@ void Clear_Draw()
     const int sw = SPRITE_SCREEN_W;
     const int sh = SPRITE_SCREEN_H;
 
+    // ──────────────────────────────────────────
+    // 1) スプライト描画（背景 + スコアパネル）
+    // ──────────────────────────────────────────
+
     // 背景（全面フィット）
     if (g_ClearBgTex >= 0)
     {
@@ -130,24 +131,13 @@ void Clear_Draw()
         Sprite_Draw(g_ClearBgTex, 0, 0, tw * sx, th * sy, XMFLOAT4(1, 1, 1, 1));
     }
 
-    // ロゴ（中央やや上）
-    if (g_ClearLogoTex >= 0)
-    {
-        const float lw = 720.0f;
-        const float lh = 200.0f;
-        const float lx = sw * 0.5f - lw * 0.5f;
-        const float ly = sh * 0.18f;
-        Sprite_Draw(g_ClearLogoTex, lx, ly, lw, lh, XMFLOAT4(1, 1, 1, 1));
-    }
-
     // スコアパネル（半透明＋枠）
-    float px = 0, py = 0, pw = 0, ph = 0;
     if (g_WhiteTex >= 0)
     {
-        pw = 520.0f;
-        ph = 120.0f;
-        px = sw * 0.5f - pw * 0.5f;
-        py = sh * 0.50f - ph * 0.5f;
+        const float pw = 520.0f;
+        const float ph = 120.0f;
+        const float px = sw * 0.5f - pw * 0.5f;
+        const float py = sh * 0.50f - ph * 0.5f;
 
         Sprite_Draw(g_WhiteTex, px, py, pw, ph, XMFLOAT4(0, 0, 0, 0.55f));
         Sprite_Draw(g_WhiteTex, px, py, pw, 3, XMFLOAT4(1, 1, 1, 0.5f));
@@ -155,37 +145,29 @@ void Clear_Draw()
         Sprite_Draw(g_WhiteTex, px, py, 3, ph, XMFLOAT4(1, 1, 1, 0.5f));
         Sprite_Draw(g_WhiteTex, px + pw - 3, py, 3, ph, XMFLOAT4(1, 1, 1, 0.5f));
 
-        // 　拡大スコア（中央寄せ）
+        // 拡大スコア（中央寄せ）
         if (g_DigitTex >= 0)
         {
-            const int score = (int)Score_GetScore();
-            const float digitsBaselineY = py + ph * 0.5f - DIGIT_DST_H * 0.5f; // パネル中央に拡大後の高さで合わせる
+            const int   score          = (int)Score_GetScore();
+            const float digitsBaselineY = py + ph * 0.5f - DIGIT_DST_H * 0.5f;
             DrawNumberLineCenteredScaled(g_DigitTex, score, sw * 0.5f, digitsBaselineY);
         }
     }
 
-    // 下辺の帯
-    float bx = 0, by = 0, bw = 0, bh = 0;
-    if (g_WhiteTex >= 0)
+    // ──────────────────────────────────────────
+    // 2) TextLogo 描画（スプライトより後に D2D で描く）
+    // ──────────────────────────────────────────
+
+    // ロゴ（TextLogo: "GAME CLEAR"）
     {
-        bw = 420.0f;
-        bh = 36.0f;
-        bx = sw * 0.5f - bw * 0.5f;
-        by = sh * 0.82f;
-
-        Sprite_Draw(g_WhiteTex, bx, by, bw, bh, XMFLOAT4(1, 1, 1, 0.12f));
-
-        // 帯の「上」にキャプション画像
-        if (g_CaptionTex >= 0)
-        {
-            const float tw = (float)Texture_Width(g_CaptionTex);
-            const float th = (float)Texture_Height(g_CaptionTex);
-
-            const float margin = 10.0f;                  // 帯からの隙間
-            const float cx = bx + bw * 0.5f - tw * 0.5f; // 帯中央に合わせる
-            const float cy = by - th - margin;           // 上に浮かせる
-
-            Sprite_Draw(g_CaptionTex, cx, cy, tw, th, XMFLOAT4(1, 1, 1, 1));
-        }
+        LogoStyle s;
+        s.fontSize     = 100.0f;
+        s.fontName     = L"Agency FB";
+        s.colorTop     = D2D1::ColorF(0.50f, 1.00f, 0.90f, 1.0f); // シアン
+        s.colorBottom  = D2D1::ColorF(0.05f, 0.60f, 0.80f, 1.0f); // 深い青
+        s.outlineColor = D2D1::ColorF(0.00f, 0.10f, 0.15f, 1.0f);
+        s.outlineWidth = 3.5f;
+        TextLogo_Draw(L"GAME CLEAR", sw * 0.5f, sh * 0.22f, s);
     }
+
 }

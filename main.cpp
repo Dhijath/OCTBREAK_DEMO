@@ -17,6 +17,7 @@
 #include "sprite_anim.h"
 #include "fade.h"
 #include "input_hint.h"
+#include "text_logo.h"
 #include "debug_text.h"
 #include <sstream>
 #include "system_timer.h"
@@ -101,6 +102,7 @@ int APIENTRY WinMain(
 	SpriteAnim_Initialize();
 	Fade_Initialize();
 	InputHint_Initialize();
+	TextLogo_Initialize();
 
 	Sampler_Initialize(Direct3D_GetDevice(), Direct3D_GetContext());
 
@@ -250,6 +252,7 @@ int APIENTRY WinMain(
 
 	ShadowMap::Finalize();
 
+	TextLogo_Finalize();
 	InputHint_Finalize();
 	Fade_Finalize();
 	SpriteAnim_Finalize();

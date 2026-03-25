@@ -127,7 +127,7 @@ ThrusterEmitter::ThrusterEmitter(
     , m_unit01(0.0f, 1.0f)
 {
 #if THRUSTER_TRAIL_ENABLED
-    m_trail.Initialize(48, 0.18f, 0.5f, { 0.4f, 0.7f, 1.0f, 0.7f });
+    m_trail.Initialize(48, 0.18f, 0.2f, { 0.4f, 0.7f, 1.0f, 0.7f });
 #endif
 }
 

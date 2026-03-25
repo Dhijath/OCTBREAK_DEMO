@@ -113,7 +113,14 @@ public:
     // プレイヤー座標系オフセット（後ろに下げる等）
     void SetLocalOffset(const DirectX::XMFLOAT3& offsetLocal) { m_offset_local = offsetLocal; }
 
-    void SetColor(const DirectX::XMFLOAT4& color) { m_color = color; }
+    void SetColor(const DirectX::XMFLOAT4& color)
+    {
+        m_color = color;
+#if THRUSTER_TRAIL_ENABLED
+        // トレイルの色をスラスターと同期（アルファは 0.7 で固定）
+        m_trail.SetColor({ color.x, color.y, color.z, 0.7f });
+#endif
+    }
     void SetUVRect(const DirectX::XMFLOAT4& uvRect) { m_uvRect = uvRect; }
     void SetAspectRatio(float aspect) { m_aspect = aspect; }
 

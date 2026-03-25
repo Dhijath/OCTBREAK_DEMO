@@ -15,10 +15,20 @@
      InputHint_Update();
 
      // 各 Draw 関数の末尾（Fade_Draw の直前）
+     // {TAG} プレースホルダーがボタンアイコン画像に置き換わる
      InputHint_Draw(
-         "[TAB] ARM  [↑↓] Weapon  [Click] Decide",   // KB/Mouse
-         "[LB] ARM  [↑↓] Weapon  [A] Decide"          // Gamepad
+         "{TAB} R/L ARM    {W}{S} Weapon    {MOUSE_L} Decide",  // KB/Mouse
+         "{LB}{RB} R/L ARM    {DPAD_UP}{DPAD_DN} Weapon    {A} Decide"  // Gamepad
      );
+
+   ■使用可能タグ
+     KB/Mouse : {TAB} {ENTER} {ESC}
+                {W} {S} {K_A} {K_D}
+                {UP} {DOWN} {LEFT} {RIGHT}
+                {MOUSE_L} {MOUSE_R}
+     Gamepad  : {LB} {RB} {LT} {RT}
+                {A} {B} {START} {L_STICK}
+                {DPAD_UP} {DPAD_DN} {DPAD_LR}
 
 ==============================================================================*/
 
