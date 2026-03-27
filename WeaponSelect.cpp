@@ -24,10 +24,8 @@
 #include "texture.h"
 #include "sprite.h"
 #include "debug_text.h"
-#include "key_logger.h"
+#include "UIInput.h"
 #include "keyboard.h"
-#include "pad_logger.h"
-#include "mouse.h"
 #include <DirectXMath.h>
 #include <cstdio>
 #include <cmath>
@@ -159,33 +157,20 @@ void WeaponSelect_Update(double elapsed_time)
 {
     g_Time += elapsed_time;
 
-    // 右クリックトリガー検出（前フレームと比較）
-    Mouse_State ms{};
-    Mouse_GetState(&ms);
-    static bool s_PrevMouseRight = false;
-    const bool mouseRightTrig = ms.rightButton && !s_PrevMouseRight;
-    s_PrevMouseRight = ms.rightButton;
-
-    // ── アーム（武器）移動：TAB / 左右キー / パッド ───────────────────
-    if (KeyLogger_IsTrigger(KK_TAB)          ||
-        KeyLogger_IsTrigger(KK_RIGHT)         ||
-        KeyLogger_IsTrigger(KK_D)             ||
-        PadLogger_IsTrigger(PAD_DPAD_RIGHT))
+    // ── 武器切り替え：右 / TAB で次へ、左 で前へ ────────────────────
+    if (UI_IsMoveRight() || UI_IsTabSwitch())
     {
         g_Selected = (g_Selected + 1) % 3;
         PlayAudio(g_SeCursorMove, false);
     }
-
-    if (KeyLogger_IsTrigger(KK_LEFT) ||
-        KeyLogger_IsTrigger(KK_A)    ||
-        PadLogger_IsTrigger(PAD_DPAD_LEFT))
+    if (UI_IsMoveLeft())
     {
         g_Selected = (g_Selected + 2) % 3;
         PlayAudio(g_SeCursorMove, false);
     }
 
-    // ── 決定：右クリック / ENTER / パッドA ───────────────────────────
-    if (mouseRightTrig || KeyLogger_IsTrigger(KK_ENTER) || PadLogger_IsTrigger(PAD_A))
+    // ── 決定：ENTER / パッドA / 左クリック ───────────────────────────
+    if (UI_IsConfirm())
     {
         PlayAudio(g_SeSelect, false);
         g_Result = WeaponSelectResult::Decided;

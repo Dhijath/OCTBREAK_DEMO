@@ -236,6 +236,14 @@ void SetMasterVolume(float volume)
     g_MasteringVoice->SetVolume(volume);
 }
 
+float GetMasterVolume()
+{
+    if (!g_MasteringVoice) return 0.5f;
+    float vol = 0.5f;
+    g_MasteringVoice->GetVolume(&vol);
+    return vol;
+}
+
 // -----------------------------------------------------------------------------
 // WAVファイルを読み込み、初期音量を指定してSourceVoiceを作成する
 // -----------------------------------------------------------------------------

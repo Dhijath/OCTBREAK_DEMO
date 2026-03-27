@@ -34,3 +34,6 @@ WeaponID AssemblyScreen_GetLeftWeapon();
 
 // 残クレジット
 int      AssemblyScreen_GetRemainingCredits();
+
+// 前回選択を引き継ぐ（SaveData_Load から呼ぶ）
+void     AssemblyScreen_SetDefaults(WeaponID right, WeaponID left);

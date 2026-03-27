@@ -203,13 +203,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_KEYDOWN:
         if (wParam == VK_ESCAPE)
         {
-            // Playing 中は ESC をポーズシステムに委譲する（window 側では何もしない）
-            if (GameManager_GetState() != GameState::Playing)
-            {
-                g_IsExitDialogOpen = true;
-                SendMessage(hWnd, WM_CLOSE, 0, 0);
-            }
-            return 0;
+            // ESC は各画面（UIInput経由）に委譲する。window側では何もしない。
+            // 終了確認は×ボタン・Alt+F4（WM_CLOSE）のみ
         }
         break;
 

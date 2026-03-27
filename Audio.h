@@ -18,7 +18,8 @@ void UnloadAudio(int Index);
 void PlayAudio(int Index, bool Loop = false);
 
 //  マスター音量（0.0f ～ 1.0f）
-void SetMasterVolume(float volume);
+void  SetMasterVolume(float volume);
+float GetMasterVolume();            // 現在のマスター音量を取得
 
 // 音量変更可能ロード
 int LoadAudioWithVolume(const char* FileName, float volume);

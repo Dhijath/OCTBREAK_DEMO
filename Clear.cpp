@@ -1,173 +1,163 @@
-﻿/*==============================================================================
+/*==============================================================================
 
    クリア画面 [Clear.cpp]
    Author : 51106
    Date   : 2026/02/08
 
 --------------------------------------------------------------------------------
-   背景＋「GAME CLEAR」表示＋スコア表示
-   - 入力は見ない（Enter復帰は Game_Manager 側）
-   - 下辺りの長方形の“上に”キャプション画像を配置可能
-   - 　スコア数字を拡大表示（中央寄せ）
+   背景＋「GAME CLEAR」（TextLogo）＋ スコア（DirectWrite）
+   入力は Game_Manager 側。
 ==============================================================================*/
 #include "Clear.h"
 #include "texture.h"
 #include "sprite.h"
 #include "direct3d.h"
+#include "DirectWrite.h"
 #include "Score.h"
 #include "text_logo.h"
+#include <d2d1helper.h>
 #include <DirectXMath.h>
+#include <cstdio>
 using namespace DirectX;
 
-/* -----------------------------------------------------------------------------
-   リソース
------------------------------------------------------------------------------ */
-static int g_ClearBgTex = -1; // 背景
-static int g_WhiteTex   = -1; // 1x1 白
-static int g_DigitTex   = -1; // 数字（suji.png）
+//------------------------------------------------------------------------------
+// リソース
+//------------------------------------------------------------------------------
+static int g_ClearBgTex = -1;
+static int g_WhiteTex   = -1;
 
-/* -----------------------------------------------------------------------------
-   数字スプライトの元サイズ（Score.cpp と揃える）
------------------------------------------------------------------------------ */
-static constexpr int   DIGIT_W = 32;
-static constexpr int   DIGIT_H = 35;
-static constexpr float DIGIT_SCALE = 1.6f; // 　拡大率（リザルトと同等感）
-static constexpr float DIGIT_DST_W = DIGIT_W * DIGIT_SCALE;
-static constexpr float DIGIT_DST_H = DIGIT_H * DIGIT_SCALE;
+static DirectWrite* g_pDWLabel = nullptr;   // "SCORE" ラベル（22pt）
+static DirectWrite* g_pDWScore = nullptr;   // スコア数値（52pt Bold）
 
-/* -----------------------------------------------------------------------------
-   数字描画（中央寄せ・拡大版）
-   - 1 桁ずつ src を切り出し、dest 側は DIGIT_DST_W/H で描画
-   - Sprite_Draw( tex, x,y, dstW,dstH, srcX,srcY,srcW,srcH, color ) を使用
------------------------------------------------------------------------------ */
-static void DrawNumberLineCenteredScaled(int texId, int value, float centerX, float baselineY)
-{
-    if (value < 0) value = 0;
+//------------------------------------------------------------------------------
+// レイアウト定数（仮想 1600×900）
+//------------------------------------------------------------------------------
+static constexpr float SCR_CX = 800.0f;
+static constexpr float SCR_CY = 450.0f;
+static constexpr float PNL_W = 680.0f;
+static constexpr float PNL_H = 210.0f;
+static constexpr float PNL_X = SCR_CX - PNL_W * 0.5f;
+static constexpr float PNL_Y = SCR_CY - PNL_H * 0.5f;
 
-    // 桁数
-    int tmp = value;
-    int digits = (tmp == 0) ? 1 : 0;
-    while (tmp > 0) { tmp /= 10; ++digits; }
-
-    // 横中央寄せ位置を決定（拡大後の幅で計算）
-    const float totalW = DIGIT_DST_W * digits;
-    float x = centerX - totalW * 0.5f;
-
-    // 0 の描画（特例）
-    if (value == 0)
-    {
-        Sprite_Draw(
-            texId,
-            x, baselineY,
-            DIGIT_DST_W, DIGIT_DST_H,              // ← 拡大後の描画サイズ
-            DIGIT_W * 0, 0, DIGIT_W, DIGIT_H,      // ← 元画像からの切り出し
-            XMFLOAT4(1, 1, 1, 1)
-        );
-        return;
-    }
-
-    // 左から順に描くため、いったん桁を配列に格納（下位→上位）
-    int buf[16] = { 0 };
-    int n = 0;
-    while (value > 0 && n < 16) { buf[n++] = value % 10; value /= 10; }
-
-    // 上位桁から描画
-    for (int i = n - 1; i >= 0; --i)
-    {
-        const int d = buf[i];
-        Sprite_Draw(
-            texId,
-            x, baselineY,
-            DIGIT_DST_W, DIGIT_DST_H,              // 拡大後の描画サイズ
-            DIGIT_W * d, 0, DIGIT_W, DIGIT_H,      // 元の桁画像を切り出し
-            XMFLOAT4(1, 1, 1, 1)
-        );
-        x += DIGIT_DST_W;
-    }
-}
-
-/* -----------------------------------------------------------------------------
-   初期化
------------------------------------------------------------------------------ */
+//------------------------------------------------------------------------------
+// 初期化
+//------------------------------------------------------------------------------
 void Clear_Initialize()
 {
     g_ClearBgTex = Texture_Load(L"resource/texture/title_bg.png");
     g_WhiteTex   = Texture_Load(L"resource/texture/white.png");
-    g_DigitTex   = Texture_Load(L"resource/texture/suji.png");
+
+    if (!g_pDWLabel)
+    {
+        static FontData fdLabel;
+        fdLabel.font          = Font::Arial;
+        fdLabel.fontWeight    = DWRITE_FONT_WEIGHT_NORMAL;
+        fdLabel.fontStyle     = DWRITE_FONT_STYLE_NORMAL;
+        fdLabel.fontStretch   = DWRITE_FONT_STRETCH_NORMAL;
+        fdLabel.fontSize      = 22.0f;
+        fdLabel.localeName    = L"en-us";
+        fdLabel.textAlignment = DWRITE_TEXT_ALIGNMENT_CENTER;
+        fdLabel.Color         = D2D1::ColorF(0.75f, 0.75f, 0.75f, 1.0f);
+        g_pDWLabel = new DirectWrite(&fdLabel);
+        g_pDWLabel->Init();
+    }
+
+    if (!g_pDWScore)
+    {
+        static FontData fdScore;
+        fdScore.font          = Font::Arial;
+        fdScore.fontWeight    = DWRITE_FONT_WEIGHT_BOLD;
+        fdScore.fontStyle     = DWRITE_FONT_STYLE_NORMAL;
+        fdScore.fontStretch   = DWRITE_FONT_STRETCH_NORMAL;
+        fdScore.fontSize      = 80.0f;
+        fdScore.localeName    = L"en-us";
+        fdScore.textAlignment = DWRITE_TEXT_ALIGNMENT_CENTER;
+        fdScore.Color         = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
+        g_pDWScore = new DirectWrite(&fdScore);
+        g_pDWScore->Init();
+    }
 }
 
-/* -----------------------------------------------------------------------------
-   終了
------------------------------------------------------------------------------ */
-void Clear_Finalize() {}
+//------------------------------------------------------------------------------
+// 終了
+//------------------------------------------------------------------------------
+void Clear_Finalize()
+{
+    if (g_pDWLabel) { g_pDWLabel->Release(); delete g_pDWLabel; g_pDWLabel = nullptr; }
+    if (g_pDWScore) { g_pDWScore->Release(); delete g_pDWScore; g_pDWScore = nullptr; }
+}
 
-/* -----------------------------------------------------------------------------
-   更新（入力は Game_Manager 側）
------------------------------------------------------------------------------ */
+//------------------------------------------------------------------------------
+// 更新（入力は Game_Manager 側）
+//------------------------------------------------------------------------------
 void Clear_Update(double) {}
 
-/* -----------------------------------------------------------------------------
-   描画
------------------------------------------------------------------------------ */
+//------------------------------------------------------------------------------
+// 描画
+//------------------------------------------------------------------------------
 void Clear_Draw()
 {
-    Direct3D_SetBlendState(true);
-    Direct3D_SetDepthEnable(false); // 　2Dスプライト中は深度を切る
     Sprite_Begin();
+    Direct3D_SetBlendState(true);
+    Direct3D_SetDepthEnable(false);
+
     const int sw = SPRITE_SCREEN_W;
     const int sh = SPRITE_SCREEN_H;
 
-    // ──────────────────────────────────────────
-    // 1) スプライト描画（背景 + スコアパネル）
-    // ──────────────────────────────────────────
-
-    // 背景（全面フィット）
+    // 背景
     if (g_ClearBgTex >= 0)
     {
         const float tw = (float)Texture_Width(g_ClearBgTex);
         const float th = (float)Texture_Height(g_ClearBgTex);
-        const float sx = (float)sw / (tw > 0 ? tw : 1.0f);
-        const float sy = (float)sh / (th > 0 ? th : 1.0f);
+        const float sx = sw / (tw > 0.0f ? tw : 1.0f);
+        const float sy = sh / (th > 0.0f ? th : 1.0f);
         Sprite_Draw(g_ClearBgTex, 0, 0, tw * sx, th * sy, XMFLOAT4(1, 1, 1, 1));
     }
 
     // スコアパネル（半透明＋枠）
     if (g_WhiteTex >= 0)
     {
-        const float pw = 520.0f;
-        const float ph = 120.0f;
-        const float px = sw * 0.5f - pw * 0.5f;
-        const float py = sh * 0.50f - ph * 0.5f;
-
-        Sprite_Draw(g_WhiteTex, px, py, pw, ph, XMFLOAT4(0, 0, 0, 0.55f));
-        Sprite_Draw(g_WhiteTex, px, py, pw, 3, XMFLOAT4(1, 1, 1, 0.5f));
-        Sprite_Draw(g_WhiteTex, px, py + ph - 3, pw, 3, XMFLOAT4(1, 1, 1, 0.5f));
-        Sprite_Draw(g_WhiteTex, px, py, 3, ph, XMFLOAT4(1, 1, 1, 0.5f));
-        Sprite_Draw(g_WhiteTex, px + pw - 3, py, 3, ph, XMFLOAT4(1, 1, 1, 0.5f));
-
-        // 拡大スコア（中央寄せ）
-        if (g_DigitTex >= 0)
-        {
-            const int   score          = (int)Score_GetScore();
-            const float digitsBaselineY = py + ph * 0.5f - DIGIT_DST_H * 0.5f;
-            DrawNumberLineCenteredScaled(g_DigitTex, score, sw * 0.5f, digitsBaselineY);
-        }
+        Sprite_Draw(g_WhiteTex, PNL_X, PNL_Y, PNL_W, PNL_H, XMFLOAT4(0, 0, 0, 0.55f));
+        Sprite_Draw(g_WhiteTex, PNL_X,             PNL_Y,             PNL_W, 3, XMFLOAT4(1, 1, 1, 0.5f));
+        Sprite_Draw(g_WhiteTex, PNL_X,             PNL_Y + PNL_H - 3, PNL_W, 3, XMFLOAT4(1, 1, 1, 0.5f));
+        Sprite_Draw(g_WhiteTex, PNL_X,             PNL_Y,             3, PNL_H, XMFLOAT4(1, 1, 1, 0.5f));
+        Sprite_Draw(g_WhiteTex, PNL_X + PNL_W - 3, PNL_Y,            3, PNL_H, XMFLOAT4(1, 1, 1, 0.5f));
     }
 
-    // ──────────────────────────────────────────
-    // 2) TextLogo 描画（スプライトより後に D2D で描く）
-    // ──────────────────────────────────────────
-
-    // ロゴ（TextLogo: "GAME CLEAR"）
+    // TextLogo: "GAME CLEAR"
     {
         LogoStyle s;
         s.fontSize     = 100.0f;
         s.fontName     = L"Agency FB";
-        s.colorTop     = D2D1::ColorF(0.50f, 1.00f, 0.90f, 1.0f); // シアン
-        s.colorBottom  = D2D1::ColorF(0.05f, 0.60f, 0.80f, 1.0f); // 深い青
+        s.colorTop     = D2D1::ColorF(0.50f, 1.00f, 0.90f, 1.0f);
+        s.colorBottom  = D2D1::ColorF(0.05f, 0.60f, 0.80f, 1.0f);
         s.outlineColor = D2D1::ColorF(0.00f, 0.10f, 0.15f, 1.0f);
         s.outlineWidth = 3.5f;
         TextLogo_Draw(L"GAME CLEAR", sw * 0.5f, sh * 0.22f, s);
     }
 
+    // DirectWrite: "SCORE" ラベル + スコア数値
+    if (g_pDWLabel && g_pDWScore)
+    {
+        const float scaleX = static_cast<float>(Direct3D_GetBackBufferWidth())  / 1600.0f;
+        const float scaleY = static_cast<float>(Direct3D_GetBackBufferHeight()) / 900.0f;
+
+        char scoreBuf[32];
+        snprintf(scoreBuf, sizeof(scoreBuf), "%d", static_cast<int>(Score_GetScore()));
+
+        const D2D1_COLOR_F dGRAY  = D2D1::ColorF(0.70f, 0.70f, 0.70f, 1.0f);
+        const D2D1_COLOR_F dWHITE = D2D1::ColorF(1.0f,  1.0f,  1.0f,  1.0f);
+
+        g_pDWLabel->SetScale(scaleX, scaleY);
+        g_pDWLabel->BeginBatch();
+        g_pDWLabel->DrawAt("SCORE", SCR_CX, PNL_Y + 42.0f, 200.0f, dGRAY, 1.0f);
+        g_pDWLabel->EndBatch();
+        g_pDWLabel->SetScale(1.0f, 1.0f);
+
+        g_pDWScore->SetScale(scaleX, scaleY);
+        g_pDWScore->BeginBatch();
+        g_pDWScore->DrawAt(scoreBuf, SCR_CX, PNL_Y + 105.0f, 600.0f, dWHITE, 1.0f);
+        g_pDWScore->EndBatch();
+        g_pDWScore->SetScale(1.0f, 1.0f);
+    }
 }

@@ -23,6 +23,7 @@ enum class PauseResult
 };
 
 void        Pause_Initialize();
+void        Pause_Open();       // ポーズを開く時に呼ぶ（入力の初期化）
 PauseResult Pause_Update();
 void        Pause_Draw();
 

@@ -23,9 +23,9 @@
 #include "Option.h"
 #include "texture.h"
 #include "sprite.h"
-#include "key_logger.h"
-#include "pad_logger.h"
+#include "UIInput.h"
 #include "Audio.h"
+#include "SaveData.h"
 #include "direct3d.h"
 #include "DirectWrite.h"
 #include "game_window.h"
@@ -65,7 +65,6 @@ namespace
     double g_Time              = 0.0;
 
     float  g_Volume            = 0.5f;
-    bool   g_VolumeInitialized = false;
 
     //==========================================================================
     // 感度定数
@@ -102,6 +101,9 @@ void Option_Initialize()
     g_CursorItem = 0;
     g_End        = false;
     g_Time       = 0.0;
+
+    // 現在のマスター音量を表示値に反映（SaveData_Load 後の値が正）
+    g_Volume = GetMasterVolume();
 
     if (g_SeCursorMove < 0) g_SeCursorMove = LoadAudio("resource/Sound/ui_cursor_move.wav");
     if (g_SeTabSwitch  < 0) g_SeTabSwitch  = LoadAudio("resource/Sound/ui_tab_switch.wav");
@@ -161,11 +163,7 @@ void Option_Initialize()
         g_pDW_Label->Init();
     }
 
-    if (!g_VolumeInitialized)
-    {
-        g_Volume            = 0.5f;
-        g_VolumeInitialized = true;
-    }
+    // g_Volume は GetMasterVolume() で既に反映済み（SaveData_Load が先に実行）
     SetMasterVolume(g_Volume);
 }
 
@@ -194,19 +192,12 @@ void Option_Update(double elapsed_time)
     g_Time += elapsed_time;
 
     // ── カーソル上下 ──────────────────────────────────────────────────────
-    const bool moveUp   = KeyLogger_IsTrigger(KK_UP)   || KeyLogger_IsTrigger(KK_W)
-                       || PadLogger_IsTrigger(PAD_DPAD_UP);
-    const bool moveDown = KeyLogger_IsTrigger(KK_DOWN)  || KeyLogger_IsTrigger(KK_S)
-                       || PadLogger_IsTrigger(PAD_DPAD_DOWN);
-
-    if (moveUp)   { g_CursorItem = (g_CursorItem - 1 + ITEM_COUNT) % ITEM_COUNT; PlayAudio(g_SeCursorMove, false); }
-    if (moveDown) { g_CursorItem = (g_CursorItem + 1) % ITEM_COUNT;              PlayAudio(g_SeCursorMove, false); }
+    if (UI_IsMoveUp())   { g_CursorItem = (g_CursorItem - 1 + ITEM_COUNT) % ITEM_COUNT; PlayAudio(g_SeCursorMove, false); }
+    if (UI_IsMoveDown()) { g_CursorItem = (g_CursorItem + 1) % ITEM_COUNT;              PlayAudio(g_SeCursorMove, false); }
 
     // ── 値変更 ────────────────────────────────────────────────────────────
-    const bool goLeft  = KeyLogger_IsTrigger(KK_LEFT)  || KeyLogger_IsTrigger(KK_A)
-                      || PadLogger_IsTrigger(PAD_DPAD_LEFT);
-    const bool goRight = KeyLogger_IsTrigger(KK_RIGHT) || KeyLogger_IsTrigger(KK_D)
-                      || PadLogger_IsTrigger(PAD_DPAD_RIGHT);
+    const bool goLeft  = UI_IsMoveLeft();
+    const bool goRight = UI_IsMoveRight();
 
     if (g_CursorItem == 0) // ボリューム
     {
@@ -228,10 +219,11 @@ void Option_Update(double elapsed_time)
         if (goLeft || goRight) { GameWindow_RequestFullscreenToggle(); PlayAudio(g_SeTabSwitch, false); }
     }
 
-    // ── 戻る ─────────────────────────────────────────────────────────────
-    if (KeyLogger_IsTrigger(KK_ENTER) || PadLogger_IsTrigger(PAD_B))
+    // ── 戻る（ESC / PAD_B）──────────────────────────────────────────────
+    if (UI_IsCancel())
     {
         PlayAudio(g_SeCancel, false);
+        SaveData_Save();    // 設定を config.ini に書き込む
         g_End = true;
     }
 }

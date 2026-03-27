@@ -21,11 +21,11 @@
 #include "audio.h"
 #include "texture.h"
 #include "direct3d.h"
-#include "key_logger.h"
-#include "pad_logger.h"
+#include "UIInput.h"
 #include "text_logo.h"
 #include "DirectWrite.h"
 #include "player_camera.h"
+#include "SaveData.h"
 #include <DirectXMath.h>
 #include <d2d1helper.h>
 #include <algorithm>
@@ -58,7 +58,6 @@ namespace
     // オプション値
     //==========================================================================
     static float g_Volume = 0.5f;
-    static bool  g_VolumeInitialized = false;
 
     //==========================================================================
     // 入力立ち上がり
@@ -117,6 +116,8 @@ void Pause_Initialize()
     g_PrevEnter = false;
     g_PrevEsc = false;
 
+    // リソース読み込みのみここで行う（入力状態は Pause_Open でリセット）
+
     if (g_SeCursorMove < 0) g_SeCursorMove = LoadAudio("resource/Sound/ui_cursor_move.wav");
     if (g_SeSelect < 0) g_SeSelect = LoadAudio("resource/Sound/ui_select.wav");
     if (g_SeChange < 0) g_SeChange = LoadAudio("resource/Sound/ui_tab_switch.wav");
@@ -150,15 +151,30 @@ void Pause_Initialize()
         g_pDW_Label->Init();
     }
 
-    if (!g_VolumeInitialized)
-    {
-        g_Volume = 0.5f;
-        g_VolumeInitialized = true;
-        SetMasterVolume(g_Volume);
+    // SaveData_Load() が先に SetMasterVolume() を設定済みなので、それを読む
+    g_Volume = GetMasterVolume();
 
-        // 横縦感度を統一（起動時に縦を横に揃える）
-        Player_Camera_SetMouseSensitivityPitch(Player_Camera_GetMouseSensitivity());
-    }
+    // 横縦感度を統一
+    Player_Camera_SetMouseSensitivityPitch(Player_Camera_GetMouseSensitivity());
+}
+
+//==============================================================================
+// ポーズを開く時に呼ぶ（入力状態をリセットして誤検知を防ぐ）
+//==============================================================================
+void Pause_Open()
+{
+    g_State  = PauseState::Main;
+    g_Cursor = 0;
+    g_Time   = 0.0f;
+
+    // 現在の入力状態を「押されている」として記録
+    // → 次フレームで離すまでトリガーが発生しない
+    g_PrevUp    = UI_IsMoveUpHeld();
+    g_PrevDown  = UI_IsMoveDownHeld();
+    g_PrevLeft  = UI_IsMoveLeftHeld();
+    g_PrevRight = UI_IsMoveRightHeld();
+    g_PrevEnter = UI_IsConfirmHeld();
+    g_PrevEsc   = UI_IsCancelHeld();   // ESC が押されたまま → 即リジューム防止
 }
 
 //==============================================================================
@@ -171,22 +187,18 @@ PauseResult Pause_Update()
     //------------------------------------------------------------------
     // 入力取得（立ち上がり）
     //------------------------------------------------------------------
-    const bool nowUp = KeyLogger_IsPressed(KK_W) || KeyLogger_IsPressed(KK_UP)
-        || PadLogger_IsPressed(PAD_DPAD_UP);
-    const bool nowDown = KeyLogger_IsPressed(KK_S) || KeyLogger_IsPressed(KK_DOWN)
-        || PadLogger_IsPressed(PAD_DPAD_DOWN);
-    const bool nowLeft = KeyLogger_IsPressed(KK_LEFT) || KeyLogger_IsPressed(KK_A)
-        || PadLogger_IsPressed(PAD_DPAD_LEFT);
-    const bool nowRight = KeyLogger_IsPressed(KK_RIGHT) || KeyLogger_IsPressed(KK_D)
-        || PadLogger_IsPressed(PAD_DPAD_RIGHT);
-    const bool nowEnter = KeyLogger_IsPressed(KK_ENTER) || PadLogger_IsPressed(PAD_A);
-    const bool nowEsc = KeyLogger_IsPressed(KK_ESCAPE) || PadLogger_IsPressed(PAD_BACK);
+    const bool nowUp    = UI_IsMoveUpHeld();
+    const bool nowDown  = UI_IsMoveDownHeld();
+    const bool nowLeft  = UI_IsMoveLeftHeld();
+    const bool nowRight = UI_IsMoveRightHeld();
+    const bool nowEnter = UI_IsConfirmHeld();
+    const bool nowEsc   = UI_IsCancelHeld();
 
     const bool trigUp = nowUp && !g_PrevUp;
     const bool trigDown = nowDown && !g_PrevDown;
     const bool trigLeft = nowLeft && !g_PrevLeft;
     const bool trigRight = nowRight && !g_PrevRight;
-    const bool trigEnter = nowEnter && !g_PrevEnter;
+    const bool trigEnter = (nowEnter && !g_PrevEnter) || UI_IsMouseLeftTrig();
     const bool trigEsc = nowEsc && !g_PrevEsc;
 
     g_PrevUp = nowUp;
@@ -236,10 +248,10 @@ PauseResult Pause_Update()
         }
 
         // 戻る（ESC / PAD_B）
-        const bool trigBack = trigEsc
-            || (PadLogger_IsTrigger(PAD_B));
+        const bool trigBack = UI_IsCancel();
         if (trigBack)
         {
+            SaveData_Save();            // 設定を config.ini に書き込む
             g_State = PauseState::Main;
             g_Cursor = 1; // OPTION に戻る
             PlayAudio(g_SeCancel, false);

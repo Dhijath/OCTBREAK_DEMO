@@ -15,7 +15,9 @@
 enum class GameState
 {
     Title,        // タイトル画面
-    WeaponSelect, // 武器選択画面（タイトル → ゲーム開始前）
+    PreGame,      // 中間メニュー（アセンブリ / スコア確認）
+    WeaponSelect, // 武器選択画面（アセンブリ）
+    ScoreCheck,   // スコア確認画面
     Playing,      // ゲーム中
     PlayerDeath,  // 死亡演出（爆発→GAME OVER表示）→ Result へ
     Option,       // オプション（音量等）

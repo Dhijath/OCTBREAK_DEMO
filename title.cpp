@@ -15,8 +15,7 @@
 #include "Title.h"
 #include "texture.h"
 #include "sprite.h"
-#include "key_logger.h"
-#include "pad_logger.h"
+#include "UIInput.h"
 #include "direct3d.h"
 #include "audio.h"
 #include "text_logo.h"
@@ -85,22 +84,22 @@ void Title_Update(double elapsed_time)
 
     
 
-    // 上キー（W または 十字キー上）で前の項目へ
-    if (KeyLogger_IsTrigger(KK_W) || PadLogger_IsTrigger(PAD_DPAD_UP))
+    if (UI_IsMoveUp())
     {
         g_Selected = (g_Selected + MENU_COUNT - 1) % MENU_COUNT;
         PlayAudio(g_SeCursorMove, false);
     }
-
-    // 下キー（S または 十字キー下）で次の項目へ
-    if (KeyLogger_IsTrigger(KK_S) || PadLogger_IsTrigger(PAD_DPAD_DOWN))
+    if (UI_IsMoveDown())
     {
         g_Selected = (g_Selected + 1) % MENU_COUNT;
         PlayAudio(g_SeCursorMove, false);
     }
-
-    // Enter または Aボタンで決定
-    if (KeyLogger_IsTrigger(KK_ENTER) || PadLogger_IsTrigger(PAD_A))
+    if (UI_IsCancel())
+    {
+        g_Selected = MENU_COUNT - 1; // EXITにカーソル移動
+        PlayAudio(g_SeCursorMove, false);
+    }
+    if (UI_IsConfirm())
     {
         PlayAudio(g_SeSelect, false);
         if (g_Selected == 0) {

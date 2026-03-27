@@ -1,27 +1,37 @@
-﻿/*==============================================================================
-
+/*==============================================================================
    スコア管理 [Score.h]
-														 Author : 51106
-														 Date   : 2026/02/17
---------------------------------------------------------------------------------
-
+   Author : 51106
+   Date   : 2026/02/17
 ==============================================================================*/
+#pragma once
+#include "WeaponDef.h"
 
-#ifndef SCORE_H
-#define SCORE_H
+//------------------------------------------------------------------------------
+// スコアレコード（ランキング1件分）
+//------------------------------------------------------------------------------
+static constexpr int SCORE_RECORD_MAX = 10;
 
-void Score_Initialize(float x, float y, int digit);
+struct ScoreRecord
+{
+    unsigned int score;
+    WeaponID     rightWeapon;
+    WeaponID     leftWeapon;
+};
 
-void Score_Finalize();
-
-void Score_Draw();
-
+//------------------------------------------------------------------------------
+// 現在スコア
+//------------------------------------------------------------------------------
+void         Score_Initialize(float x, float y, int digit);
+void         Score_Finalize();
+void         Score_Draw();
 unsigned int Score_GetScore();
+void         Score_Addscore(int score);
+void         Score_Reset();
 
-void Score_Addscore(int score);
-
-void Score_Reset();
-
-
-
-#endif
+//------------------------------------------------------------------------------
+// ランキング
+//------------------------------------------------------------------------------
+void               Score_AddRecord(unsigned int score, WeaponID right, WeaponID left);
+int                Score_GetRecordCount();
+const ScoreRecord* Score_GetRecords();   // 降順ソート済み配列（SCORE_RECORD_MAX件）
+void               Score_ClearRecords();

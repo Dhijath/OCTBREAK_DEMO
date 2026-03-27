@@ -91,9 +91,8 @@ int APIENTRY WinMain(
 	WallShader_Initialize(Direct3D_GetDevice(), Direct3D_GetContext());
 
 	Shader_field_Initialize(Direct3D_GetDevice(), Direct3D_GetContext());
-	Option_Initialize();
 
-	// 
+	//
 	Texture_Initialize(Direct3D_GetDevice(), Direct3D_GetContext());
 	Sampler_Initialize(Direct3D_GetDevice(), Direct3D_GetContext());
 

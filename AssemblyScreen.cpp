@@ -32,9 +32,8 @@
 #include "ShaderToon.h"
 #include "ShaderEdge.h"
 #include "light.h"
-#include "key_logger.h"
+#include "UIInput.h"
 #include "keyboard.h"
-#include "pad_logger.h"
 #include "mouse.h"
 #include <DirectXMath.h>
 #include <d3d11.h>
@@ -97,6 +96,10 @@ namespace
     int g_RightCursor = WEAPON_MACHINEGUN;
     int g_LeftCursor  = WEAPON_SHIELD;
 
+    // 前回選択のデフォルト値（SaveData_Load から上書きされる）
+    int g_DefaultRight = WEAPON_MACHINEGUN;
+    int g_DefaultLeft  = WEAPON_SHIELD;
+
     // 確定フラグ
     bool g_Decided = false;
 
@@ -154,8 +157,8 @@ static constexpr XMFLOAT4 kDivider    = { 0.25f, 0.50f, 0.90f, 0.50f };
 void AssemblyScreen_Initialize()
 {
     g_ActivePanel  = 0;
-    g_RightCursor  = WEAPON_MACHINEGUN;
-    g_LeftCursor   = WEAPON_SHIELD;
+    g_RightCursor  = g_DefaultRight;   // 前回選択を引き継ぐ
+    g_LeftCursor   = g_DefaultLeft;
     g_Decided      = false;
     g_Time         = 0.0;
 
@@ -247,20 +250,12 @@ bool AssemblyScreen_Update(double dt)
 
     // パネル切り替え（TAB = R-ARM ↔ L-ARM トグル）
     {
-        static bool s_PrevMouseLeft = false;
-        Mouse_State ms{};
-        Mouse_GetState(&ms);
-        const bool mouseLeftTrig = ms.leftButton && !s_PrevMouseLeft;
-        s_PrevMouseLeft = ms.leftButton;
-
         // TAB / LB / RB：R-ARM ↔ L-ARM トグル
-        if (KeyLogger_IsTrigger(KK_TAB)              ||
-            PadLogger_IsTrigger(PAD_LEFT_SHOULDER)   ||
-            PadLogger_IsTrigger(PAD_RIGHT_SHOULDER))
+        if (UI_IsTabSwitch())
         { g_ActivePanel = 1 - g_ActivePanel; PlayAudio(g_SeTabSwitch, false); }
 
-        // 左クリック / ENTER / パッドA で決定
-        if (mouseLeftTrig || KeyLogger_IsTrigger(KK_ENTER) || PadLogger_IsTrigger(PAD_A))
+        // ENTER / パッドA / 左クリック で決定
+        if (UI_IsConfirm())
         {
             if (CalcRemaining() >= 0)
             {
@@ -271,9 +266,9 @@ bool AssemblyScreen_Update(double dt)
         }
     }
 
-    // カーソル移動（上下 / D-pad / W・S）
-    const bool up   = PadLogger_IsTrigger(PAD_DPAD_UP)   || KeyLogger_IsTrigger(KK_UP)  || KeyLogger_IsTrigger(KK_W);
-    const bool down = PadLogger_IsTrigger(PAD_DPAD_DOWN)  || KeyLogger_IsTrigger(KK_DOWN) || KeyLogger_IsTrigger(KK_S);
+    // カーソル移動（上下）
+    const bool up   = UI_IsMoveUp();
+    const bool down = UI_IsMoveDown();
 
     if (g_ActivePanel == 0)
     {
@@ -791,3 +786,9 @@ void AssemblyScreen_Draw()
 WeaponID AssemblyScreen_GetRightWeapon()     { return static_cast<WeaponID>(g_RightCursor); }
 WeaponID AssemblyScreen_GetLeftWeapon()      { return static_cast<WeaponID>(g_LeftCursor);  }
 int      AssemblyScreen_GetRemainingCredits(){ return CalcRemaining(); }
+
+void AssemblyScreen_SetDefaults(WeaponID right, WeaponID left)
+{
+    g_DefaultRight = static_cast<int>(right);
+    g_DefaultLeft  = static_cast<int>(left);
+}

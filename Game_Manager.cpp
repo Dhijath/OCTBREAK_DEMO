@@ -29,6 +29,8 @@
 #include "Clear.h"
 #include "Result.h"
 #include "AssemblyScreen.h"
+#include "PreGame.h"
+#include "ScoreCheck.h"
 #include "Enemy.h"
 #include "map.h"
 #include <cstdint>
@@ -39,6 +41,9 @@
 #include "player_camera.h"
 #include "HUD.h"
 #include "input_hint.h"
+#include "UIInput.h"
+#include "SaveData.h"
+#include "Score.h"
 #include <DirectXMath.h>
 #include <cstdlib>
 using namespace DirectX;
@@ -120,6 +125,7 @@ static void BeginTransition(GameState next, const char* nextBgmPath)
 //------------------------------------------------------------------------------
 void GameManager_Initialize()
 {
+    SaveData_Load();                  // 設定ファイルを読み込み各モジュールに反映
     Title_Initialize();               // まずはタイトル
     StartBgmLoop(BGM_TITLE);          // タイトルBGM開始
     g_IsTransitioning = false;        // 遷移中フラグOFF
@@ -137,7 +143,9 @@ void GameManager_Initialize()
 void GameManager_Finalize()
 {
     Title_Finalize();
+    PreGame_Finalize();
     AssemblyScreen_Finalize();
+    ScoreCheck_Finalize();
     Option_Finalize();
     Game_Finalize();
     Clear_Finalize();
@@ -169,6 +177,8 @@ void GameManager_Finalize()
 //==============================================================================
 void GameManager_Update(double elapsed_time)
 {
+    UIInput_Update();   // マウストリガー等を毎フレーム先頭で更新
+
     switch (g_GameState)
     {
     case GameState::Title:
@@ -180,7 +190,7 @@ void GameManager_Update(double elapsed_time)
             TitleResult tr = Title_GetResult();
             if (tr == TitleResult::Start)
             {
-                BeginTransition(GameState::WeaponSelect, BGM_TITLE);  // タイトルBGM維持
+                BeginTransition(GameState::PreGame, BGM_TITLE);  // タイトルBGM維持
             }
             else if (tr == TitleResult::Option)
             {
@@ -193,8 +203,24 @@ void GameManager_Update(double elapsed_time)
 
             if (Title_IsEnd())
             {
-                BeginTransition(GameState::WeaponSelect, BGM_TITLE);
+                BeginTransition(GameState::PreGame, BGM_TITLE);
             }
+        }
+        break;
+    }
+
+    case GameState::PreGame:
+    {
+        if (!g_IsTransitioning)
+        {
+            PreGame_Update(elapsed_time);
+            PreGameResult pr = PreGame_GetResult();
+            if (pr == PreGameResult::Assembly)
+                BeginTransition(GameState::WeaponSelect, BGM_TITLE);
+            else if (pr == PreGameResult::ScoreCheck)
+                BeginTransition(GameState::ScoreCheck, BGM_TITLE);
+            else if (pr == PreGameResult::Back)
+                BeginTransition(GameState::Title, BGM_TITLE);
         }
         break;
     }
@@ -205,8 +231,20 @@ void GameManager_Update(double elapsed_time)
         {
             if (AssemblyScreen_Update(elapsed_time))
             {
+                SaveData_Save();   // 確定したアセンブリを保存
                 BeginTransition(GameState::Playing, BGM_GAME);
             }
+        }
+        break;
+    }
+
+    case GameState::ScoreCheck:
+    {
+        if (!g_IsTransitioning)
+        {
+            ScoreCheck_Update(elapsed_time);
+            if (ScoreCheck_IsEnd())
+                BeginTransition(GameState::PreGame, BGM_TITLE);
         }
         break;
     }
@@ -219,12 +257,15 @@ void GameManager_Update(double elapsed_time)
         // ポーズトグル（ESC / PAD_START）
         // ボス演出中・遷移中はポーズ不可
         //----------------------------------------------------------
-        if (!BossIntro_IsPlaying())
+        if (!BossIntro_IsPlaying() && !g_IsPaused)
         {
             const bool pauseKey = KeyLogger_IsTrigger(KK_ESCAPE)
                                 || PadLogger_IsTrigger(PAD_START);
             if (pauseKey)
-                g_IsPaused = !g_IsPaused;
+            {
+                g_IsPaused = true;
+                Pause_Open();   // 入力状態をリセット（同フレームの誤検知防止）
+            }
         }
 
         //----------------------------------------------------------
@@ -289,6 +330,10 @@ void GameManager_Update(double elapsed_time)
         if (g_InBossRoom && !BossIntro_IsPlaying() && !Game_IsBossAlive())
         {
             PlayAudio(g_PlayerclearSE);
+            Score_AddRecord(Score_GetScore(),
+                AssemblyScreen_GetRightWeapon(),
+                AssemblyScreen_GetLeftWeapon());
+            SaveData_SaveScores();
             BeginTransition(GameState::Clear, BGM_RESULT);
         }
 
@@ -326,6 +371,10 @@ void GameManager_Update(double elapsed_time)
         // 3.8 秒後にリザルト遷移
         if (g_DeathTimer >= 3.8)
         {
+            Score_AddRecord(Score_GetScore(),
+                AssemblyScreen_GetRightWeapon(),
+                AssemblyScreen_GetLeftWeapon());
+            SaveData_SaveScores();
             BeginTransition(GameState::Result, BGM_RESULT);
         }
 
@@ -348,23 +397,15 @@ void GameManager_Update(double elapsed_time)
 
     case GameState::Result:
     {
-        // Enter または Aボタン でタイトルへ
-        if (!g_IsTransitioning &&
-            (KeyLogger_IsTrigger(KK_ENTER) || PadLogger_IsTrigger(PAD_A)))
-        {
+        if (!g_IsTransitioning && UI_IsConfirm())
             BeginTransition(GameState::Title, BGM_TITLE);
-        }
         break;
     }
 
     case GameState::Clear:
     {
-        // Enter または Aボタン でタイトルへ
-        if (!g_IsTransitioning &&
-            (KeyLogger_IsTrigger(KK_ENTER) || PadLogger_IsTrigger(PAD_A)))
-        {
+        if (!g_IsTransitioning && UI_IsConfirm())
             BeginTransition(GameState::Title, BGM_TITLE);
-        }
         break;
     }
 
@@ -427,9 +468,17 @@ void GameManager_Update(double elapsed_time)
         // 通常の状態遷移
         g_GameState = g_NextState;
 
-        if (g_GameState == GameState::WeaponSelect)
+        if (g_GameState == GameState::PreGame)
+        {
+            PreGame_Initialize();
+        }
+        else if (g_GameState == GameState::WeaponSelect)
         {
             AssemblyScreen_Initialize();
+        }
+        else if (g_GameState == GameState::ScoreCheck)
+        {
+            ScoreCheck_Initialize();
         }
         else if (g_GameState == GameState::Playing)
         {
@@ -470,8 +519,10 @@ void GameManager_Draw()
 {
     switch (g_GameState)
     {
-    case GameState::Title:        Title_Draw();         break;
+    case GameState::Title:        Title_Draw();          break;
+    case GameState::PreGame:      PreGame_Draw();        break;
     case GameState::WeaponSelect: AssemblyScreen_Draw(); break;
+    case GameState::ScoreCheck:   ScoreCheck_Draw();     break;
     case GameState::Playing:
         Game_Draw();
         // ポーズ中はゲーム画面の上にメニューを重ねる
