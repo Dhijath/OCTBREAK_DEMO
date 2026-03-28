@@ -65,7 +65,8 @@ namespace
         float    depthBias;     // receiver bias (clip space)
         float    pad0;
         float    strength;      // 0..1
-        float    pad1[3];
+        float    pcfEnable;     // 1.0 = 3x3 PCF on / 0.0 = 1 sample
+        float    pad1[2];
     };
 
     void SafeRelease(IUnknown*& p)
@@ -220,6 +221,10 @@ namespace ShadowMap
                 dev->CreateInputLayout(layout, ARRAYSIZE(layout), pData, sz, &g_pShadowIL);
                 delete[] pData;
             }
+            else
+            {
+                MessageBoxA(nullptr, "shader_vertex_shadow_3d.cso が読み込めません\nShadow Map は無効になります", "ShadowMap Error", MB_OK | MB_ICONWARNING);
+            }
         }
 
         // --- Shadow PS (shader_pixel_shadow.cso)
@@ -230,6 +235,10 @@ namespace ShadowMap
             {
                 dev->CreatePixelShader(pData, sz, nullptr, &g_pShadowPS);
                 delete[] pData;
+            }
+            else
+            {
+                MessageBoxA(nullptr, "shader_pixel_shadow.cso が読み込めません\nShadow Map は無効になります", "ShadowMap Error", MB_OK | MB_ICONWARNING);
             }
         }
 
@@ -331,24 +340,24 @@ namespace ShadowMap
         ID3D11DeviceContext* ctx = GetContext();
         if (!ctx) return;
 
+        // Shadow DSV を明示的に外す
+        // → 直後に SRV として使えるようにするための D3D11 ハザード回避
+        ctx->OMSetRenderTargets(0, nullptr, nullptr);
+
         // ---- 戻す（Viewport / RS）
         ctx->RSSetViewports(1, &g_PrevVP);
         ctx->RSSetState(g_pRSPrev);
         SafeRelease((IUnknown*&)g_pRSPrev);
 
-        // RTV/DSV は呼び元（Direct3D_Clear 等）が貼り直す前提
         g_InShadowPass = false;
     }
 
-    void BindForMainPass()
+    void BindForMainPass(bool pcfEnable)
     {
         if (!g_Enable) return;
 
         ID3D11DeviceContext* ctx = GetContext();
         if (!ctx) return;
-
-        // VS(b3): LightViewProj（影生成 VS が参照する）
-        ctx->VSSetConstantBuffers(3, 1, &g_pCBLightVP);
 
         // PS(b8): LightViewProj（PS が posW から shadowUV を計算する用）
         ctx->PSSetConstantBuffers(8, 1, &g_pCBLightVP);
@@ -362,8 +371,9 @@ namespace ShadowMap
         // PS(b5): shadow param
         CBShadowParam sp{};
         sp.shadowMapSize = XMFLOAT2((float)g_Size, (float)g_Size);
-        sp.depthBias = 0.001f;
-        sp.strength = 0.6f; // 影の濃さ（0=影なし / 1=真っ暗）
+        sp.depthBias  = 0.001f;
+        sp.strength   = 0.6f;                    // 影の濃さ（0=影なし / 1=真っ暗）
+        sp.pcfEnable  = pcfEnable ? 1.0f : 0.0f; // 高=PCF / 中=1サンプル
 
         ctx->UpdateSubresource(g_pCBShadowParam, 0, nullptr, &sp, 0, 0);
         ctx->PSSetConstantBuffers(5, 1, &g_pCBShadowParam);

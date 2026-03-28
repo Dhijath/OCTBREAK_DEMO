@@ -98,13 +98,31 @@ void ThrusterParticle::Draw(const XMFLOAT4& color, const XMFLOAT4& uvRect) const
     XMFLOAT3 pos{};
     XMStoreFloat3(&pos, GetPosition());
 
-    // 寿命比でスケールとアルファを落とす
     float r = static_cast<float>(GetLifeRatio());
     if (r > 1.0f) r = 1.0f;
-    const float displayScale = m_scale * (1.0f - r);
+
+    // ─── フェードイン→アウト エンベロープ ───────────────────────────
+    // 誕生直後に突然現れる「ぶつ切り」を防ぐため
+    // ・最初の kFadeIn(20%) : smoothstep でやわらかく立ち上がる
+    // ・残り 80%            : ease-in でなだらかに消える
+    const float kFadeIn = 0.2f;
+    float envelope;
+    if (r < kFadeIn)
+    {
+        float t = r / kFadeIn;                          // 0→1
+        envelope = t * t * (3.0f - 2.0f * t);          // smoothstep
+    }
+    else
+    {
+        float t = (r - kFadeIn) / (1.0f - kFadeIn);    // 0→1
+        float fadeOut = 1.0f - t;
+        envelope = fadeOut * fadeOut;                   // ease-in（ゆっくり消える）
+    }
+
+    const float displayScale = m_scale * envelope;
 
     XMFLOAT4 c = color;
-    c.w = c.w * (1.0f - r);
+    c.w = c.w * envelope;
 
     Billboard_Draw(
         m_texture_id,

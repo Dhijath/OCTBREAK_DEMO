@@ -9,6 +9,7 @@
 #include "game_window.h"
 #include "Score.h"
 #include "AssemblyScreen.h"
+#include "Option.h"
 #include <windows.h>
 #include <cstdio>
 #include <cstring>
@@ -16,12 +17,13 @@
 //------------------------------------------------------------------------------
 // INI ファイルパス（実行ファイルからの相対パス）
 //------------------------------------------------------------------------------
-static const char* INI_PATH    = "resource/Savedata/config.ini";
-static const char* SEC_AUDIO   = "Audio";
-static const char* SEC_CAMERA  = "Camera";
-static const char* SEC_DISPLAY = "Display";
-static const char* SEC_RECORDS  = "Records";
-static const char* SEC_ASSEMBLY = "Assembly";
+static const char* INI_PATH      = "resource/Savedata/config.ini";
+static const char* SEC_AUDIO     = "Audio";
+static const char* SEC_CAMERA    = "Camera";
+static const char* SEC_DISPLAY   = "Display";
+static const char* SEC_GRAPHICS  = "Graphics";
+static const char* SEC_RECORDS   = "Records";
+static const char* SEC_ASSEMBLY  = "Assembly";
 
 //------------------------------------------------------------------------------
 // 内部ヘルパー: float を文字列で書き込む
@@ -109,6 +111,12 @@ void SaveData_Load()
         AssemblyScreen_SetDefaults(static_cast<WeaponID>(rw), static_cast<WeaponID>(lw));
     }
 
+    // ── Graphics ───────────────────────────────────────────
+    {
+        int sm = ReadInt(SEC_GRAPHICS, "ShadowMode", 3, path); // デフォルト=3（高・PCF）
+        Option_SetShadowMode(sm);
+    }
+
     // ── Records ────────────────────────────────────────────
     Score_ClearRecords();
     int count = ReadInt(SEC_RECORDS, "Count", 0, path);
@@ -147,6 +155,9 @@ void SaveData_Save()
 
     // ── Display ────────────────────────────────────────────
     WriteInt(SEC_DISPLAY, "Fullscreen", GameWindow_IsFullscreen() ? 1 : 0, path);
+
+    // ── Graphics ───────────────────────────────────────────
+    WriteInt(SEC_GRAPHICS, "ShadowMode", Option_GetShadowMode(), path);
 
     // ── Assembly ───────────────────────────────────────────
     WriteInt(SEC_ASSEMBLY, "LastRight", (int)AssemblyScreen_GetRightWeapon(), path);

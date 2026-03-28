@@ -356,6 +356,7 @@ void Pause_Draw()
         // ─ テキスト ──────────────────────────────────────────────────
         if (g_pDW && g_pDW_Label)
         {
+
             const D2D1_COLOR_F dCYAN = D2D1::ColorF(0.2f, 0.72f, 1.0f, 1.0f);
             const D2D1_COLOR_F dWHITE = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
             const D2D1_COLOR_F dGRAY = D2D1::ColorF(0.55f, 0.55f, 0.55f, 1.0f);
@@ -390,6 +391,7 @@ void Pause_Draw()
             g_pDW->DrawAt(std::wstring(L"ESC / B : 戻る"), cx, OPT_PNL_Y + OPT_PNL_H - 25.0f, 180.0f, dGRAY, 1.2f);
             g_pDW->EndBatch();
             g_pDW->SetScale(1.0f, 1.0f);
+
         }
         return;
     }

@@ -51,6 +51,8 @@ using namespace DirectX;
 #include "DamagePopup.h"
 #include "BossIntro.h"
 #include "Shadow_Map.h"
+#include "pad_logger.h"
+#include "Option.h"
 
 
 
@@ -256,18 +258,22 @@ void Game_SetBossLookDir(const XMFLOAT3& dir)
 }
 
 //==============================================================================
-// ロックオン：カメラ中心レイに最も近いエネミーのワールド位置を返す（レイキャスト）
+// ロックオン：カメラ中心レイに最も近いエネミーのワールド位置を返す
+// ・毎フレーム再計算（最もレイ中心に近い敵を返す）
+// ・視線チェックは壁のみ（床・天井は無視）
 //==============================================================================
 bool Game_GetLockOnWorldPos(XMFLOAT3* outPos)
 {
     const int count = g_EnemyManager.GetCount();
     if (count == 0) return false;
 
-    XMFLOAT3 camPosF = Player_Camera_GetPosition();
+    XMFLOAT3 camPosF   = Player_Camera_GetPosition();
     XMFLOAT3 camFrontF = Player_Camera_GetFront();
+    XMFLOAT3 rayStartF = camPosF;
+    rayStartF.y += 0.1f;
 
     XMVECTOR rayOrigin = XMLoadFloat3(&camPosF);
-    XMVECTOR rayDir = XMVector3Normalize(XMLoadFloat3(&camFrontF));
+    XMVECTOR rayDir    = XMVector3Normalize(XMLoadFloat3(&camFrontF));
 
     constexpr float MAX_LOCK_DIST = 50.0f;
     constexpr float MAX_ANGLE_DEG = 15.0f;
@@ -284,20 +290,14 @@ bool Game_GetLockOnWorldPos(XMFLOAT3* outPos)
         XMFLOAT3 enemyPosF = e.GetPosition();
         enemyPosF.y += e.GetLockOnCenterOffset();
 
-        XMVECTOR ePos = XMLoadFloat3(&enemyPosF);
-        XMVECTOR toEnemy = ePos - rayOrigin;
-
-        float dist = XMVectorGetX(XMVector3Length(toEnemy));
+        XMVECTOR toEnemy = XMLoadFloat3(&enemyPosF) - rayOrigin;
+        float    dist    = XMVectorGetX(XMVector3Length(toEnemy));
         if (dist <= 0.0f || dist > MAX_LOCK_DIST) continue;
 
         float cosAngle = XMVectorGetX(XMVector3Dot(rayDir, toEnemy / dist));
         if (cosAngle <= bestCos) continue;
 
-        XMFLOAT3 rayStart = camPosF;
-        rayStart.y += 0.1f;
-
-        if (!Map_HasLineOfSight(rayStart, enemyPosF))
-            continue;
+        if (!Map_HasLineOfSight(rayStartF, enemyPosF, true)) continue;
 
         bestCos = cosAngle;
         bestIdx = i;
@@ -363,6 +363,38 @@ void Game_Update(double elapsed_time)
 
     // プレイヤーとカメラ、弾、被弾エフェクトの更新
     Player_Update(elapsed_time);
+
+    // ロックオンカメラアシスト
+    // ・Bボタン（トリガー）でON/OFFトグル（モード状態を記憶）
+    // ・右スティック入力中だけ一時抑制（モード状態は変わらない）
+    //   → 離したら ON モードなら自動で再ロックオン
+    {
+        static bool s_LockOnCamMode = false;
+
+        // Bボタンでモードトグル
+        if (PadLogger_IsTrigger(PAD_B))
+            s_LockOnCamMode = !s_LockOnCamMode;
+
+        // 右スティック入力中だけ一時抑制（モードは変えない）
+        float rx = 0.0f, ry = 0.0f;
+        PadLogger_GetRightStick(&rx, &ry);
+        const bool rightStickMoved = sqrtf(rx * rx + ry * ry) > 0.2f;
+
+        // ON かつスティック非入力のときだけアシスト有効
+        if (s_LockOnCamMode && !rightStickMoved)
+        {
+            XMFLOAT3 lockPos;
+            if (Game_GetLockOnWorldPos(&lockPos))
+                Player_Camera_SetLockOnAssist(&lockPos);
+            else
+                Player_Camera_SetLockOnAssist(nullptr);
+        }
+        else
+        {
+            Player_Camera_SetLockOnAssist(nullptr);
+        }
+    }
+
     Player_Camera_Update(elapsed_time);
 
     EnemyBullet_Update(elapsed_time);
@@ -463,16 +495,32 @@ void Game_Draw()
     //);
 
     // ---------------------------------------------------------------------
+    // シャドウモード取得（オプション画面で変更可能）
+    //   0 = なし
+    //   1 = シャドウマップのみ
+    //   2 = マル影のみ
+    //   3 = 両方
+    // ---------------------------------------------------------------------
+    const int  shadowMode    = Option_GetShadowMode();
+    // 0=なし / 1=低（マル影） / 2=中（シャドウマップ・ハード） / 3=高（シャドウマップ・PCF）
+    const bool useShadowMap  = (shadowMode == 2 || shadowMode == 3);
+    const bool useBlobShadow = (shadowMode == 1);
+    const bool usePCF        = (shadowMode == 3);
+
+    // ---------------------------------------------------------------------
     // シャドウパス（深度のみ書き込み）
     // ・ライト視点からエネミー・プレイヤーを描画してシャドウマップを生成
     // ・EndPass 後に ShadowMap::BindForMainPass で通常 PS(t7/b5/b8) にバインド
     // ---------------------------------------------------------------------
-    if (ShadowMap::IsEnabled())
+    // シャドウパス前に深度書き込みを有効にする（前フレームの2Dパスで無効化されている場合の対策）
+    Direct3D_SetDepthEnable(true);
+
+    if (useShadowMap && ShadowMap::IsEnabled())
     {
-        const XMFLOAT3 lightDir  = { 0.4f, -1.0f, 0.3f }; // 斜め上から照射
+        const XMFLOAT3 lightDir  = { 1.0f, -0.8f, 0.5f }; // 斜め上から照射
         const XMFLOAT3 focusPos  = Player_GetPosition();
 
-        ShadowMap::BeginPass(lightDir, focusPos, 40.0f, 0.5f, 120.0f);
+        ShadowMap::BeginPass(lightDir, focusPos, 25.0f, 0.5f, 80.0f);
         g_EnemyManager.DrawShadow();
         Player_DrawShadow();
         ShadowMap::EndPass();
@@ -480,8 +528,20 @@ void Game_Draw()
         // メインRTV+DSV+ビューポートを復元
         Direct3D_BindMainRenderTarget();
 
-        // シャドウ SRV / サンプラー / パラメータを PS にバインド
-        ShadowMap::BindForMainPass();
+        // シャドウ SRV / サンプラー / パラメータを PS にバインド（高=PCF / 中=ハード）
+        ShadowMap::BindForMainPass(usePCF);
+    }
+    else
+    {
+        // シャドウマップ不使用：t7/b5/b8/s1 の残留バインドを解除
+        ID3D11DeviceContext* ctx = Direct3D_GetContext();
+        ID3D11ShaderResourceView* nullSRV = nullptr;
+        ctx->PSSetShaderResources(7, 1, &nullSRV);
+        ID3D11Buffer* nullCB = nullptr;
+        ctx->PSSetConstantBuffers(5, 1, &nullCB);
+        ctx->PSSetConstantBuffers(8, 1, &nullCB);
+        ID3D11SamplerState* nullSS = nullptr;
+        ctx->PSSetSamplers(1, 1, &nullSS);
     }
 
     // 3Dパス：前フレームの2Dパスで無効化した深度テスト+書き込みを有効化
@@ -493,61 +553,30 @@ void Game_Draw()
     Sampler_SetFilterAnisotropic();
 
     // ---------------------------------------------------------------------
-    // 丸影（Blob Shadow）
-    // ・地面＋キューブに掛けたい
-    // ・モデル（Player 等）には掛けたくない
-    // → Map_Draw の間だけ有効にして、直後に必ず解除する
+    // Map 描画（マル影を使う場合は b6 をセット、使わない場合は null）
     // ---------------------------------------------------------------------
     {
         ID3D11DeviceContext* ctx = Direct3D_GetContext();
 
-        const DirectX::XMFLOAT3 playerPos = Player_GetPosition();
-        const AABB playerAabb = Player_GetAABB();
-
-        // キャラの高さ（AABB から算出）
-        const float charHeight = (playerAabb.max.y - playerAabb.min.y);
-
-        // 支持面Y（FloorRegistry が未実装なら mapAABB から探索）
-        float supportY = 0.0f;
+        if (useBlobShadow && BlobShadow::IsReady())
         {
-            // 代替：Map AABB から支持面Yを探す
-            GetSupportY_FromMapAABBs(playerAabb, &supportY);
+            // マル影：プレイヤー足元を中心に投影
+            // radius  = 0.20f（キャラ幅の半径・約20cm・CELL_SIZE=1mに対して適正）
+            // softness = 0.15f（ぼかし幅）
+            BlobShadow::SetToPixelShader(ctx, Player_GetPosition(), 0.20f, 0.15f, 0.55f);
         }
-
-        // 足元のY（AABB min.y を足元扱い）
-        const float footY = playerAabb.min.y;
-
-        // 支持面からの高さ
-        float hLocal = footY - supportY;
-        if (hLocal < 0.0f) hLocal = 0.0f;
-
-        // 接地中は見た目高さを 0 固定（床がキューブでも半径が縮まない）
-        const float EPS_GROUND = 0.02f;
-        const bool onGround = (hLocal <= EPS_GROUND);
-        const float visualH = onGround ? 0.0f : hLocal;
-
-        // 自動スケール
-        const float baseRadius = charHeight * 0.55f;
-        const float baseSoft = baseRadius * 0.55f;
-        const float baseStr = 0.45f;
-
-        const float maxH = charHeight * 0.8f;
-        float t = (maxH > 0.0001f) ? (visualH / maxH) : 0.0f;
-        if (t < 0.0f) t = 0.0f;
-        if (t > 1.0f) t = 1.0f;
-
-        const float radius = baseRadius * (1.0f - 0.45f * t);
-        const float softness = baseSoft * (1.0f - 0.15f * t);
-        const float strength = baseStr * (1.0f - 0.75f * t);
-
-        // Map（地面＋キューブ）に掛ける
-        BlobShadow::SetToPixelShader(ctx, playerPos, radius, softness, strength);
+        else
+        {
+            // マル影無効：b6 を null にしてシェーダー内の影計算をスキップ
+            ID3D11Buffer* nullCB = nullptr;
+            ctx->PSSetConstantBuffers(6, 1, &nullCB);
+        }
 
         Map_Draw();
 
-        // ここで必ず解除（これ以降のモデルに影を掛けない）
+        // b6 クリア（次の描画への影響防止）
         ID3D11Buffer* nullCB = nullptr;
-        ctx->PSSetConstantBuffers(6, 1, &nullCB); // b6 を使っている前提
+        ctx->PSSetConstantBuffers(6, 1, &nullCB);
     }
 
     // ---------------------------------------------------------------------

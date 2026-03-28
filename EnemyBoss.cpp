@@ -40,7 +40,7 @@ void EnemyBoss::Initialize(const XMFLOAT3& position)
 
     // 本体モデルを差し替え
     ModelRelease(m_pModel);
-    m_pModel = ModelLoad("resource/Models/enemy_tank.fbx", BOSS_SIZE);
+    m_pModel = ModelLoad("resource/Models/enemy_boss.fbx", BOSS_SIZE);
     ComputeLockOnOffsetFromModel(); // ボスモデルのAABBから自動計算
 
     // X字4門バレルをロード

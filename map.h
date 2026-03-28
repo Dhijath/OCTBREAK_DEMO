@@ -253,7 +253,8 @@ int Map_GetWiteTexID();
 bool Map_RaycastWalls(
     const DirectX::XMFLOAT3& start,
     const DirectX::XMFLOAT3& end,
-    DirectX::XMFLOAT3* outHitPos);
+    DirectX::XMFLOAT3* outHitPos,
+    bool wallsOnly = false);   // true = KIND_WALL のみ（床・天井を無視）
 
 
 //==============================================================================
@@ -273,7 +274,8 @@ bool Map_RaycastWalls(
 //==============================================================================
 bool Map_HasLineOfSight(
     const DirectX::XMFLOAT3& from,
-    const DirectX::XMFLOAT3& to);
+    const DirectX::XMFLOAT3& to,
+    bool wallsOnly = false);   // true = 壁のみ判定（床・天井を無視）
 
 void Map_DrawForMinimap();
 

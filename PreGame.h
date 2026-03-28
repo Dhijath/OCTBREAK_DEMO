@@ -1,6 +1,6 @@
 #pragma once
 
-enum class PreGameResult { None, Assembly, ScoreCheck, Back };
+enum class PreGameResult { None, QuickStart, Assembly, ScoreCheck, Back };
 
 void         PreGame_Initialize();
 void         PreGame_Finalize();

@@ -57,6 +57,8 @@ static IconEntry s_Icons[] =
     { "{S}",       L"resource/texture/Keyboard & Mouse/Default/keyboard_s.png",            -1 },
     { "{K_A}",     L"resource/texture/Keyboard & Mouse/Default/keyboard_a.png",            -1 },
     { "{K_D}",     L"resource/texture/Keyboard & Mouse/Default/keyboard_d.png",            -1 },
+    { "{F}",       L"resource/texture/Keyboard & Mouse/Default/keyboard_f.png",            -1 },
+    { "{SPACE}",   L"resource/texture/Keyboard & Mouse/Default/keyboard_space.png",        -1 },
     { "{UP}",      L"resource/texture/Keyboard & Mouse/Default/keyboard_arrow_up.png",     -1 },
     { "{DOWN}",    L"resource/texture/Keyboard & Mouse/Default/keyboard_arrow_down.png",   -1 },
     { "{LEFT}",    L"resource/texture/Keyboard & Mouse/Default/keyboard_arrow_left.png",   -1 },
@@ -308,13 +310,25 @@ InputDevice InputHint_GetActiveDevice()
 //     3. DirectWrite でデバイスラベルとテキストセグメントを描く
 //     4. Direct3D_BindMainRenderTarget() + Sprite_Begin() で後続スプライトに備える
 //==============================================================================
-void InputHint_Draw(const char* kbmText, const char* padText)
+void InputHint_Draw(const char* kbmText, const char* padText, const wchar_t* desc)
 {
     if (s_WhiteTexID < 0) return;
 
     Direct3D_SetDepthEnable(false);
     Direct3D_SetBlendState(true);
     Sprite_Begin();
+
+    // ── desc 行（ヒントバーの1行上）────────────────────────────────────
+    static constexpr float DESC_H = 28.0f;
+    const float DESC_Y = BAR_Y - (desc ? DESC_H : 0.0f);
+
+    if (desc)
+    {
+        const XMFLOAT4 colDesc    = { 0.02f, 0.04f, 0.12f, 0.78f };  // ヒントより少し薄め
+        const XMFLOAT4 colDescTop = { 0.20f, 0.40f, 0.90f, 0.50f };  // 上辺ライン
+        Sprite_Draw(s_WhiteTexID, 0.0f, DESC_Y, SW,  DESC_H, colDesc);
+        Sprite_Draw(s_WhiteTexID, 0.0f, DESC_Y, SW,  1.0f,   colDescTop);
+    }
 
     // ── バー背景 ────────────────────────────────────────────────────────
     const XMFLOAT4 colBg   = { 0.02f, 0.04f, 0.10f, 0.88f };  // 濃いネイビー
@@ -394,6 +408,20 @@ void InputHint_Draw(const char* kbmText, const char* padText)
             }
             x += t.width;
         }
+        s_pDW->EndBatch();
+        s_pDW->SetScale(1.0f, 1.0f);
+    }
+
+    // ── desc テキスト（上行） ────────────────────────────────────────────
+    if (desc && s_pDW)
+    {
+        const float descCY = BAR_Y - DESC_H * 0.5f;
+        s_pDW->SetScale(scaleX, scaleY);
+        s_pDW->BeginBatch();
+        s_pDW->DrawAt(desc,
+            SW * 0.5f, descCY,
+            SW * 0.5f - 16.0f,
+            D2D1::ColorF(0.75f, 0.88f, 1.0f, 1.0f));   // 薄いシアン系
         s_pDW->EndBatch();
         s_pDW->SetScale(1.0f, 1.0f);
     }

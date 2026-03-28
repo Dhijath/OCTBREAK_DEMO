@@ -1,9 +1,11 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
-VisualStudioVersion = 17.13.35919.96 d17.13
+VisualStudioVersion = 17.13.35919.96
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "first_game_001", "first_game_001.vcxproj", "{5148E3FF-2177-4EDF-96C7-5E3E471EC1EA}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "OctBreak", "first_game_001.vcxproj", "{5148E3FF-2177-4EDF-96C7-5E3E471EC1EA}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "ソリューション項目", "ソリューション項目", "{2022CB0F-8BAF-F49E-0C48-8EF4C96EC109}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

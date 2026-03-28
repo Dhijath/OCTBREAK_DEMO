@@ -23,3 +23,12 @@ float GetMasterVolume();            // 現在のマスター音量を取得
 
 // 音量変更可能ロード
 int LoadAudioWithVolume(const char* FileName, float volume);
+
+// 再生中かどうか
+bool IsAudioPlaying(int Index);
+
+// 停止（バッファもクリア）
+void StopAudio(int Index);
+
+// 個別音量変更（0.0f ～ 1.0f）
+void SetAudioVolume(int Index, float volume);

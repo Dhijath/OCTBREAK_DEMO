@@ -53,7 +53,8 @@ cbuffer CB_SHADOW_PARAM : register(b5)
     float  shadowDepthBias;
     float  shadowPad0;
     float  shadowStrength;
-    float3 shadowPad1;
+    float  shadowPCF;      // 1.0 = 3x3 PCF（高） / 0.0 = 1サンプル（中）
+    float2 shadowPad1;
 }
 cbuffer CB_LIGHT_VP : register(b8)
 {
@@ -61,6 +62,26 @@ cbuffer CB_LIGHT_VP : register(b8)
 }
 Texture2D              shadowMap     : register(t7);
 SamplerComparisonState shadowSampler : register(s1);
+
+// 3x3 PCF：9点サンプル平均でジャギを低減
+float ShadowPCF(float2 shadowUV, float cmpDepth)
+{
+    float2 texelSize = 1.0f / shadowMapSize;
+    float shadow = 0.0f;
+    [unroll]
+    for (int y = -1; y <= 1; y++)
+    {
+        [unroll]
+        for (int x = -1; x <= 1; x++)
+        {
+            shadow += shadowMap.SampleCmpLevelZero(
+                shadowSampler,
+                shadowUV + float2((float)x, (float)y) * texelSize,
+                cmpDepth);
+        }
+    }
+    return shadow / 9.0f;
+}
 
 float4 main(PS_IN pi) : SV_TARGET
 {
@@ -96,8 +117,10 @@ float4 main(PS_IN pi) : SV_TARGET
             shadowUV.y >= 0.0f && shadowUV.y <= 1.0f &&
             ndc.z >= 0.0f && ndc.z <= 1.0f)
         {
-            float cmpDepth   = ndc.z - shadowDepthBias;
-            float shadowFactor = shadowMap.SampleCmpLevelZero(shadowSampler, shadowUV, cmpDepth);
+            float cmpDepth = ndc.z - shadowDepthBias;
+            float shadowFactor = (shadowPCF > 0.5f)
+                ? ShadowPCF(shadowUV, cmpDepth)
+                : shadowMap.SampleCmpLevelZero(shadowSampler, shadowUV, cmpDepth);
             finalColor *= lerp(1.0f - shadowStrength, 1.0f, shadowFactor);
         }
     }

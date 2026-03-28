@@ -75,10 +75,15 @@ static double g_DeathTimer       = 0.0;  // 死亡後の経過時間（秒）
 static double g_DeathExplodeNext = 0.0;  // 次の爆発スポーンまでの残時間
 
 // BGMパス（必要に応じて差し替え）
-static const char* BGM_TITLE = "resource/sound/newspaper.wav";
-static const char* BGM_GAME = "resource/sound/Experimenta_Model_short.wav";
-static const char* BGM_OPTION = "resource/sound/maou_bgm_cyber40.wav";
-static const char* BGM_RESULT = "resource/sound/maou_bgm_cyber45_1.wav"; // リザルト/クリア兼用    
+static const char* BGM_TITLE      = "resource/sound/newspaper.wav";
+static const char* BGM_GAME       = "resource/sound/loop_wav/Loop_08_RageoftheMachines.wav";           // ステージ（音量2倍）
+static const char* BGM_BOSS       = "resource/sound/Experimenta_Model_short.wav";                // ボス
+static const char* BGM_ASSEMBLY   = "resource/sound/loop_wav/Loop_07_DynamicVoltage.wav";
+static const char* BGM_SCOREBOARD = "resource/sound/loop_wav/Loop_06_StealthStalker.wav";
+static const char* BGM_OPTION     = "resource/sound/maou_bgm_cyber40.wav";
+static const char* BGM_RESULT     = "resource/sound/maou_bgm_cyber45_1.wav"; // リザルト/クリア兼用
+static constexpr float BGM_VOL         = 0.35f;
+static constexpr float BGM_VOL_GAME    = 0.70f; // 音小さめなので2倍に
 
 int g_PlayerWarpSE = -1;
 int g_PlayerclearSE = -1;
@@ -87,10 +92,8 @@ int g_PlayerclearSE = -1;
 //------------------------------------------------------------------------------
 // 内部: BGMを差し替えてループ再生（前のBGMはUnloadして重なり回避）
 //------------------------------------------------------------------------------
-static void StartBgmLoop(const char* path)
+static void StartBgmLoop(const char* path, float volume = 0.35f)
 {
-    const float BGM_VOLUME = 0.35f; // ここで全BGMの基準音量を決める（0.0f～1.0f）
-
     if (g_CurrentBgmId >= 0)
     {
         UnloadAudio(g_CurrentBgmId);
@@ -99,7 +102,7 @@ static void StartBgmLoop(const char* path)
 
     if (path && path[0] != '\0')
     {
-        g_CurrentBgmId = LoadAudioWithVolume(path, BGM_VOLUME);
+        g_CurrentBgmId = LoadAudioWithVolume(path, volume);
         if (g_CurrentBgmId >= 0)
         {
             PlayAudio(g_CurrentBgmId, /*Loop=*/true);
@@ -111,13 +114,21 @@ static void StartBgmLoop(const char* path)
 //------------------------------------------------------------------------------
 // 内部: 遷移開始（フェードアウト + 次状態予約 + 以降の判定を停止）
 //------------------------------------------------------------------------------
-static void BeginTransition(GameState next, const char* nextBgmPath)
+// フェードなし即切り替え（同一背景・BGM の状態間に使用）
+static void SwitchInstant(GameState next)
+{
+    g_GameState = next;
+    if      (next == GameState::PreGame) PreGame_Initialize();
+    else if (next == GameState::Title)   Title_Initialize();
+}
+
+static void BeginTransition(GameState next, const char* nextBgmPath, float bgmVolume = BGM_VOL)
 {
     if (g_IsTransitioning) return;                 // 多重開始を防止
     g_IsTransitioning = true;
     g_NextState = next;
     Fade_Start(1.0, /*out=*/true, { 1,1,1 });     // 白フェードアウト開始
-    StartBgmLoop(nextBgmPath);                     // 次シーンBGMへ差し替え
+    StartBgmLoop(nextBgmPath, bgmVolume);          // 次シーンBGMへ差し替え
 }
 
 //------------------------------------------------------------------------------
@@ -190,7 +201,7 @@ void GameManager_Update(double elapsed_time)
             TitleResult tr = Title_GetResult();
             if (tr == TitleResult::Start)
             {
-                BeginTransition(GameState::PreGame, BGM_TITLE);  // タイトルBGM維持
+                SwitchInstant(GameState::PreGame);  // 同一背景・BGMなのでフェードなし
             }
             else if (tr == TitleResult::Option)
             {
@@ -201,10 +212,6 @@ void GameManager_Update(double elapsed_time)
                 g_GameState = GameState::Exit;
             }
 
-            if (Title_IsEnd())
-            {
-                BeginTransition(GameState::PreGame, BGM_TITLE);
-            }
         }
         break;
     }
@@ -215,12 +222,17 @@ void GameManager_Update(double elapsed_time)
         {
             PreGame_Update(elapsed_time);
             PreGameResult pr = PreGame_GetResult();
-            if (pr == PreGameResult::Assembly)
-                BeginTransition(GameState::WeaponSelect, BGM_TITLE);
+            if (pr == PreGameResult::QuickStart)
+            {
+                SaveData_Save();
+                BeginTransition(GameState::Playing, BGM_GAME, BGM_VOL_GAME);
+            }
+            else if (pr == PreGameResult::Assembly)
+                BeginTransition(GameState::WeaponSelect, BGM_ASSEMBLY);
             else if (pr == PreGameResult::ScoreCheck)
-                BeginTransition(GameState::ScoreCheck, BGM_TITLE);
+                BeginTransition(GameState::ScoreCheck, BGM_SCOREBOARD);
             else if (pr == PreGameResult::Back)
-                BeginTransition(GameState::Title, BGM_TITLE);
+                SwitchInstant(GameState::Title);  // 同一背景・BGMなのでフェードなし
         }
         break;
     }
@@ -231,8 +243,13 @@ void GameManager_Update(double elapsed_time)
         {
             if (AssemblyScreen_Update(elapsed_time))
             {
-                SaveData_Save();   // 確定したアセンブリを保存
-                BeginTransition(GameState::Playing, BGM_GAME);
+                if (AssemblyScreen_WasCancelled())
+                    BeginTransition(GameState::PreGame, BGM_TITLE);
+                else
+                {
+                    SaveData_Save();   // 確定したアセンブリを保存
+                    BeginTransition(GameState::Playing, BGM_GAME, BGM_VOL_GAME);
+                }
             }
         }
         break;
@@ -264,7 +281,8 @@ void GameManager_Update(double elapsed_time)
             if (pauseKey)
             {
                 g_IsPaused = true;
-                Pause_Open();   // 入力状態をリセット（同フレームの誤検知防止）
+                Player_OnPause();  // ループSE（ブースト等）を停止
+                Pause_Open();      // 入力状態をリセット（同フレームの誤検知防止）
             }
         }
 
@@ -318,6 +336,7 @@ void GameManager_Update(double elapsed_time)
             {
                 // 2回到達：ボス部屋フェーズへ移行
                 g_InBossRoom = true;
+                StartBgmLoop(BGM_BOSS);   // ボス戦BGMへ切り替え
             }
             // どちらの場合もダンジョン再生成
             g_PendingDungeonRegenerate = true;
@@ -550,28 +569,37 @@ void GameManager_Draw()
     {
     case GameState::WeaponSelect:
         InputHint_Draw(
-            "{TAB} R/L ARM    {W}{S} Weapon    {MOUSE_L} Decide",
-            "{LB}{RB} R/L ARM    {DPAD_UP}{DPAD_DN} Weapon    {A} Decide");
+            "{TAB} R/L ARM    {W}{S} Move    {ENTER} Quick Start    {ESC} Back",
+            "{LB}{RB} R/L ARM    {DPAD_UP}{DPAD_DN} Move    {A} Quick Start    {B} Back");
         break;
     case GameState::Title:
+    {
+        static const wchar_t* titleDesc[] = {
+            L"ゲームを開始します",
+            L"音量・感度などの設定を変更します",
+            L"ゲームを終了します",
+        };
+        const wchar_t* desc = titleDesc[Title_GetSelected()];
         InputHint_Draw(
-            "{ENTER} Select    {UP}{DOWN} Move",
-            "{A} Select    {DPAD_UP}{DPAD_DN} Move");
+            "{UP}{DOWN} Move    {ENTER} Select",
+            "{DPAD_UP}{DPAD_DN} Move    {A} Select",
+            desc);
         break;
+    }
     case GameState::Playing:
         if (g_IsPaused)
             InputHint_Draw(
-                "{ENTER} Decide",
-                "{A} Decide");
+                "{ENTER} Select",
+                "{A} Select");
         else
             InputHint_Draw(
-                "{W}{K_A}{S}{K_D} Move    {MOUSE_MOVE} Aim    {MOUSE_R} R-ARM    {MOUSE_L} L-ARM    {ESC} Pause",
-                "{L_STICK} Move    {R_STICK} Aim    {RB} R-ARM    {LB} L-ARM    {START} Pause");
+                "{W}{K_A}{S}{K_D} Move    {SPACE} Jump    {MOUSE_MOVE} Aim    {MOUSE_R} R-ARM    {MOUSE_L} L-ARM    {ESC} Pause",
+                "{L_STICK} Move    {A} Jump    {R_STICK} Aim    {RB} R-ARM    {LB} L-ARM    {B} Lock-On    {START} Pause");
         break;
     case GameState::Option:
         InputHint_Draw(
-            "{UP}{DOWN} Select    {LEFT}{RIGHT} Change    {ENTER} Back",
-            "{DPAD_UP}{DPAD_DN} Select    {DPAD_LR} Change    {B} Back");
+            "{UP}{DOWN} Move    {LEFT}{RIGHT} Change    {ENTER} Back",
+            "{DPAD_UP}{DPAD_DN} Move    {DPAD_LR} Change    {B} Back");
         break;
     case GameState::Result:
     case GameState::Clear:

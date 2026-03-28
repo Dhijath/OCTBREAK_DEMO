@@ -82,6 +82,9 @@ namespace
     static XMFLOAT3 g_PlayerModelHalfExtents = { 0.25f, 0.25f, 0.375f };
     static XMFLOAT3 g_PlayerModelCenterOffset = { 0.0f,  0.0f,  0.0f };
 
+    // g_PlayerPosition.y から頭頂部までの実距離（初期化時に計算）
+    static float s_PlayerTopOffset = PLAYER_HEIGHT;
+
     //--------------------------------------------------------------------------
     // 火器関連ステータス
     //--------------------------------------------------------------------------
@@ -124,6 +127,7 @@ namespace
     int g_PlayerModeSwitchToNormalSE = -1;  // 通常スロット切り替えSE
     int g_SeShieldDeploy             = -1;  // シールド展開SE
     int g_SeShieldRetract            = -1;  // シールド収納SE
+    int g_SeBoost                    = -1;  // 移動ブーストSE（移動中ループ）
 
     //--------------------------------------------------------------------------
     // パーティクル（スラスター）
@@ -646,6 +650,18 @@ void Player_Initialize(const DirectX::XMFLOAT3& position, const DirectX::XMFLOAT
     g_pLeftBarrelModel = nullptr;
     g_pLeftWeapon      = nullptr;
 
+    // g_PlayerPosition.y からヘッド頂部までの実距離を計算
+    // body は PLAYER_HEIGHT_OFFSET 上に描画、head は body 頂面に積まれる
+    {
+        const XMFLOAT3 bodyOrigin = { 0.0f, PLAYER_HEIGHT_OFFSET, 0.0f };
+        const AABB bodyAABB  = ModelGetAABB(g_pPlayerModel, bodyOrigin);
+        const AABB headLocal = ModelGetAABB(g_pHeadModel,   { 0.0f, 0.0f, 0.0f });
+        // head の Y 原点 = bodyAABB.max.y - headLocal.min.y
+        // head の世界頂点 = headOriginY + headLocal.max.y
+        const float headOriginY = bodyAABB.max.y - headLocal.min.y;
+        s_PlayerTopOffset = headOriginY + headLocal.max.y;  // g_PlayerPosition.y = 0 基準
+    }
+
     // OBBをボディモデルのAABBから自動計算する
     {
         AABB local = ModelGetAABB(g_pPlayerModel, { 0.0f, 0.0f, 0.0f });
@@ -702,6 +718,7 @@ void Player_Initialize(const DirectX::XMFLOAT3& position, const DirectX::XMFLOAT
     g_PlayerModeSwitchToNormalSE = LoadAudioWithVolume("resource/sound/mode_switch_normal.wav", 0.5f);
     g_SeShieldDeploy  = LoadAudio("resource/Sound/shield_deploy.wav");
     g_SeShieldRetract = LoadAudio("resource/Sound/shield_retract.wav");
+    g_SeBoost         = LoadAudioWithVolume("resource/Sound/Boost2.wav", 0.40f);
 
     PadLogger_Initialize();
 
@@ -720,7 +737,7 @@ void Player_Initialize(const DirectX::XMFLOAT3& position, const DirectX::XMFLOAT
     // 見た目パラメータ（ここを調整して表現を作る）
     g_PlayerThrusterEmitter->SetScaleRange(0.001f, 0.11f);       // パーティクルのスケール範囲（最小, 最大）
     g_PlayerThrusterEmitter->SetSpeedRange(1.2f, 2.0f);         // パーティクルの速度範囲（最小, 最大）
-    g_PlayerThrusterEmitter->SetLifeRange(0.18f, 0.26f);        // パーティクルの寿命範囲（最小, 最大）秒
+    g_PlayerThrusterEmitter->SetLifeRange(0.25f, 0.42f);        // パーティクルの寿命範囲（最小, 最大）秒
     g_PlayerThrusterEmitter->SetConeAngleDeg(26.0f);            // 放出コーン角度（度）
     g_PlayerThrusterEmitter->SetAspectRatio(3.0f);              // 横長比率（幅/高さ）
     g_PlayerThrusterEmitter->SetColor({ 1.0f, 0.5f, 2.5f, 1.0f }); // パーティクルの色（R,G,B,A）
@@ -729,6 +746,15 @@ void Player_Initialize(const DirectX::XMFLOAT3& position, const DirectX::XMFLOAT
 }
 
 //==============================================================================
+// ポーズ時SE停止
+//==============================================================================
+void Player_OnPause()
+{
+    // ループ再生中のブーストSEを止める（ポーズ解除後は移動入力で自動再開）
+    if (IsAudioPlaying(g_SeBoost))
+        StopAudio(g_SeBoost);
+}
+
 // 終了
 //==============================================================================
 void Player_Finalize() // プレイヤーの終了処理（モデル解放・スラスター破棄・SE解放）
@@ -789,6 +815,8 @@ void Player_Finalize() // プレイヤーの終了処理（モデル解放・ス
     g_PlayerModeSwitchToNormalSE = -1;
     UnloadAudio(g_SeShieldDeploy);  g_SeShieldDeploy  = -1;
     UnloadAudio(g_SeShieldRetract); g_SeShieldRetract = -1;
+    StopAudio(g_SeBoost);
+    UnloadAudio(g_SeBoost);         g_SeBoost         = -1;
 }
 
 //==============================================================================
@@ -816,16 +844,36 @@ void Player_Update(double elapsed_time)
     XMVECTOR velocity = XMLoadFloat3(&g_PlayerVelocity);
     XMVECTOR gravityVelocity = XMVectorZero();
 
-    const bool padJump = PadLogger_IsTrigger(PAD_A);
+    const bool padJump     = PadLogger_IsTrigger(PAD_A);
+    const bool padJumpHold = PadLogger_IsPressed(PAD_A);
+    const bool kbJumpHold  = KeyLogger_IsPressed(KK_SPACE);
 
-    if (g_PlayerEnable && (KeyLogger_IsTrigger(KK_F) || padJump) && !g_IsJump)
+    // ジャンプ（トリガー）
+    if (g_PlayerEnable && (KeyLogger_IsTrigger(KK_SPACE) || padJump) && !g_IsJump)
     {
         velocity += XMVECTOR{ 0.0f, 10.0f, 0.0f, 0.0f };
         g_IsJump = true;
     }
 
+    // 重力
+    static constexpr float GRAVITY        = 9.8f * 3.0f;
+    static constexpr float FLIGHT_COST    = 150.0f;   // エネルギー消費量 / 秒
     XMVECTOR gravityDir = XMVECTOR{ 0.0f, -1.0f, 0.0f, 0.0f };
-    velocity += gravityDir * 9.8f * 3.0f * static_cast<float>(elapsed_time);
+    velocity += gravityDir * GRAVITY * static_cast<float>(elapsed_time);
+
+    // ホールドで飛行（重力を相殺＋エネルギー消費）
+    if (g_PlayerEnable && g_IsJump && (kbJumpHold || padJumpHold))
+    {
+        const float beamEnergy = g_pBeamWeapon ? g_pBeamWeapon->GetEnergy() : 0.0f;
+        if (beamEnergy > 0.0f)
+        {
+            // 重力を打ち消す上昇力を加える
+            velocity += XMVectorSet(0.0f, GRAVITY * static_cast<float>(elapsed_time), 0.0f, 0.0f);
+            // エネルギー消費（0未満にはしない）
+            const float cost = FLIGHT_COST * static_cast<float>(elapsed_time);
+            if (g_pBeamWeapon) g_pBeamWeapon->AddEnergy(-std::min(cost, beamEnergy));
+        }
+    }
 
     gravityVelocity = velocity * static_cast<float>(elapsed_time);
 
@@ -845,22 +893,37 @@ void Player_Update(double elapsed_time)
             },
             {
                 tempPos.x + PLAYER_HALF_WIDTH_X,
-                tempPos.y + PLAYER_HEIGHT,
+                tempPos.y + s_PlayerTopOffset,   // ヘッド頂部まで
                 tempPos.z + PLAYER_HALF_WIDTH_Z
             }
         };
+
+        const float velY = XMVectorGetY(velocity);
 
         for (int i = 0; i < Map_GetObjectsCount(); i++)
         {
             const MapObject* mo = Map_GetObject(i);
             if (!mo) continue;
-            if (mo->KindId != 0 && mo->KindId != 1) continue;
+
+            const bool isFloor   = (mo->KindId == 0 || mo->KindId == 1); // KIND_GROUND / KIND_FLOOR
+            const bool isCeiling = (mo->KindId == 4);                    // KIND_CEILING
+            if (!isFloor && !isCeiling) continue;
 
             if (Collision_IsOverLapAABB(playerAABB, mo->Aabb))
             {
-                posY = XMVectorSetY(posY, mo->Aabb.max.y);
-                velocity *= XMVECTOR{ 1.0f, 0.0f, 1.0f, 1.0f };
-                g_IsJump = false;
+                if (isCeiling || velY > 0.0f)
+                {
+                    // 天井オブジェクト、または床の底に上昇中に当たった
+                    posY = XMVectorSetY(posY, mo->Aabb.min.y - s_PlayerTopOffset);
+                    velocity = XMVectorSetY(velocity, 0.0f);
+                }
+                else
+                {
+                    // 床に着地
+                    posY = XMVectorSetY(posY, mo->Aabb.max.y);
+                    velocity *= XMVECTOR{ 1.0f, 0.0f, 1.0f, 1.0f };
+                    g_IsJump = false;
+                }
                 break;
             }
         }
@@ -901,6 +964,37 @@ void Player_Update(double elapsed_time)
         moveDir = XMVector3Normalize(moveDir);
         velocity += moveDir * static_cast<float>(2000.0 / 90.0 * elapsed_time) * g_PlayerSpeedMultiplier;
     }
+
+    // ── ブーストSE ──────────────────────────────────────────
+    // 移動中はループ再生。空中上昇中は音量を最大 0.80f まで上げる
+    if (g_SeBoost >= 0)
+    {
+        const bool isMoving = XMVectorGetX(XMVector3LengthSq(moveDir)) > 0.001f;
+        if (isMoving)
+        {
+            // Y速度に応じて音量をスケール（地上 0.30f / 上昇ピーク 0.80f）
+            float boostVol = 0.30f;
+            if (g_IsJump)
+            {
+                const float velY = XMVectorGetY(velocity);
+                if (velY > 0.0f)
+                {
+                    // velY の上限を初速 10.0f で正規化
+                    const float t = std::min(velY / 10.0f, 1.0f);
+                    boostVol = 0.30f + 0.50f * t;  // 0.30 → 0.80
+                }
+            }
+            SetAudioVolume(g_SeBoost, boostVol);
+            if (!IsAudioPlaying(g_SeBoost))
+                PlayAudio(g_SeBoost, true);   // ループ開始
+        }
+        else
+        {
+            if (IsAudioPlaying(g_SeBoost))
+                StopAudio(g_SeBoost);
+        }
+    }
+    // ─────────────────────────────────────────────────────────
 
     // K キーでボディの向きモード切り替え
     if (KeyLogger_IsTrigger(KK_K))
@@ -989,7 +1083,7 @@ void Player_Update(double elapsed_time)
     const bool padLeftFire   = PadLogger_IsPressed(PAD_LEFT_SHOULDER);
     const bool mouseRight    = Player_Camera_IsMouseRightPressed();
     const bool mouseLeft     = Player_Camera_IsMouseLeftPressed();
-    const bool keyAttack     = KeyLogger_IsPressed(KK_SPACE);
+    const bool keyAttack     = KeyLogger_IsPressed(KK_F);
 
     const bool bothShield = (g_RightWeaponIdx == WEAPON_SHIELD && g_LeftWeaponIdx == WEAPON_SHIELD);
     const bool beamAttack = bothShield &&

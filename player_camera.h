@@ -95,5 +95,12 @@ void Player_Camera_SetYawPitch(float yaw, float pitch);
 //==============================================================================
 void Player_Camera_SnapToYawPitch(float yaw, float pitch);
 
+//==============================================================================
+// パッド用ロックオンアシスト：ターゲット位置をセット（nullptr で無効化）
+// ・UpdateMouseCamera 内でパッド使用中のみ gYaw/gPitch を緩やかに追尾
+// ・毎フレーム呼び直すこと（Game_Update 等から）
+//==============================================================================
+void Player_Camera_SetLockOnAssist(const DirectX::XMFLOAT3* targetWorldPos);
+
 
 #endif // PLAYER_CAMERA_H

@@ -35,7 +35,7 @@ using namespace DirectX;
 static constexpr float LP_X   =  80.0f;
 static constexpr float LP_W   = 540.0f;
 static constexpr float LP_Y   = 160.0f;
-static constexpr float ROW_H  =  62.0f;
+static constexpr float ROW_H  =  68.0f;
 
 static constexpr float RP_X   = 680.0f;
 static constexpr float RP_Y   = 160.0f;
@@ -45,6 +45,16 @@ static constexpr float RP_CX  = RP_X + RP_W * 0.5f;
 
 // 左パネルの高さは右パネルに合わせる（下端を揃える）
 static constexpr float LP_H   = RP_H;
+
+// 左パネル内テキスト列（LP_X・LP_W 基準で連結）
+//   DrawAt は (cx, cy, halfW) → テキストボックス = [cx-halfW, cx+halfW]
+static constexpr float LP_RANK_CX  = LP_X + LP_W * 0.10f;          // 順位列 中心X  (= 134)
+static constexpr float LP_RANK_HW  = LP_W * 0.09f;                  // 順位列 半幅   (= 48.6)
+
+static constexpr float LP_SCORE_LX = LP_X + LP_W * 0.25f;           // スコア列 左端 (= 215)
+static constexpr float LP_SCORE_RX = LP_X + LP_W - 20.0f;           // スコア列 右端 (= 600)
+static constexpr float LP_SCORE_CX = (LP_SCORE_LX + LP_SCORE_RX) * 0.5f;
+static constexpr float LP_SCORE_HW = (LP_SCORE_RX - LP_SCORE_LX) * 0.5f;
 
 // モデルビューポート（右パネル内）
 static constexpr float PP_X   = RP_X + 10.0f;
@@ -63,9 +73,10 @@ static bool  g_IsEnd        = false;
 static int   g_Cursor       = 0;
 static float g_PreviewAngle = 0.0f;
 
-static int g_BgTex       = -1;
-static int g_WhiteTex    = -1;
+static int g_BgTex        = -1;
+static int g_WhiteTex     = -1;
 static int g_SeCursorMove = -1;
+static int g_SeCancel     = -1;
 
 // プレイヤーモデル
 static MODEL* g_pBody      = nullptr;
@@ -91,28 +102,30 @@ void ScoreCheck_Initialize()
 
     if (g_SeCursorMove < 0)
         g_SeCursorMove = LoadAudio("resource/Sound/ui_cursor_move.wav");
+    if (g_SeCancel < 0)
+        g_SeCancel = LoadAudio("resource/Sound/ui_cancel.wav");
 
     // ── DirectWrite ─────────────────────────────────────────
     if (!g_pDWRank)
     {
-        g_fdRank.font          = Font::AgencyFB;
-        g_fdRank.fontWeight    = DWRITE_FONT_WEIGHT_NORMAL;
+        g_fdRank.font          = Font::Consolas;
+        g_fdRank.fontWeight    = DWRITE_FONT_WEIGHT_BOLD;
         g_fdRank.fontStyle     = DWRITE_FONT_STYLE_NORMAL;
         g_fdRank.fontStretch   = DWRITE_FONT_STRETCH_NORMAL;
-        g_fdRank.fontSize      = 22.0f;
+        g_fdRank.fontSize      = 38.0f;
         g_fdRank.localeName    = L"en-us";
-        g_fdRank.textAlignment = DWRITE_TEXT_ALIGNMENT_LEADING;
-        g_fdRank.Color         = D2D1::ColorF(0.55f, 0.55f, 0.55f, 1.0f);
+        g_fdRank.textAlignment = DWRITE_TEXT_ALIGNMENT_CENTER;
+        g_fdRank.Color         = D2D1::ColorF(0.55f, 0.70f, 1.0f, 1.0f);
         g_pDWRank = new DirectWrite(&g_fdRank);
         g_pDWRank->Init();
     }
     if (!g_pDWScore)
     {
-        g_fdScore.font          = Font::AgencyFB;
+        g_fdScore.font          = Font::Consolas;
         g_fdScore.fontWeight    = DWRITE_FONT_WEIGHT_BOLD;
         g_fdScore.fontStyle     = DWRITE_FONT_STYLE_NORMAL;
         g_fdScore.fontStretch   = DWRITE_FONT_STRETCH_NORMAL;
-        g_fdScore.fontSize      = 34.0f;
+        g_fdScore.fontSize      = 44.0f;
         g_fdScore.localeName    = L"en-us";
         g_fdScore.textAlignment = DWRITE_TEXT_ALIGNMENT_LEADING;
         g_fdScore.Color         = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
@@ -159,6 +172,7 @@ void ScoreCheck_Finalize()
     if (g_pDWScore) { g_pDWScore->Release(); delete g_pDWScore; g_pDWScore = nullptr; }
     if (g_pDWLabel) { g_pDWLabel->Release(); delete g_pDWLabel; g_pDWLabel = nullptr; }
     UnloadAudio(g_SeCursorMove); g_SeCursorMove = -1;
+    UnloadAudio(g_SeCancel);     g_SeCancel     = -1;
 
     ModelRelease(g_pBody);     g_pBody     = nullptr;
     ModelRelease(g_pHead);     g_pHead     = nullptr;
@@ -191,8 +205,11 @@ void ScoreCheck_Update(double dt)
             PlayAudio(g_SeCursorMove, false);
         }
     }
-    if (UI_IsCancel() || UI_IsConfirm())
+    if (UI_IsCancel())
+    {
+        PlayAudio(g_SeCancel, false);
         g_IsEnd = true;
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -391,7 +408,7 @@ void ScoreCheck_Draw()
         s.colorBottom  = D2D1::ColorF(0.05f,0.60f,0.80f,1.0f);
         s.outlineColor = D2D1::ColorF(0.00f,0.10f,0.15f,1.0f);
         s.outlineWidth = 2.5f;
-        TextLogo_Draw(L"SCORE CHECK", sw * 0.5f, 80.0f, s);
+        TextLogo_Draw(L"SCOREBOARD", sw * 0.5f, 80.0f, s);
     }
 
     if (cnt > 0 && g_Cursor < cnt)
@@ -445,13 +462,13 @@ void ScoreCheck_Draw()
 
         char rankBuf[8];
         snprintf(rankBuf, sizeof(rankBuf), "#%d", i + 1);
-        g_pDWRank->DrawAt(rankBuf, LP_X + 30.0f, rowCY, 50.0f,
-            D2D1::ColorF(0.55f, 0.55f, 0.55f, alpha));
+        g_pDWRank->DrawAt(rankBuf, LP_RANK_CX, rowCY, LP_RANK_HW,
+            D2D1::ColorF(0.55f, 0.70f, 1.0f, alpha), 1.0f);
 
         char scoreBuf[24];
         if (i < cnt) snprintf(scoreBuf, sizeof(scoreBuf), "%u", recs[i].score);
         else         snprintf(scoreBuf, sizeof(scoreBuf), "---");
-        g_pDWScore->DrawAt(scoreBuf, LP_X + 310.0f, rowCY, 260.0f,
+        g_pDWScore->DrawAt(scoreBuf, LP_SCORE_CX, rowCY, LP_SCORE_HW,
             D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha));
     }
 
@@ -495,8 +512,8 @@ void ScoreCheck_Draw()
     // フッター：InputHint バー（DrawString 後は RTV がアンバインドされているため再バインド）
     Direct3D_BindMainRenderTarget();
     InputHint_Draw(
-        "{ENTER} Select  {UP}{DOWN} Move",
-        "{A} Select  {DPAD_UP}{DPAD_DN} Move");
+        "{UP}{DOWN} Move    {ESC} Back",
+        "{DPAD_UP}{DPAD_DN} Move    {B} Back");
 }
 
 //------------------------------------------------------------------------------

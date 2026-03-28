@@ -265,5 +265,38 @@ int LoadAudioWithVolume(const char* FileName, float volume)
     return index;
 }
 
+// -----------------------------------------------------------------------------
+// 再生中かどうかを返す（バッファが残っていれば true）
+// -----------------------------------------------------------------------------
+bool IsAudioPlaying(int Index)
+{
+    if (Index < 0 || Index >= AUDIO_MAX) return false;
+    if (!g_Audio[Index].SourceVoice) return false;
+    XAUDIO2_VOICE_STATE state{};
+    g_Audio[Index].SourceVoice->GetState(&state);
+    return state.BuffersQueued > 0;
+}
 
+// -----------------------------------------------------------------------------
+// 再生を停止してバッファをクリアする
+// -----------------------------------------------------------------------------
+void StopAudio(int Index)
+{
+    if (Index < 0 || Index >= AUDIO_MAX) return;
+    if (!g_Audio[Index].SourceVoice) return;
+    g_Audio[Index].SourceVoice->Stop();
+    g_Audio[Index].SourceVoice->FlushSourceBuffers();
+}
+
+// -----------------------------------------------------------------------------
+// SourceVoice 単位の音量を変更する（0.0f ～ 1.0f）
+// -----------------------------------------------------------------------------
+void SetAudioVolume(int Index, float volume)
+{
+    if (Index < 0 || Index >= AUDIO_MAX) return;
+    if (!g_Audio[Index].SourceVoice) return;
+    if (volume < 0.0f) volume = 0.0f;
+    if (volume > 1.0f) volume = 1.0f;
+    g_Audio[Index].SourceVoice->SetVolume(volume);
+}
 

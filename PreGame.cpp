@@ -20,8 +20,8 @@ using namespace DirectX;
 //------------------------------------------------------------------------------
 // 定数
 //------------------------------------------------------------------------------
-static constexpr int   ITEM_COUNT = 2;
-static const wchar_t*  ITEM_LABELS[ITEM_COUNT] = { L"ASSEMBLY", L"SCORE CHECK" };
+static constexpr int   ITEM_COUNT = 3;
+static const wchar_t*  ITEM_LABELS[ITEM_COUNT] = { L"QUICK START", L"ASSEMBLY", L"SCOREBOARD" };
 
 //------------------------------------------------------------------------------
 // 状態
@@ -81,7 +81,9 @@ void PreGame_Update(double elapsed_time)
     if (UI_IsConfirm())
     {
         PlayAudio(g_SeSelect, false);
-        g_Result = (g_Selected == 0) ? PreGameResult::Assembly : PreGameResult::ScoreCheck;
+        if      (g_Selected == 0) g_Result = PreGameResult::QuickStart;
+        else if (g_Selected == 1) g_Result = PreGameResult::Assembly;
+        else                      g_Result = PreGameResult::ScoreCheck;
     }
 
     if (UI_IsCancel())
@@ -100,11 +102,11 @@ void PreGame_Draw()
     const int sw = SPRITE_SCREEN_W;
     const int sh = SPRITE_SCREEN_H;
 
-    static constexpr float BOX_W  = 320.0f;
+    static constexpr float BOX_W  = 260.0f;   // Title と同じ
     static constexpr float BOX_H  = 82.0f;
     const float baseX = sw * 0.5f;
-    const float baseY = sh * 0.52f;
-    const float gapY  = 110.0f;
+    const float baseY = sh * 0.55f;           // Title と同じ
+    const float gapY  = 100.0f;               // Title と同じ
 
     // ── スプライト ─────────────────────────────────
     Sprite_Begin();
@@ -145,22 +147,22 @@ void PreGame_Draw()
 
     // ── TextLogo ────────────────────────────────────
 
-    // ヘッダー
+    // タイトルロゴ（Title と同じスタイル）
     {
         LogoStyle s;
-        s.fontSize     = 52.0f;
+        s.fontSize     = 148.0f;
         s.fontName     = L"Agency FB";
-        s.colorTop     = D2D1::ColorF(0.70f, 0.85f, 1.00f, 1.0f);
-        s.colorBottom  = D2D1::ColorF(0.20f, 0.50f, 0.80f, 1.0f);
-        s.outlineColor = D2D1::ColorF(0.00f, 0.05f, 0.10f, 1.0f);
-        s.outlineWidth = 2.5f;
-        TextLogo_Draw(L"GAME START", baseX, sh * 0.30f, s);
+        s.colorTop     = D2D1::ColorF(0.95f, 0.95f, 1.00f, 1.0f);
+        s.colorBottom  = D2D1::ColorF(0.35f, 0.35f, 0.40f, 1.0f);
+        s.outlineColor = D2D1::ColorF(0.06f, 0.06f, 0.08f, 1.0f);
+        s.outlineWidth = 5.0f;
+        TextLogo_Draw(L"Oct Break", baseX, (float)sh * 0.20f, s);
     }
 
-    // メニュー項目
+    // メニュー項目（Title と同じスタイル）
     {
         LogoStyle s;
-        s.fontSize     = 64.0f;
+        s.fontSize     = 68.0f;
         s.fontName     = L"Agency FB";
         s.colorTop     = D2D1::ColorF(1.0f, 0.92f, 0.70f, 1.0f);
         s.colorBottom  = D2D1::ColorF(0.85f, 0.55f, 0.10f, 1.0f);
@@ -178,9 +180,15 @@ void PreGame_Draw()
 
     // フッター（InputHint バー）
     Direct3D_BindMainRenderTarget();
+    static const wchar_t* itemDesc[ITEM_COUNT] = {
+        L"ダンジョン最奥にいるボスの討伐が目的です",
+        L"武器の組み合わせを変更します",
+        L"過去のスコアと順位を確認します",
+    };
     InputHint_Draw(
-        "{ENTER} Select  {UP}{DOWN} Move  {ESC} Back",
-        "{A} Select  {DPAD_UP}{DPAD_DN} Move  {B} Back");
+        "{UP}{DOWN} Move    {ENTER} Select    {ESC} Back",
+        "{DPAD_UP}{DPAD_DN} Move    {A} Select    {B} Back",
+        itemDesc[g_Selected]);
 }
 
 //------------------------------------------------------------------------------

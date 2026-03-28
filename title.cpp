@@ -235,3 +235,5 @@ bool Title_IsEnd()
     }
     return false;
 }
+
+int Title_GetSelected() { return g_Selected; }

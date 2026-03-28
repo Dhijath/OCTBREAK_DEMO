@@ -1302,58 +1302,7 @@ void Map_Draw()
 {
     ID3D11DeviceContext* ctx = Direct3D_GetContext();
 
-    //--------------------------------------------------------------------------
-    // 丸影（床が取れない時は無効）
-    //--------------------------------------------------------------------------
-    {
-        const XMFLOAT3 playerPos = Player_GetPosition();
-
-        float topY = 0.0f;
-        const bool hasFloor = TryGetHighestFloorSurfaceY(playerPos, &topY);
-
-        const float underMargin = 0.05f;
-
-        // 床が存在しない、またはプレイヤーが床の下にいる場合は丸影を無効化
-        // （PS定数バッファを外して、影描画を発生させない）
-        if (!hasFloor || playerPos.y < (topY - underMargin))
-        {
-            ID3D11Buffer* nullCB = nullptr;
-            ctx->PSSetConstantBuffers(6, 1, &nullCB);
-        }
-        else
-        {
-            // 床の天面からの高さ（浮いているほど影を小さく・薄く）
-            float height = playerPos.y - topY;
-            if (height < 0.0f) height = 0.0f;
-
-            // 高さを 0.0～1.0 に正規化して補間係数にする
-            float t = height / SHADOW_MAX_HEIGHT;
-            if (t < 0.0f) t = 0.0f;
-            if (t > 1.0f) t = 1.0f;
-
-            // 影の半径（高いほど小さく）
-            const float maxRadius = 0.08f;
-            const float minRadius = 0.025f;
-            const float radius = maxRadius * (1.0f - t) + minRadius * t;
-
-            // 影の濃さ（高いほど薄く）
-            const float maxStrength = 0.45f;
-            const float minStrength = 0.15f;
-            const float strength = maxStrength * (1.0f - t) + minStrength * t;
-
-            // 影のぼかし（高いほどシャープ寄りに調整）
-            const float maxSoft = 0.60f;
-            const float minSoft = 0.35f;
-            const float softness = maxSoft * (1.0f - t) + minSoft * t;
-
-            // BlobShadow 用定数を PS に設定
-            BlobShadow::SetToPixelShader(ctx, playerPos, radius, softness, strength);
-        }
-
-
-
-
-    }
+    // 丸影（b6）は呼び元（game.cpp）が設定済みの値をそのまま使う
 
     //--------------------------------------------------------------------------
     // AABBデバッグ（床/天井のみ）
@@ -1436,13 +1385,7 @@ void Map_Draw()
     //--------------------------------------------------------------------------
     g_WallRenderer.Draw(g_WallTexID);
 
-    //--------------------------------------------------------------------------
-    // 丸影OFF（PS定数を外す）
-    //--------------------------------------------------------------------------
-    {
-        ID3D11Buffer* nullCB = nullptr;
-        ctx->PSSetConstantBuffers(6, 1, &nullCB);
-    }
+    // 丸影（b6）のクリアは呼び元（game.cpp）が行う
 
     //-------------------------------------------------------------------------
     // ビルボード
@@ -1788,26 +1731,12 @@ void Map_Light_Reset()
     //===================================================
     float Ambient_power = 0.6f;
     float Directional_power = 0.3f;
-    float Specular_power = 0.5f;
-
     Shader3d_Begin();
 
     Light_SetAmbient({ Ambient_power, Ambient_power, Ambient_power });
 
     //Light_SetDirectionalWorld({ 0.0f, 1.0f, 0.0f, 0.0f }, { Directional_power, Directional_power, Directional_power, Directional_power });
     Light_SetDirectionalWorld({ 0.0f, -1.0f, 0.0f, 0.0f }, { Directional_power, Directional_power, Directional_power, Directional_power });
-    XMFLOAT3 playerPos = Player_GetPosition();
-    XMFLOAT3 playerFront = Player_GetFront();
-
-    const float forwardOffset = 0.5f;
-
-    XMFLOAT3 lightPos = {
-        playerPos.x + playerFront.x * forwardOffset,
-        playerPos.y + playerFront.y * forwardOffset,
-        playerPos.z + playerFront.z * forwardOffset
-    };
-
-    Light_SetSpecularWorld(Player_GetPosition(), 5.00f, { Specular_power, Specular_power, Specular_power, Specular_power });
 
     Shader3d_SetColor({ 1.0f, 1.0f, 1.0f, 1.0f });
 }
@@ -1864,7 +1793,8 @@ int Map_GetWiteTexID()
 bool Map_RaycastWalls(
     const DirectX::XMFLOAT3& start,
     const DirectX::XMFLOAT3& end,
-    DirectX::XMFLOAT3* outHitPos)
+    DirectX::XMFLOAT3* outHitPos,
+    bool wallsOnly)
 {
     const float dx = end.x - start.x;
     const float dy = end.y - start.y;
@@ -1875,9 +1805,16 @@ bool Map_RaycastWalls(
 
     for (const MapObject& obj : g_MapObjects)
     {
-        if (obj.KindId != KIND_WALL &&
-            obj.KindId != KIND_FLOOR &&
-            obj.KindId != KIND_CEILING) continue;
+        if (wallsOnly)
+        {
+            if (obj.KindId != KIND_WALL) continue;
+        }
+        else
+        {
+            if (obj.KindId != KIND_WALL &&
+                obj.KindId != KIND_FLOOR &&
+                obj.KindId != KIND_CEILING) continue;
+        }
 
         const AABB& a = obj.Aabb;
 
@@ -1962,10 +1899,11 @@ bool Map_RaycastWalls(
 //==============================================================================
 bool Map_HasLineOfSight(
     const DirectX::XMFLOAT3& from,
-    const DirectX::XMFLOAT3& to)
+    const DirectX::XMFLOAT3& to,
+    bool wallsOnly)
 {
     DirectX::XMFLOAT3 hitPos{};
-    if (!Map_RaycastWalls(from, to, &hitPos))
+    if (!Map_RaycastWalls(from, to, &hitPos, wallsOnly))
         return true;
 
     const float dxHit = hitPos.x - from.x;

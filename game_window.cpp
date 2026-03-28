@@ -35,7 +35,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
 /* ウィンドウ情報 */
 static constexpr wchar_t WINDOW_CLASS[] = L"GameWindow";
-static constexpr wchar_t TITLE[] = L"ウィンドウ表示";
+static constexpr wchar_t TITLE[] = L"Oct Break";
 
 bool g_IsExitDialogOpen = false;
 bool g_ExitDialogJustClosed = false;

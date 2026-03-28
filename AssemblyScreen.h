@@ -22,8 +22,11 @@
 void     AssemblyScreen_Initialize();
 void     AssemblyScreen_Finalize();
 
-// 毎フレーム呼ぶ。true = 確定（ゲーム開始）
+// 毎フレーム呼ぶ。true = 画面終了（確定 or キャンセル）
 bool     AssemblyScreen_Update(double dt);
+
+// true = ESC / パッドB でキャンセルされた（Update が true を返した後に有効）
+bool     AssemblyScreen_WasCancelled();
 
 // 描画
 void     AssemblyScreen_Draw();

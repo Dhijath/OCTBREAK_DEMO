@@ -58,13 +58,14 @@ namespace
     //==========================================================================
     // 状態
     //==========================================================================
-    static constexpr int ITEM_COUNT = 4;   // ボリューム / 感度 / Y軸反転 / フルスクリーン
+    static constexpr int ITEM_COUNT = 5;   // ボリューム / 感度 / Y軸反転 / フルスクリーン / シャドウ
 
     int    g_CursorItem        = 0;
     bool   g_End               = false;
     double g_Time              = 0.0;
 
     float  g_Volume            = 0.5f;
+    int    g_ShadowMode        = 3;        // 0=なし / 1=低（マル影） / 2=中（ハード） / 3=高（PCF）
 
     //==========================================================================
     // 感度定数
@@ -78,13 +79,14 @@ namespace
 // レイアウト定数（仮想 1600×900 空間）
 //------------------------------------------------------------------------------
 static constexpr float PNL_W   = 700.0f;
-static constexpr float PNL_H   = 385.0f;
+static constexpr float PNL_H   = 450.0f;
 static constexpr float PNL_X   = (1600.0f - PNL_W) * 0.5f;   // 450
 static constexpr float PNL_Y   = 200.0f;
 static constexpr float ROW_Y0  = PNL_Y + 78.0f;    // ボリューム
 static constexpr float ROW_Y1  = PNL_Y + 143.0f;   // 感度
 static constexpr float ROW_Y2  = PNL_Y + 208.0f;   // Y軸反転
 static constexpr float ROW_Y3  = PNL_Y + 273.0f;   // フルスクリーン
+static constexpr float ROW_Y4  = PNL_Y + 338.0f;   // シャドウ
 static constexpr float BAR_X   = PNL_X + 310.0f;   // 760
 static constexpr float BAR_W   = 300.0f;
 static constexpr float BAR_H   = 16.0f;
@@ -214,9 +216,14 @@ void Option_Update(double elapsed_time)
     {
         if (goLeft || goRight) { Player_Camera_SetMouseInvertY(!Player_Camera_GetMouseInvertY()); PlayAudio(g_SeTabSwitch, false); }
     }
-    else // フルスクリーン（cursor == 3）
+    else if (g_CursorItem == 3) // フルスクリーン
     {
         if (goLeft || goRight) { GameWindow_RequestFullscreenToggle(); PlayAudio(g_SeTabSwitch, false); }
+    }
+    else // シャドウ（cursor == 4）：0→1→2→3→0 サイクル
+    {
+        if (goRight) { g_ShadowMode = (g_ShadowMode + 1) % 4; PlayAudio(g_SeTabSwitch, false); }
+        if (goLeft)  { g_ShadowMode = (g_ShadowMode + 3) % 4; PlayAudio(g_SeTabSwitch, false); }
     }
 
     // ── 戻る（ESC / PAD_B）──────────────────────────────────────────────
@@ -292,7 +299,7 @@ void Option_Draw()
     // 選択行ハイライト
     //--------------------------------------------------------------------------
     const XMFLOAT4 SEL_HL = { 0.2f, 0.72f, 1.0f, 0.15f };
-    const float rowYs[ITEM_COUNT] = { ROW_Y0, ROW_Y1, ROW_Y2, ROW_Y3 };
+    const float rowYs[ITEM_COUNT] = { ROW_Y0, ROW_Y1, ROW_Y2, ROW_Y3, ROW_Y4 };
     Sprite_Draw(g_WhiteTexID, PNL_X + 4.0f, rowYs[g_CursorItem] - 22.0f,
         PNL_W - 8.0f, 44.0f, SEL_HL);
 
@@ -318,6 +325,7 @@ void Option_Draw()
     g_pDW_Label->DrawAt(std::wstring(L"感度"),          LBL_CX, ROW_Y1, LBL_HW, (g_CursorItem == 1) ? dCYAN : dWHITE, 1.5f);
     g_pDW_Label->DrawAt(std::wstring(L"Y軸反転"),       LBL_CX, ROW_Y2, LBL_HW, (g_CursorItem == 2) ? dCYAN : dWHITE, 1.5f);
     g_pDW_Label->DrawAt(std::wstring(L"フルスクリーン"), LBL_CX, ROW_Y3, LBL_HW, (g_CursorItem == 3) ? dCYAN : dWHITE, 1.5f);
+    g_pDW_Label->DrawAt(std::wstring(L"シャドウ"),       LBL_CX, ROW_Y4, LBL_HW, (g_CursorItem == 4) ? dCYAN : dWHITE, 1.5f);
     g_pDW_Label->EndBatch();
     g_pDW_Label->SetScale(1.0f, 1.0f);
 
@@ -329,6 +337,10 @@ void Option_Draw()
     g_pDWBody->DrawAt(sensStr,               VAL_CX, ROW_Y1, VAL_HW, (g_CursorItem == 1) ? dCYAN : dGRAY, 1.5f);
     g_pDWBody->DrawAt(invertY ? "ON" : "OFF",  VAL_CX, ROW_Y2, VAL_HW, (g_CursorItem == 2) ? dCYAN : dGRAY, 1.5f);
     g_pDWBody->DrawAt(fs ? "ON" : "OFF",       VAL_CX, ROW_Y3, VAL_HW, (g_CursorItem == 3) ? dCYAN : dGRAY, 1.5f);
+    {
+        static const wchar_t* shadowLabels[] = { L"なし", L"低", L"中", L"高" };
+        g_pDWBody->DrawAt(std::wstring(shadowLabels[g_ShadowMode % 4]), VAL_CX, ROW_Y4, VAL_HW + 60.0f, (g_CursorItem == 4) ? dCYAN : dGRAY, 1.5f);
+    }
     g_pDWBody->DrawAt(std::wstring(L"ENTER / B : 戻る"), cx, PNL_Y + PNL_H - 25.0f, 200.0f, dGRAY, 1.2f);
     g_pDWBody->EndBatch();
     g_pDWBody->SetScale(1.0f, 1.0f);
@@ -345,4 +357,19 @@ bool Option_IsEnd()
         return true;
     }
     return false;
+}
+
+//==============================================================================
+// シャドウモード
+//==============================================================================
+int Option_GetShadowMode()
+{
+    return g_ShadowMode;
+}
+
+void Option_SetShadowMode(int mode)
+{
+    if (mode < 0) mode = 0;
+    if (mode > 3) mode = 3;
+    g_ShadowMode = mode;
 }

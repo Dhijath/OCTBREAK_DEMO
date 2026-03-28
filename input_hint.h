@@ -53,4 +53,5 @@ InputDevice InputHint_GetActiveDevice();
 // ヒントバーを画面下部に描画する
 // kbmText : KB/マウス向け説明文
 // padText : ゲームパッド向け説明文
-void InputHint_Draw(const char* kbmText, const char* padText);
+// desc    : ヒントバーの上行に表示する項目説明（nullptr で非表示）
+void InputHint_Draw(const char* kbmText, const char* padText, const wchar_t* desc = nullptr);

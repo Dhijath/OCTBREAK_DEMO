@@ -40,7 +40,9 @@ namespace ShadowMap
     // VS b3 : LightViewProj（影生成 VS 用）
     // PS b8 : LightViewProj（PS で shadowUV 計算用）
     // PS t7 : ShadowMap SRV, PS s1 : ComparisonSampler, PS b5 : ShadowParam
-    void BindForMainPass();
+    // pcfEnable = true  → 3x3 PCF（高品質・ソフト）
+    // pcfEnable = false → 1サンプル（中品質・ハード）
+    void BindForMainPass(bool pcfEnable = true);
 
     // シャドウパス中にモデルを深度のみ描画する
     // BeginPass() ～ EndPass() の間で呼ぶこと

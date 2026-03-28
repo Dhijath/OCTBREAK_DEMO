@@ -56,4 +56,7 @@ TitleResult Title_GetResult();
 ------------------------------------------------------------------------------*/
 bool Title_IsEnd();
 
+// 現在のカーソル位置を返す（0=START, 1=OPTION, 2=EXIT）
+int Title_GetSelected();
+
 #endif // TITLE_H

@@ -100,12 +100,14 @@ namespace
     int g_DefaultRight = WEAPON_MACHINEGUN;
     int g_DefaultLeft  = WEAPON_SHIELD;
 
-    // 確定フラグ
-    bool g_Decided = false;
+    // 確定 / キャンセルフラグ
+    bool g_Decided   = false;
+    bool g_Cancelled = false;
 
     // SE
     int g_SeCursorMove  = -1;
     int g_SeSelect      = -1;
+    int g_SeCancel      = -1;
     int g_SeTabSwitch   = -1;
 
     double g_Time = 0.0;
@@ -160,10 +162,12 @@ void AssemblyScreen_Initialize()
     g_RightCursor  = g_DefaultRight;   // 前回選択を引き継ぐ
     g_LeftCursor   = g_DefaultLeft;
     g_Decided      = false;
+    g_Cancelled    = false;
     g_Time         = 0.0;
 
     if (g_SeCursorMove < 0) g_SeCursorMove = LoadAudio("resource/Sound/ui_cursor_move.wav");
     if (g_SeSelect     < 0) g_SeSelect     = LoadAudio("resource/Sound/ui_select.wav");
+    if (g_SeCancel     < 0) g_SeCancel     = LoadAudio("resource/Sound/ui_cancel.wav");
     if (g_SeTabSwitch  < 0) g_SeTabSwitch  = LoadAudio("resource/Sound/ui_tab_switch.wav");
 
     // テクスチャ
@@ -221,6 +225,7 @@ void AssemblyScreen_Finalize()
 {
     UnloadAudio(g_SeCursorMove); g_SeCursorMove = -1;
     UnloadAudio(g_SeSelect);     g_SeSelect     = -1;
+    UnloadAudio(g_SeCancel);     g_SeCancel     = -1;
     UnloadAudio(g_SeTabSwitch);  g_SeTabSwitch  = -1;
 
     if (g_pDWLarge) { g_pDWLarge->Release(); delete g_pDWLarge; g_pDWLarge = nullptr; }
@@ -263,6 +268,14 @@ bool AssemblyScreen_Update(double dt)
                 g_Decided = true;
                 return true;
             }
+        }
+
+        // ESC / パッドB でキャンセル（前の画面へ戻る）
+        if (UI_IsCancel())
+        {
+            PlayAudio(g_SeCancel, false);
+            g_Cancelled = true;
+            return true;
         }
     }
 
@@ -786,6 +799,7 @@ void AssemblyScreen_Draw()
 WeaponID AssemblyScreen_GetRightWeapon()     { return static_cast<WeaponID>(g_RightCursor); }
 WeaponID AssemblyScreen_GetLeftWeapon()      { return static_cast<WeaponID>(g_LeftCursor);  }
 int      AssemblyScreen_GetRemainingCredits(){ return CalcRemaining(); }
+bool     AssemblyScreen_WasCancelled()       { return g_Cancelled; }
 
 void AssemblyScreen_SetDefaults(WeaponID right, WeaponID left)
 {
