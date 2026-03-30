@@ -48,6 +48,11 @@ void Enemy_UnloadSE()
     if (g_enemy_deadSE >= 0) { UnloadAudio(g_enemy_deadSE); g_enemy_deadSE = -1; }
 }
 
+void Enemy_PlayDeathSE()
+{
+    PlayAudio(g_enemy_deadSE, false);
+}
+
 
 
 //==============================================================================

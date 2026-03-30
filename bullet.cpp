@@ -16,6 +16,7 @@
 
 #include <windows.h>
 #include "bullet.h"
+#include "Audio.h"
 #include "Trail.h"
 #include "model.h"
 #include "bullet_hit_effect.h"
@@ -476,6 +477,7 @@ void BulletManager::Initialize()
     m_pModelNormal  = ModelLoad("Resource/Models/bullet.fbx",  0.15f);
     m_pModelMissile = ModelLoad("Resource/Models/bullet.fbx",  0.15f);  // 後でミサイル用モデルに差し替え
     m_beamTexID = Texture_Load(L"Resource/Texture/effect000.jpg");
+    m_explosionSE = LoadAudioWithVolume("resource/sound/maou_se_battle07.wav", 0.8f);
 }
 
 //==============================================================================
@@ -488,6 +490,8 @@ void BulletManager::Finalize()
 {
     Texture_Release(m_beamTexID);
     m_beamTexID = -1;
+
+    if (m_explosionSE >= 0) { UnloadAudio(m_explosionSE); m_explosionSE = -1; }
 
     ModelRelease(m_pModelNormal);  m_pModelNormal  = nullptr;
     ModelRelease(m_pModelMissile); m_pModelMissile = nullptr;
@@ -914,6 +918,7 @@ void BulletManager::AddExplosion(const XMFLOAT3& pos, float radius, int damage)
 {
     if (m_explosionCount >= MAX_EXPLOSIONS) return;
     m_pendingExplosions[m_explosionCount++] = { pos, radius, damage };
+    PlayAudio(m_explosionSE, false);
 }
 
 //==============================================================================

@@ -1,13 +1,13 @@
 /*==============================================================================
 
-   •Ç•`‰æ—p’¸“_ƒVƒF[ƒ_ [shader_vertex_wall.hlsl]
+   å£æç”»ç”¨é ‚ç‚¹ã‚·ã‚§ãƒ¼ãƒ€ãƒ¼ [shader_vertex_wall.hlsl]
                                                          Author : 51106
                                                          Date   : 2026/02/17
 --------------------------------------------------------------------------------
 
-   EWallPlaneRenderer ‚Ì Vtx \‘¢‘Ì‚É‘Î‰
-   E“ü—ÍFPOSITION / NORMAL / COLOR / TEXCOORD
-   EWorld / View / Proj s—ñ‚ÅƒNƒŠƒbƒvÀ•W‚Ö•ÏŠ·
+   ãƒ»WallPlaneRenderer ã® Vtx æ§‹é€ ä½“ã«å¯¾å¿œ
+   ãƒ»å…¥åŠ›ï¼šPOSITION / NORMAL / COLOR / TEXCOORD
+   ãƒ»World / View / Proj è¡Œåˆ—ã§ã‚¯ãƒªãƒƒãƒ—åº§æ¨™ã¸å¤‰æ›
 
 ==============================================================================*/
 cbuffer VS_CONSTANT_BUFFER_WORLD : register(b0)

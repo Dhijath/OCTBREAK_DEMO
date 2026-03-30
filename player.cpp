@@ -61,7 +61,7 @@ namespace
     bool g_IsJump = false;
     bool g_PlayerEnable = true;
 
-    float g_PlayerSpeedMultiplier = 1.0f;
+    float g_PlayerSpeedMultiplier = 2.0f;
     int g_PlayerWhightTexID = -1;        // プレイヤー矢印テクスチャ
     int g_PlayerMarkerTexID = -1;        // プレイヤー矢印テクスチャ
     //--------------------------------------------------------------------------
@@ -128,6 +128,8 @@ namespace
     int g_SeShieldDeploy             = -1;  // シールド展開SE
     int g_SeShieldRetract            = -1;  // シールド収納SE
     int g_SeBoost                    = -1;  // 移動ブーストSE（移動中ループ）
+    double g_BoostLoopTimer          = 0.0; // ブーストSEを1秒ごとに鳴らすタイマー
+    static constexpr double BOOST_LOOP_INTERVAL = 1.0; // ループ間隔（秒）
 
     //--------------------------------------------------------------------------
     // パーティクル（スラスター）
@@ -625,7 +627,7 @@ void Player_Initialize(const DirectX::XMFLOAT3& position, const DirectX::XMFLOAT
     g_ThrusterLocalYaw = XMConvertToRadians(180.0f);
 
     g_PlayerDamageMultiplier = 1.0f;
-    g_PlayerSpeedMultiplier = 1.0f;
+    g_PlayerSpeedMultiplier = 2.0f;
 
 
     g_PlayerHP = PLAYER_MAX_HP;
@@ -698,8 +700,15 @@ void Player_Initialize(const DirectX::XMFLOAT3& position, const DirectX::XMFLOAT
     }
 
     //--------------------------------------------------------------------------
-    // 武器システム初期化
+    // 武器システム初期化（再初期化の場合は既存リソースを先に解放）
     //--------------------------------------------------------------------------
+    if (g_pBeamWeapon) { g_pBeamWeapon->Finalize(); delete g_pBeamWeapon; g_pBeamWeapon = nullptr; }
+    for (int i = 0; i < NORMAL_WEAPON_COUNT; ++i)
+    {
+        if (g_NormalWeapons[i]) { g_NormalWeapons[i]->Finalize(); delete g_NormalWeapons[i]; g_NormalWeapons[i] = nullptr; }
+    }
+    if (g_pLeftWeapon) { g_pLeftWeapon->Finalize(); delete g_pLeftWeapon; g_pLeftWeapon = nullptr; }
+
     // ビーム（固定）
     g_pBeamWeapon = new WeaponBeam();
     g_pBeamWeapon->Initialize();
@@ -938,6 +947,11 @@ void Player_Update(double elapsed_time)
         MoveWithSubSteps(&position, &velocity, static_cast<float>(elapsed_time));
         XMStoreFloat3(&g_PlayerPosition, position);
         XMStoreFloat3(&g_PlayerVelocity, velocity);
+
+        // 入力無効中はブーストSEを止める
+        if (g_SeBoost >= 0 && IsAudioPlaying(g_SeBoost))
+            StopAudio(g_SeBoost);
+
         return;
     }
 
@@ -966,7 +980,7 @@ void Player_Update(double elapsed_time)
     }
 
     // ── ブーストSE ──────────────────────────────────────────
-    // 移動中はループ再生。空中上昇中は音量を最大 0.80f まで上げる
+    // 移動中は1秒ごとに再生。空中上昇中は音量を最大 0.80f まで上げる
     if (g_SeBoost >= 0)
     {
         const bool isMoving = XMVectorGetX(XMVector3LengthSq(moveDir)) > 0.001f;
@@ -979,25 +993,32 @@ void Player_Update(double elapsed_time)
                 const float velY = XMVectorGetY(velocity);
                 if (velY > 0.0f)
                 {
-                    // velY の上限を初速 10.0f で正規化
                     const float t = std::min(velY / 10.0f, 1.0f);
                     boostVol = 0.30f + 0.50f * t;  // 0.30 → 0.80
                 }
             }
             SetAudioVolume(g_SeBoost, boostVol);
-            if (!IsAudioPlaying(g_SeBoost))
-                PlayAudio(g_SeBoost, true);   // ループ開始
+
+            // タイマーが0以下になったら再生（1秒ごとに鳴らす）
+            g_BoostLoopTimer -= elapsed_time;
+            if (g_BoostLoopTimer <= 0.0)
+            {
+                PlayAudio(g_SeBoost, false);  // 1回再生（ループなし）
+                g_BoostLoopTimer = BOOST_LOOP_INTERVAL;
+            }
         }
         else
         {
+            // 止まったらタイマーもリセット（次に動き始めたらすぐ鳴る）
             if (IsAudioPlaying(g_SeBoost))
                 StopAudio(g_SeBoost);
+            g_BoostLoopTimer = 0.0;
         }
     }
     // ─────────────────────────────────────────────────────────
 
-    // K キーでボディの向きモード切り替え
-    if (KeyLogger_IsTrigger(KK_K))
+    // F10 キーでボディの向きモード切り替え（旧：K → スペクテイターカメラに使用）
+    if (KeyLogger_IsTrigger(KK_F10))
     {
         g_PlayerBodyFollowCamera = !g_PlayerBodyFollowCamera;
     }
@@ -1164,8 +1185,8 @@ void Player_Update(double elapsed_time)
     // スラスターの外観をスピード倍率に応じて変化させる
     //--------------------------------------------------------------------------
     {
-        // スピード倍率(1.0〜2.0)を0〜1に正規化した補間係数
-        float t = std::clamp((g_PlayerSpeedMultiplier - 1.0f) / 1.0f, 0.0f, 1.0f);
+        // スピード倍率(2.0〜3.0)を0〜1に正規化した補間係数
+        float t = std::clamp((g_PlayerSpeedMultiplier - 2.0f) / 1.0f, 0.0f, 1.0f);
 
         // 色：緑(t=0.0) → 青(t=0.33) → 紫(t=0.66) → 赤(t=1.0)
         float r, g, b;
@@ -1193,7 +1214,7 @@ void Player_Update(double elapsed_time)
         g_PlayerThrusterEmitter->SetColor({ r, g, b, 1.0f });
 
         // スラスター置き去り対策：高速時はパーティクルを短命・高速にする
-        float speedT = std::clamp((g_PlayerSpeedMultiplier - 1.0f) / 1.0f, 0.0f, 1.0f);
+        float speedT = std::clamp((g_PlayerSpeedMultiplier - 2.0f) / 1.0f, 0.0f, 1.0f);
         float lifeMin = 0.18f * (1.0f - speedT * 0.7f);  // 速いほど短命
         float lifeMax = 0.26f * (1.0f - speedT * 0.7f);
         g_PlayerThrusterEmitter->SetLifeRange(lifeMin, lifeMax);

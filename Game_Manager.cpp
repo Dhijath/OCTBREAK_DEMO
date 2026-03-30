@@ -70,6 +70,7 @@ static bool g_InBossRoom = false;
 // ポーズ中フラグ（フェードなし即時停止）
 static bool g_IsPaused = false;
 
+
 // PlayerDeath 演出
 static double g_DeathTimer       = 0.0;  // 死亡後の経過時間（秒）
 static double g_DeathExplodeNext = 0.0;  // 次の爆発スポーンまでの残時間
@@ -129,6 +130,7 @@ static void BeginTransition(GameState next, const char* nextBgmPath, float bgmVo
     g_NextState = next;
     Fade_Start(1.0, /*out=*/true, { 1,1,1 });     // 白フェードアウト開始
     StartBgmLoop(nextBgmPath, bgmVolume);          // 次シーンBGMへ差し替え
+    Player_OnPause();                              // ループSE（ブースト等）を停止
 }
 
 //------------------------------------------------------------------------------
@@ -136,6 +138,7 @@ static void BeginTransition(GameState next, const char* nextBgmPath, float bgmVo
 //------------------------------------------------------------------------------
 void GameManager_Initialize()
 {
+    Game_InitializeD3D();             // D3Dリソースをアプリ起動時に1回だけ初期化
     SaveData_Load();                  // 設定ファイルを読み込み各モジュールに反映
     Title_Initialize();               // まずはタイトル
     StartBgmLoop(BGM_TITLE);          // タイトルBGM開始
@@ -159,6 +162,7 @@ void GameManager_Finalize()
     ScoreCheck_Finalize();
     Option_Finalize();
     Game_Finalize();
+    Game_FinalizeD3D();             // D3Dリソースをアプリ終了時に解放
     Clear_Finalize();
     Result_Finalize();
     UnloadAudio(g_PlayerWarpSE);
@@ -322,6 +326,7 @@ void GameManager_Update(double elapsed_time)
             g_DeathTimer       = 0.0;
             g_DeathExplodeNext = 0.0;
             g_IsPaused = false;
+            Player_OnPause();  // ループSE（ブースト等）を停止
             break;
         }
 

@@ -189,13 +189,11 @@ void PlayAudio(int Index, bool Loop)
     if (Index < 0 || Index >= AUDIO_MAX) return;
     if (!g_Audio[Index].SourceVoice || !g_Audio[Index].SoundData) return;
 
-    // 再生中なら一度止めてバッファをクリア
-    XAUDIO2_VOICE_STATE state{};
-    g_Audio[Index].SourceVoice->GetState(&state);
-    if (state.BuffersQueued > 0) {
-        g_Audio[Index].SourceVoice->Stop();
-        g_Audio[Index].SourceVoice->FlushSourceBuffers();
-    }
+    // 常に停止 → フラッシュしてからバッファを積み直す
+    // ※ BuffersQueued の条件チェックを外すことで、Stop() の非同期完了タイミングに
+    //   起因する "音が消えるバグ" を回避する（Stop 済みボイスへの Stop/Flush は無害）
+    g_Audio[Index].SourceVoice->Stop();
+    g_Audio[Index].SourceVoice->FlushSourceBuffers();
 
     // 再生バッファの設定
     XAUDIO2_BUFFER bufinfo = {};

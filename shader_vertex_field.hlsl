@@ -1,16 +1,16 @@
 /*==============================================================================
 
-   ƒtƒB[ƒ‹ƒh—p’¸“_ƒVƒF[ƒ_[ [shader_vertex_field.hlsl]
+   ãƒ•ã‚£ãƒ¼ãƒ«ãƒ‰ç”¨é ‚ç‚¹ã‚·ã‚§ãƒ¼ãƒ€ãƒ¼ [shader_vertex_field.hlsl]
 														 Author : 51106
 														 Date   : 2025/05/15
 --------------------------------------------------------------------------------
 
 /*==============================================================================
-    ƒtƒB[ƒ‹ƒh—pƒsƒNƒZƒ‹ƒVƒF[ƒ_[
+    ãƒ•ã‚£ãƒ¼ãƒ«ãƒ‰ç”¨ãƒ”ã‚¯ã‚»ãƒ«ã‚·ã‚§ãƒ¼ãƒ€ãƒ¼
     Ambient + Directional
 ==============================================================================*/
 
-// ’è”ƒoƒbƒtƒ@
+// å®šæ•°ãƒãƒƒãƒ•ã‚¡
 cbuffer VS_CONSTANT_BUFFER : register(b0)
 {
     float4x4 world;
@@ -39,23 +39,23 @@ cbuffer VS_CONSTANT_BUFFER : register(b4)
 }
 struct VS_IN
 {
-    float4 posL : POSITION0; // ƒ[ƒJƒ‹À•W
-    float3 normalL : NORMAL0; // ƒ[ƒJƒ‹–@ü
-    float4 blend : COLOR0; // F
+    float4 posL : POSITION0; // ãƒ­ãƒ¼ã‚«ãƒ«åº§æ¨™
+    float3 normalL : NORMAL0; // ãƒ­ãƒ¼ã‚«ãƒ«æ³•ç·š
+    float4 blend : COLOR0; // è‰²
     float2 uv : TEXCOORD0; // uv
 };
 
 struct VS_OUT
 {
-    float4 posH : SV_POSITION; // •ÏŠ·Œã‚ÌÀ•W
-    float4 posW : POSITION0; // ƒ[ƒ‹ƒhÀ•W
-    float4 normalW : NORMAL0; // ƒ[ƒ‹ƒh–@ü
-    float4 blend : COLOR0; // F
+    float4 posH : SV_POSITION; // å¤‰æ›å¾Œã®åº§æ¨™
+    float4 posW : POSITION0; // ãƒ¯ãƒ¼ãƒ«ãƒ‰åº§æ¨™
+    float4 normalW : NORMAL0; // ãƒ¯ãƒ¼ãƒ«ãƒ‰æ³•ç·š
+    float4 blend : COLOR0; // è‰²
     float2 uv : TEXCOORD0; // uv
 };
 
 //=============================================================================
-// ’¸“_ƒVƒFˆêƒ_
+// é ‚ç‚¹ã‚·ã‚§ãƒ¼ãƒ€ãƒ¼
 //=============================================================================
 VS_OUT main(VS_IN vi)
 {
@@ -69,7 +69,7 @@ VS_OUT main(VS_IN vi)
     vo.normalW = normalize(normalW);
     vo.posW = mul(vi.posL, world);
 
-    
+
     vo.blend = vi.blend;
     vo.uv = vi.uv;
 

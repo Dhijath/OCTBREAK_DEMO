@@ -283,5 +283,6 @@ protected:
 
 void Enemy_LoadSE();
 void Enemy_UnloadSE();
+void Enemy_PlayDeathSE();
 
 #endif // ENEMY_H

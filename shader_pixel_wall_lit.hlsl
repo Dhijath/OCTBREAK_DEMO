@@ -1,13 +1,13 @@
 /*==============================================================================
 
-   �Ǖ`��p�s�N�Z���V�F�[�_�iLit�j [shader_pixel_wall_lit.hlsl]
+   壁描画用ピクセルシェーダー（Lit）[shader_pixel_wall_lit.hlsl]
                                                          Author : 51106
                                                          Date   : 2026/02/17
 --------------------------------------------------------------------------------
 
-   �E�ǐ�p Lit PS�i���C�e�B���O�Ή��Łj
-   �EAmbient / Directional / Specular�iBlinn-Phong�j�Ή�
-   �EWallLightData �\���̂� cbuffer �̃��C�A�E�g����v������
+   ・壁面用 Lit PS（ライティング対応版）
+   ・Ambient / Directional / Specular（Blinn-Phong）対応
+   ・WallLightData 構造体の cbuffer のレイアウトと一致させる
 
 ==============================================================================*/
 cbuffer PS_CONSTANT_BUFFER_DIFFUSE : register(b0)
@@ -92,17 +92,17 @@ float4 main(PS_IN pi) : SV_TARGET
 
     float3 lightDir = normalize(-directional_direction.xyz);
 
-    // Lambert�f�B�t���[�Y
+    // Lambertディフューズ
     float NdotL = max(0.0f, dot(N, lightDir));
     float3 diffuse = directional_color.rgb * NdotL;
 
-    // Blinn-Phong�X�y�L����
+    // Blinn-Phongスペキュラ
     float3 viewDir = normalize(camera_position - pi.posW);
     float3 halfVec = normalize(lightDir + viewDir);
     float NdotH = max(0.0f, dot(N, halfVec));
     float3 specular = specular_color.rgb * pow(NdotH, specular_power);
 
-    // �ŏI�J���[����
+    // 最終カラー計算
     float3 lighting = ambient + diffuse + specular;
     float3 finalColor = texColor.rgb * pi.color.rgb * diffuse_color.rgb * lighting;
     float alpha = texColor.a * pi.color.a * diffuse_color.a;

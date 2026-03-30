@@ -23,6 +23,7 @@ enum PlayerCamera_Mode
 {
     PLAYER_CAMERA_MODE_FIXED_FOLLOW = 0,   // 旧：固定追従（プレイヤー注視）
     PLAYER_CAMERA_MODE_MOUSE_FREE,         // 新：マウス操作（前方視点）
+    PLAYER_CAMERA_MODE_SPECTATOR,          // デバッグ：プレイヤーから独立した自由移動カメラ
 };
 
 //==============================================================================

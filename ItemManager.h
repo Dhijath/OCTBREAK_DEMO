@@ -12,7 +12,7 @@
 #include "Item.h"
 #include <DirectXMath.h>
 
-static const int ITEM_MAX = 32; // アイテムの最大同時存在数
+static const int ITEM_MAX = 64; // アイテムの最大同時存在数
 
 void ItemManager_Initialize();
 void ItemManager_Finalize();

@@ -22,8 +22,12 @@
 
 #include <DirectXMath.h>
 
-void Game_Initialize();
+// D3Dリソース（アプリ起動・終了時に1回だけ呼ぶ）
+void Game_InitializeD3D();
+void Game_FinalizeD3D();
 
+// ゲームプレイリソース（プレイ開始・終了のたびに呼ぶ）
+void Game_Initialize();
 void Game_Finalize();
 
 void Game_Update(double elapsed_time);

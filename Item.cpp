@@ -24,7 +24,7 @@ static const float ITEM_SCALE = 0.5f;  // ビルボード表示サイズ
 static const int   ITEM_HP_VALUE = 20;    // HP回復量
 static const float ITEM_ENERGY_VALUE = 50.0f; // エネルギー回復量
 static const float ITEM_ATK_BONUS = 0.1f;  // 攻撃力倍率加算値（+20%）
-static const float ITEM_SPEED_BONUS = 0.07f;  // 速度倍率加算値（+20%）
+static const float ITEM_SPEED_BONUS = 0.014f; // 速度倍率加算値（旧0.07fの1/5）
 
 //static int s_TexID = -1;
 

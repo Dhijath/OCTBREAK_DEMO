@@ -522,6 +522,7 @@ private:
     struct MODEL* m_pModelNormal { nullptr };          // 通常弾・ショットガンペレットのモデル
     struct MODEL* m_pModelMissile{ nullptr };          // ミサイルのモデル
     int           m_beamTexID{ -1 };                  // ビームのパーティクル用テクスチャID
+    int           m_explosionSE{ -1 };                // ミサイル爆発SE
 
     // ミサイル爆発キュー（毎フレーム Enemy_Update 側で消費・クリア）
     static constexpr int MAX_EXPLOSIONS = 32;

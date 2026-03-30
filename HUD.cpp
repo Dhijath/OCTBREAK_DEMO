@@ -92,7 +92,7 @@ static const float BAR_HEIGHT = 235.0f * 0.5f - 30 - FRAME_MARGIN_TOP * 2.0f;
 //==============================================================================
 
 // 表示上の最大アイコン数
-static const int ICON_MAX = 32;//スタック制にしたので使わない
+static const int ICON_MAX = 64;//スタック制にしたので使わない
 
 // 現在の ATK / SPEED スタック数
 static int s_AtkCount = 0;

@@ -1,56 +1,56 @@
 /*==============================================================================
 
-   �t�B�[���h�p�s�N�Z���V�F�[�_�[ [shader_pixel_field.hlsl]
+   フィールド用ピクセルシェーダー [shader_pixel_field.hlsl]
                                                          Author : 51106
                                                          Date   : 2025/12/17
 --------------------------------------------------------------------------------
 
-   �E�n�ʃe�N�X�`���� blend(R/G) �ō�����
-   �EBlob Shadow�i�ۉe�j���ȈՓI�ɍ���
-     - �v���C���[�ʒu�iblobCenterW�j�����XZ�����ŉe�����
-     - ShadowMap�{�����̑O�i�Ƃ��āA�����ڊm�F�ɍœK
+   ・地面テクスチャを blend(R/G) で合成する
+   ・Blob Shadow（丸影）を簡易的に適用
+     - プレイヤー位置（blobCenterW）からのXZ距離で影をつける
+     - ShadowMap本実装の前（として、テスト的確認に最適
 
 ==============================================================================*/
 
 struct PS_IN
 {
     float4 posH : SV_POSITION;
-    float3 posW : TEXCOORD1; //  ���[���h���W
+    float3 posW : TEXCOORD1; // ワールド座標
     float3 normalW : TEXCOORD2;
-    float4 blend : COLOR0; // R/G ���u�����h�W���Ɏg�p
+    float4 blend : COLOR0; // R/G をブレンド重みに使用
     float2 uv : TEXCOORD0;
 };
 
-Texture2D tex0 : register(t0); // ��
-Texture2D tex1 : register(t1); // �y
+Texture2D tex0 : register(t0); // 草
+Texture2D tex1 : register(t1); // 土
 SamplerState samp : register(s0);
 
 //----------------------------------------------------------
-// Blob Shadow�i�ۉe�j�p�萔
-//  �� C++���� PS b6 �ɃZ�b�g���Ă�������
+// Blob Shadow（丸影）用定数
+//  ← C++側で PS b6 にセットしてください
 //----------------------------------------------------------
 cbuffer BLOB_SHADOW : register(b6)
 {
-    float3 blobCenterW; // �v���C���[�ʒu�i���[���h�j
-    float blobRadius; // ���a�im�j
+    float3 blobCenterW; // プレイヤー位置（ワールド）
+    float blobRadius; // 半径（m）
 
-    float blobSoftness; // �ڂ������im�j
-    float blobStrength; // �Z���i0..1�j
+    float blobSoftness; // ぼかし幅（m）
+    float blobStrength; // 強さ（0..1）
     float2 pad;
 };
 
 float BlobShadowFactor(float3 posW)
 {
-    // XZ ���ʋ����Ŋۉe
+    // XZ 平面距離で丸影
     float2 d = posW.xz - blobCenterW.xz;
     float dist = length(d);
 
-    // dist <= radius �ŉe�B���E�� softness �Ńt�F�[�h
+    // dist <= radius で影。周辺は softness でフェード
     float t = saturate((dist - blobRadius) / max(blobSoftness, 0.0001f));
-    float inside = 1.0f - t; // 1:���S, 0:�O
-    inside = inside * inside; // �������R�Ɂi�D�݁j
+    float inside = 1.0f - t; // 1:中心, 0:外
+    inside = inside * inside; // 滑らかに減衰（好み）
 
-    // �e�W���F���S�قǈÂ��i1-strength�j��
+    // 影の色：中心ほど暗い（1-strength）に
     return lerp(1.0f - blobStrength, 1.0f, 1.0f - inside);
 }
 
@@ -94,10 +94,10 @@ float ShadowMapFactor(float3 posW)
 
 float4 main(PS_IN pi) : SV_TARGET
 {
-    float4 c0 = tex0.Sample(samp, pi.uv); // ��
-    float4 c1 = tex1.Sample(samp, pi.uv); // �y
+    float4 c0 = tex0.Sample(samp, pi.uv); // 草
+    float4 c1 = tex1.Sample(samp, pi.uv); // 土
 
-    // blend�iR/G�j�ō����i���̃��W�b�N�ێ��j
+    // blend（R/G）で合成（既存のロジック維持）
     float r = pi.blend.r;
     float g = pi.blend.g;
 

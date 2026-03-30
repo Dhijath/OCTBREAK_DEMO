@@ -53,6 +53,7 @@ using namespace DirectX;
 #include "Shadow_Map.h"
 #include "pad_logger.h"
 #include "Option.h"
+#include "Score.h"
 
 
 
@@ -106,6 +107,9 @@ namespace
     // フィールド描画用のワールド行列
     XMMATRIX g_mtxWorld_Field;
 
+    // HUD表示フラグ（F3でトグル、デバッグ用）
+    bool g_HudVisible = true;
+
     // テスト用テクスチャID
     int g_TexTest = -1;
 
@@ -124,14 +128,30 @@ namespace
 //==============================================================================
 // ゲーム全体の初期化
 //==============================================================================
+//==============================================================================
+// D3Dリソース初期化（アプリ起動時に1回だけ呼ぶ）
+//==============================================================================
+void Game_InitializeD3D()
+{
+    Shader3d_Begin();
+    Direct3D_ConfigureOffScreenBuffer();
+    MeshField_Initialize(Direct3D_GetDevice(), Direct3D_GetContext());
+}
+
+//==============================================================================
+// D3Dリソース解放（アプリ終了時に1回だけ呼ぶ）
+//==============================================================================
+void Game_FinalizeD3D()
+{
+    MeshField_Finalize();
+}
+
+//==============================================================================
+// ゲームプレイ初期化（プレイ開始のたびに呼ぶ）
+//==============================================================================
 void Game_Initialize()
 {
-
     g_TexLockon = Texture_Load(L"Resource/Texture/Lockon.png");
-    // 3D描画用ステートに戻す
-
-    Shader3d_Begin();             // ← 3D用シェーダ・行列
-    Direct3D_ConfigureOffScreenBuffer();
 
     EnemyBullet_Initialize();
     // 弾・被弾エフェクトの初期化
@@ -322,6 +342,32 @@ void Game_Update(double elapsed_time)
         elapsed_time = MAX_DT;
 
     //--------------------------------------------------------------------------
+    // デバッグ：F3 キーで HUD の表示/非表示トグル
+    //--------------------------------------------------------------------------
+    if (KeyLogger_IsTrigger(KK_F3))
+        g_HudVisible = !g_HudVisible;
+
+    //--------------------------------------------------------------------------
+    // デバッグ：F9 キーで全種類アイテムを足元にスポーン（旧：I → スペクテイターカメラに使用）
+    //--------------------------------------------------------------------------
+    if (KeyLogger_IsTrigger(KK_F9))
+    {
+        const XMFLOAT3 base = Player_GetPosition();
+        // 少しずらして重ならないように並べる
+        const XMFLOAT3 offsets[] = {
+            { -0.6f, 0.0f,  0.6f },
+            {  0.6f, 0.0f,  0.6f },
+            { -0.6f, 0.0f, -0.6f },
+            {  0.6f, 0.0f, -0.6f },
+        };
+        ItemManager_Spawn(ItemType::HP_HEAL,     { base.x + offsets[0].x, base.y, base.z + offsets[0].z });
+        ItemManager_Spawn(ItemType::ENERGY_HEAL, { base.x + offsets[1].x, base.y, base.z + offsets[1].z });
+        ItemManager_Spawn(ItemType::ATK_UP,      { base.x + offsets[2].x, base.y, base.z + offsets[2].z });
+        ItemManager_Spawn(ItemType::SPEED_UP,    { base.x + offsets[3].x, base.y, base.z + offsets[3].z });
+    }
+    //--------------------------------------------------------------------------
+
+    //--------------------------------------------------------------------------
     // ボス登場演出中はゲームロジックをスキップ
     // ただしボス自身の Update はバレルアニメ（BossPhase::INTRO）のために呼ぶ
     // 仕様：イントロ開始→ボスアニメ開始→ボスアニメ終了→イントロ終了
@@ -439,6 +485,13 @@ void Game_Update(double elapsed_time)
                     XMFLOAT3 popupPos = e.GetPosition();
                     popupPos.y += 1.2f;
                     DamagePopup_Add(popupPos, exp.damage);
+                    // 爆発範囲で倒した時も死亡SE・スコア・アイテムを処理
+                    if (e.IsDead())
+                    {
+                        Enemy_PlayDeathSE();
+                        Score_Addscore(1000);
+                        ItemManager_SpawnRandom(e.GetPosition());
+                    }
                 }
             }
         }
@@ -636,11 +689,14 @@ void Game_Draw()
     // 深度テストで落ちて描画されなくなる問題を防ぐ
     Direct3D_SetDepthEnable(false);
 
-    MiniMap_Draw2D();   // 画面に貼る
-    //HUD描画
-    HUD_Draw();
-    // HUD_Draw が内部で SetDepthEnable(true) に戻すため、2Dパスのために再度無効化
-    Direct3D_SetDepthEnable(false);
+    //HUD・ミニマップ描画（F3で一括表示/非表示切替可能）
+    if (g_HudVisible)
+    {
+        MiniMap_Draw2D();   // 画面に貼る
+        HUD_Draw();
+        // HUD_Draw が内部で SetDepthEnable(true) に戻すため、2Dパスのために再度無効化
+        Direct3D_SetDepthEnable(false);
+    }
 
     // ---- ロックオンサイト（2Dスプライト・スクリーン投影）----
     {
@@ -701,22 +757,17 @@ void Game_Draw()
 }
 
 //==============================================================================
-// ゲーム終了処理（リソース解放）
+// ゲームプレイ終了処理（プレイ終了のたびに呼ぶ）
 //==============================================================================
 void Game_Finalize()
 {
-
     DamagePopup_Finalize();
     ItemManager_Finalize();
     HUD_Finalize();
-
     Billboard_Finalize();
 
     // マップ関連
     Map_Finalize();
-
-    // フィールドメッシュ
-    MeshField_Finalize();
 
     // カメラ・プレイヤー
     Player_Camera_Finalize();
@@ -732,7 +783,6 @@ void Game_Finalize()
 
     // エネミーバレット
     EnemyBullet_Finalize();
-
 }
 
 

@@ -1,13 +1,13 @@
 /*==============================================================================
 
-   ビルボード描画用頂点シェーダー [shader_vertex_billboard.hlsl]
+   繝薙Ν繝懊�ｼ繝画緒逕ｻ逕ｨ鬆らせ繧ｷ繧ｧ繝ｼ繝繝ｼ [shader_vertex_billboard.hlsl]
 														 Author : Youhei Sato
 														 Date   : 2025/05/15
 --------------------------------------------------------------------------------
 
 ==============================================================================*/
 
-// 定数バッファ
+// 螳壽焚繝舌ャ繝輔ぃ
 cbuffer VS_CONSTANT_BUFFER : register(b0)
 {
     float4x4 world;
@@ -45,7 +45,7 @@ struct VS_IN
     float4 posL : POSITION;
     float4 color : COLOR0;
     float2 tex : TEXCOORD0;
- 
+
 };
 
 struct VS_OUT
@@ -56,21 +56,21 @@ struct VS_OUT
 };
 
 //=============================================================================
-// 頂点シェーダ
+// 鬆らせ繧ｷ繧ｧ繝ｼ繝繝ｼ
 //=============================================================================
 VS_OUT main(VS_IN vi)
 {
     VS_OUT vo;
 
- 
-// 座席変換
+
+// 邁｡譏灘､画鋤
     float4x4 mtxWV = mul(world, view);
     float4x4 mtxWVP = mul(mtxWV, proj);
     vo.posH = mul(vi.posL, mtxWVP);
- 
- 
+
+
     vo.color = vi.color;
     vo.tex = vi.tex;
- 
+
     return vo;
 }
