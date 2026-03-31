@@ -56,6 +56,9 @@ void Direct3D_SetBlendState(bool enable);
 //  加算合成
 void Direct3D_SetBlendStateAdditive(bool enable);
 
+// ミニマップマーカー用（αチャンネル非書き込み・RGB のみαブレンド）
+void Direct3D_SetBlendStateMarker();
+
 // 深度書き込みだけ禁止するステートの切り替え
 void Direct3D_SetDepthStencilStateDepthWriteDisable(bool enable);
 

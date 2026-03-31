@@ -86,10 +86,10 @@ void EnemySpeed::Update(double elapsed_time)
     if (m_ContactDamageCooldown > 0.0f) m_ContactDamageCooldown -= dt;
     ResolveBulletHits();
 
-    if (IsDead())
+    if (IsDead() && IsAlive())
     {
         m_IsAlive = false;
-        Score_Addscore(500);
+        Score_Addscore(GetKillScore());
         ItemManager_SpawnRandom(m_Position);
     }
 }

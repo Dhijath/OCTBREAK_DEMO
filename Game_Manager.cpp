@@ -34,6 +34,7 @@
 #include "Enemy.h"
 #include "map.h"
 #include <cstdint>
+#include <algorithm>
 #include "pad_logger.h"
 #include "Pause.h"
 #include "BossIntro.h"
@@ -63,6 +64,8 @@ static std::uint32_t g_DungeonSeed = 12345u;
 
 // ゴール判定のクールダウン（秒）
 static double g_GoalCooldown = 0.0;
+// 現在ルームの経過時間（タイムボーナス計算用）
+static double g_RoomTimer = 0.0;
 // ゴール到達によるダンジョン再生成待ちフラグ
 static bool g_PendingDungeonRegenerate = false;
 // ボス部屋フェーズ中フラグ（2回ゴール到達後に true になる）
@@ -318,6 +321,9 @@ void GameManager_Update(double elapsed_time)
             g_GoalCooldown -= elapsed_time;
         }
 
+        // ルーム内経過時間を加算（タイムボーナス計算用）
+        g_RoomTimer += elapsed_time;
+
         // ゲームオーバー：プレイヤー無効化かつ演出中でないとき
         // → 即 Result に飛ばさず、PlayerDeath 演出ステートへ移行
         if (!Player_IsEnable() && !BossIntro_IsPlaying())
@@ -335,6 +341,12 @@ void GameManager_Update(double elapsed_time)
             && !BossIntro_IsPlaying()
             && Map_IsPlayerReachedGoal())
         {
+            // タイムボーナス：最大20000pt、1秒ごとに100pt減少（最小0）
+            // 例: 10秒クリア→19000pt、60秒クリア→14000pt、200秒以上→0pt
+            const int timeBonus = std::max(0, 20000 - static_cast<int>(g_RoomTimer * 100.0));
+            Score_Addscore(timeBonus);
+            g_RoomTimer = 0.0;  // 次のルーム用にリセット
+
             Map_AddGoalReachCount();
 
             if (Map_IsClearConditionMet())
@@ -507,6 +519,8 @@ void GameManager_Update(double elapsed_time)
         else if (g_GameState == GameState::Playing)
         {
             Game_Initialize();
+            Score_Reset();      // 新規ゲーム開始時にスコアをリセット
+            g_RoomTimer = 0.0;  // タイムボーナス用タイマーをリセット
             Player_SetNormalWeaponIndex(
                 static_cast<int>(AssemblyScreen_GetRightWeapon()));  // 右腕武器を反映
             Player_SetLeftWeaponIndex(

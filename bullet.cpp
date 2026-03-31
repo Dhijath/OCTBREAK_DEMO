@@ -477,7 +477,7 @@ void BulletManager::Initialize()
     m_pModelNormal  = ModelLoad("Resource/Models/bullet.fbx",  0.15f);
     m_pModelMissile = ModelLoad("Resource/Models/bullet.fbx",  0.15f);  // 後でミサイル用モデルに差し替え
     m_beamTexID = Texture_Load(L"Resource/Texture/effect000.jpg");
-    m_explosionSE = LoadAudioWithVolume("resource/sound/maou_se_battle07.wav", 0.8f);
+    m_explosionSE = LoadAudioWithVolume("resource/sound/maou_se_battle07.wav", 0.3f);
 }
 
 //==============================================================================

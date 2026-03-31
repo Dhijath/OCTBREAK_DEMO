@@ -94,10 +94,10 @@ void EnemyTank::Update(double elapsed_time)
     CheckShieldBulletHits(); // 盾判定（盾で消費した弾は本体に当たらない）
     ResolveBulletHits();
 
-    if (IsDead())
+    if (IsDead() && IsAlive())
     {
         m_IsAlive = false;
-        Score_Addscore(1500);
+        Score_Addscore(GetKillScore());
         ItemManager_SpawnRandom(m_Position);
     }
 }

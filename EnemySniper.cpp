@@ -123,10 +123,13 @@ void EnemySniper::Update(double elapsed_time)
     if (m_ContactDamageCooldown > 0.0f) m_ContactDamageCooldown -= dt;
     ResolveBulletHits();
 
-    if (IsDead())
+    // 死亡判定：スコア・アイテムは GetKillScore() + Enemy 基底の Update 経由で処理しないため
+    // ここで Enemy::Update() 相当の死亡処理を行う
+    // （IsAlive() チェックで爆発 Kill() 済みの二重加算を防止）
+    if (IsDead() && IsAlive())
     {
         m_IsAlive = false;
-        Score_Addscore(800);
+        Score_Addscore(GetKillScore());
         ItemManager_SpawnRandom(m_Position);
     }
 }

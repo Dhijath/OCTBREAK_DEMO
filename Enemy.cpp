@@ -240,8 +240,13 @@ void Enemy::Update(double elapsed_time)
     // 弾ヒット処理
     ResolveBulletHits();
 
-    // 死亡判定
-    if (IsDead()) m_IsAlive = false;
+    // 死亡判定（スコア・アイテムは各サブクラスまたはここで一括処理）
+    if (IsDead() && IsAlive())
+    {
+        m_IsAlive = false;
+        Score_Addscore(GetKillScore());
+        ItemManager_SpawnRandom(m_Position);
+    }
 }
 
 //==============================================================================
@@ -687,11 +692,8 @@ void Enemy::ResolveBulletHits()
 
         if (IsDead())
         {
-            //死亡SE
+            // 死亡SE（弾ヒット時に即時再生）
             PlayAudio(g_enemy_deadSE, false);
-            Score_Addscore(1000);//1000点追加
-
-            ItemManager_SpawnRandom(m_Position);//アイテムをランダムでスポーン
             break;
         }
     }

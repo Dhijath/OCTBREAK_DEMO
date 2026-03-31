@@ -29,7 +29,7 @@ void MiniMap_Render3D()
     const DirectX::XMFLOAT3 center = Player_GetPosition();
     Player_Camera_SetMiniMapTopDown(center, 100.0f, 60.0f);
 
-    Map_DrawForMinimap(); 
+    Map_DrawForMinimap();
     Player_DrawMarker();
 
     Player_Camera_ApplyMainViewProj();
@@ -98,15 +98,6 @@ void MiniMap_Draw2D()
     // ミニマップ本体描画（SRV直接描画）
     //============================================================
 
-    // 正方形用スプライト描画モード開始
-    // ミニマップ背景（黒みがかった緑の板）
-    Sprite_Begin();
-    Sprite_Draw(
-        Map_GetWiteTexID(),
-        sx, sy,
-        mapSize, mapSize,
-        { 0.0f, 0.15f, 0.05f, 1.0f }
-    );
     // → UV指定描画に対応した描画モード
     Sprite_BeginSquare();
 
@@ -116,14 +107,14 @@ void MiniMap_Draw2D()
     float uvRight = 1.0f - uvLeft;
 
     // SRVを指定UV範囲で描画
-    // 黒を透過するため加算合成に切り替え
+    // αブレンドでオフスクリーンを合成
     ID3D11Device* dev = Direct3D_GetDevice();
     ID3D11DeviceContext* ctx = Direct3D_GetContext();
 
     D3D11_BLEND_DESC blendDesc{};
     blendDesc.RenderTarget[0].BlendEnable = TRUE;
     blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;
-    blendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_ONE;
+    blendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_ZERO;
     blendDesc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
     blendDesc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
     blendDesc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;

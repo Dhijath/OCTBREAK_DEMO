@@ -1462,24 +1462,34 @@ void Player_DrawShadow()
 
 void Player_DrawMarker()
 {
-    Shader3d_Begin(); // 
+    Shader3d_Begin();
 
     ID3D11DeviceContext* ctx = Direct3D_GetContext();
     ID3D11Buffer* nullCB = nullptr;
     ctx->PSSetConstantBuffers(6, 1, &nullCB);
 
-    const float minimapY = 10.0f;
+    // 標準アルファブレンド（Map_DrawGoal と同じ）
+    ID3D11BlendState* pOldBlend = nullptr;
+    FLOAT oldFactor[4];
+    UINT  oldMask;
+    ctx->OMGetBlendState(&pOldBlend, oldFactor, &oldMask);
+    Direct3D_SetBlendState(true);
 
-    Shader3d_SetColor({ 1.0f, 0.0f, 0.0f, 1.0f });
-
-    const XMMATRIX markerWorld = XMMatrixTranslation(
-        g_PlayerPosition.x,
-        minimapY + 1.0f,
-        g_PlayerPosition.z
-    );
-
-    MeshField_DrawTile(markerWorld, Map_GetWiteTexID(), 1.0f);
     Shader3d_SetColor({ 1.0f, 1.0f, 1.0f, 1.0f });
+
+    // プレイヤーの向きに合わせてマーカーを回転
+    const float angle = -atan2f(g_PlayerFront.z, g_PlayerFront.x) + XMConvertToRadians(270.0f);
+
+    const float minimapY = 10.0f;
+    const XMMATRIX markerWorld =
+        XMMatrixRotationY(angle) *
+        XMMatrixTranslation(g_PlayerPosition.x, minimapY + 1.0f, g_PlayerPosition.z);
+
+    MeshField_DrawTile(markerWorld, g_PlayerMarkerTexID, 10.0f);
+    Shader3d_SetColor({ 1.0f, 1.0f, 1.0f, 1.0f });
+
+    ctx->OMSetBlendState(pOldBlend, oldFactor, oldMask);
+    SAFE_RELEASE(pOldBlend);
 }
 
 //==============================================================================

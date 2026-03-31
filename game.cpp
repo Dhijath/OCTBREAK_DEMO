@@ -348,22 +348,29 @@ void Game_Update(double elapsed_time)
         g_HudVisible = !g_HudVisible;
 
     //--------------------------------------------------------------------------
-    // デバッグ：F9 キーで全種類アイテムを足元にスポーン（旧：I → スペクテイターカメラに使用）
+    // デバッグ：F9 キーで全種類アイテムを足元にスポーン（長押しで連射）
     //--------------------------------------------------------------------------
-    if (KeyLogger_IsTrigger(KK_F9))
     {
-        const XMFLOAT3 base = Player_GetPosition();
-        // 少しずらして重ならないように並べる
-        const XMFLOAT3 offsets[] = {
-            { -0.6f, 0.0f,  0.6f },
-            {  0.6f, 0.0f,  0.6f },
-            { -0.6f, 0.0f, -0.6f },
-            {  0.6f, 0.0f, -0.6f },
-        };
-        ItemManager_Spawn(ItemType::HP_HEAL,     { base.x + offsets[0].x, base.y, base.z + offsets[0].z });
-        ItemManager_Spawn(ItemType::ENERGY_HEAL, { base.x + offsets[1].x, base.y, base.z + offsets[1].z });
-        ItemManager_Spawn(ItemType::ATK_UP,      { base.x + offsets[2].x, base.y, base.z + offsets[2].z });
-        ItemManager_Spawn(ItemType::SPEED_UP,    { base.x + offsets[3].x, base.y, base.z + offsets[3].z });
+        static double s_ItemSpawnTimer = 0.0;
+        const double  SPAWN_INTERVAL   = 0.15; // 連射間隔（秒）
+
+        if (KeyLogger_IsPressed(KK_F9))
+        {
+            s_ItemSpawnTimer -= elapsed_time;
+            if (s_ItemSpawnTimer <= 0.0)
+            {
+                const XMFLOAT3 pos = Player_GetPosition();
+                ItemManager_Spawn(ItemType::HP_HEAL,     pos);
+                ItemManager_Spawn(ItemType::ENERGY_HEAL, pos);
+                ItemManager_Spawn(ItemType::ATK_UP,      pos);
+                ItemManager_Spawn(ItemType::SPEED_UP,    pos);
+                s_ItemSpawnTimer = SPAWN_INTERVAL;
+            }
+        }
+        else
+        {
+            s_ItemSpawnTimer = 0.0; // 離したらリセット（次押し即発動）
+        }
     }
     //--------------------------------------------------------------------------
 
@@ -486,10 +493,13 @@ void Game_Update(double elapsed_time)
                     popupPos.y += 1.2f;
                     DamagePopup_Add(popupPos, exp.damage);
                     // 爆発範囲で倒した時も死亡SE・スコア・アイテムを処理
+                    // Kill() で m_IsAlive=false にし、翌フレームのサブクラス Update での二重加算を防ぐ
+                    // GetKillScore() は virtual なので敵の種類ごとに正しい値が返る
                     if (e.IsDead())
                     {
+                        e.Kill();
                         Enemy_PlayDeathSE();
-                        Score_Addscore(1000);
+                        Score_Addscore(e.GetKillScore());
                         ItemManager_SpawnRandom(e.GetPosition());
                     }
                 }

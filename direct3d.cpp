@@ -26,6 +26,7 @@ static ID3D11DeviceContext* g_pDeviceContext = nullptr;
 static IDXGISwapChain* g_pSwapChain = nullptr;
 static ID3D11BlendState* g_pBlendStateMultiply = nullptr;     // αブレンド用
 static ID3D11BlendState* g_pBlendStateAdditive = nullptr;     // 加算合成用
+static ID3D11BlendState* g_pBlendStateMarker    = nullptr;    // ミニマップマーカー用
 static ID3D11DepthStencilState* g_pDepthStencilStateDepthDisable = nullptr; // 深度テスト無効
 static ID3D11DepthStencilState* g_pDepthStencilStateDepthEnable = nullptr; // 深度テスト有効
 static ID3D11DepthStencilState* g_pDepthStencilStateDepthWriteDisable = nullptr; // 深度書き込み禁止
@@ -177,6 +178,28 @@ bool Direct3D_Initialize(HWND hWnd)
         return false;
     }
 
+    // マーカー用ブレンドステート
+    // RGB : αブレンド（透明部分は下を透かす）
+    // Alpha: RGBのみ書き込み（αチャンネルを一切触らない）
+    D3D11_BLEND_DESC bdMarker{};
+    bdMarker.RenderTarget[0].BlendEnable    = TRUE;
+    bdMarker.RenderTarget[0].SrcBlend       = D3D11_BLEND_SRC_ALPHA;
+    bdMarker.RenderTarget[0].DestBlend      = D3D11_BLEND_INV_SRC_ALPHA;
+    bdMarker.RenderTarget[0].BlendOp        = D3D11_BLEND_OP_ADD;
+    bdMarker.RenderTarget[0].SrcBlendAlpha  = D3D11_BLEND_ZERO;
+    bdMarker.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
+    bdMarker.RenderTarget[0].BlendOpAlpha   = D3D11_BLEND_OP_ADD;
+    bdMarker.RenderTarget[0].RenderTargetWriteMask =
+        D3D11_COLOR_WRITE_ENABLE_RED |
+        D3D11_COLOR_WRITE_ENABLE_GREEN |
+        D3D11_COLOR_WRITE_ENABLE_BLUE;  // αチャンネルへの書き込みを禁止
+
+    hr = g_pDevice->CreateBlendState(&bdMarker, &g_pBlendStateMarker);
+    if (FAILED(hr)) {
+        MessageBox(hWnd, "マーカーブレンドステートの作成に失敗しました", "エラー", MB_OK);
+        return false;
+    }
+
     // 深度ステート設定（有効／無効）
     D3D11_DEPTH_STENCIL_DESC dsd{};
     dsd.StencilEnable = FALSE;
@@ -236,6 +259,7 @@ void Direct3D_Finalize()
     SAFE_RELEASE(g_pDepthStencilStateDepthWriteDisable);
     SAFE_RELEASE(g_pBlendStateMultiply);
     SAFE_RELEASE(g_pBlendStateAdditive);
+    SAFE_RELEASE(g_pBlendStateMarker);
     SAFE_RELEASE(g_pRasterizerState);
 
     releaseBackBuffer();
@@ -369,6 +393,13 @@ void Direct3D_SetBlendStateAdditive(bool enable)
         g_pDeviceContext->OMSetBlendState(g_pBlendStateMultiply, blend_factor, 0xffffffff);
 }
 
+
+// ミニマップマーカー用ブレンドステートを適用
+void Direct3D_SetBlendStateMarker()
+{
+    float blend_factor[4] = { 0, 0, 0, 0 };
+    g_pDeviceContext->OMSetBlendState(g_pBlendStateMarker, blend_factor, 0xffffffff);
+}
 
 // 深度テストはするけど深度書き込みだけ止める
 void Direct3D_SetDepthStencilStateDepthWriteDisable(bool enable)
@@ -735,7 +766,7 @@ void Direct3D_BeginOffScreen()
     g_pDeviceContext->OMSetRenderTargets(1, &g_pOffScreenRenderTargetView, g_pOffScreenDepthStencilView);
     g_pDeviceContext->RSSetViewports(1, &g_Viewport2);
 
-    float clear_color[4] = { 0,0,0,1 };
+    float clear_color[4] = { 0.0f, 0.15f, 0.05f, 1.0f };
     g_pDeviceContext->ClearRenderTargetView(g_pOffScreenRenderTargetView, clear_color);
     g_pDeviceContext->ClearDepthStencilView(g_pOffScreenDepthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
 }

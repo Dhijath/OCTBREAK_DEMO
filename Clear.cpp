@@ -143,7 +143,7 @@ void Clear_Draw()
         const float scaleY = static_cast<float>(Direct3D_GetBackBufferHeight()) / 900.0f;
 
         char scoreBuf[32];
-        snprintf(scoreBuf, sizeof(scoreBuf), "%d", static_cast<int>(Score_GetScore()));
+        snprintf(scoreBuf, sizeof(scoreBuf), "%u", Score_GetScore());
 
         const D2D1_COLOR_F dGRAY  = D2D1::ColorF(0.70f, 0.70f, 0.70f, 1.0f);
         const D2D1_COLOR_F dWHITE = D2D1::ColorF(1.0f,  1.0f,  1.0f,  1.0f);
