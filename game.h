@@ -55,5 +55,8 @@ void Game_SetBossRoomMode(bool isBossRoom);
 // ボスの向き（正面ベクトル）をセット（BossIntro_Start から呼ぶ）
 void Game_SetBossLookDir(const DirectX::XMFLOAT3& dir);
 
+// ミニマップ用：エネミーマーカー一括描画
+void Game_DrawEnemyMarkers();
+
 #endif // !GAME_H
 

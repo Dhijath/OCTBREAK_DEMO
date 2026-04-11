@@ -38,6 +38,7 @@
 #include "pad_logger.h"
 #include "Pause.h"
 #include "BossIntro.h"
+#include "BossDefeat.h"
 #include "ItemManager.h"
 #include "player_camera.h"
 #include "HUD.h"
@@ -281,7 +282,7 @@ void GameManager_Update(double elapsed_time)
         // ポーズトグル（ESC / PAD_START）
         // ボス演出中・遷移中はポーズ不可
         //----------------------------------------------------------
-        if (!BossIntro_IsPlaying() && !g_IsPaused)
+        if (!BossIntro_IsPlaying() && !BossDefeat_IsPlaying() && !g_IsPaused)
         {
             const bool pauseKey = KeyLogger_IsTrigger(KK_ESCAPE)
                                 || PadLogger_IsTrigger(PAD_START);
@@ -326,7 +327,7 @@ void GameManager_Update(double elapsed_time)
 
         // ゲームオーバー：プレイヤー無効化かつ演出中でないとき
         // → 即 Result に飛ばさず、PlayerDeath 演出ステートへ移行
-        if (!Player_IsEnable() && !BossIntro_IsPlaying())
+        if (!Player_IsEnable() && !BossIntro_IsPlaying() && !BossDefeat_IsPlaying())
         {
             g_GameState        = GameState::PlayerDeath;
             g_DeathTimer       = 0.0;
@@ -363,7 +364,7 @@ void GameManager_Update(double elapsed_time)
         }
 
         // ボス部屋フェーズ中にボスを倒したらクリア（演出終了後のみチェック）
-        if (g_InBossRoom && !BossIntro_IsPlaying() && !Game_IsBossAlive())
+        if (g_InBossRoom && !BossIntro_IsPlaying() && !BossDefeat_IsPlaying() && !Game_IsBossAlive())
         {
             PlayAudio(g_PlayerclearSE);
             Score_AddRecord(Score_GetScore(),

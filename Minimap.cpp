@@ -14,6 +14,7 @@
 #include "sprite.h"
 #include "Minimap.h"
 #include "texture.h"
+#include "game.h"
 
 
 //==============================================================================
@@ -21,7 +22,9 @@
 //==============================================================================
 
 int g_MinimapframeTexID = -1;  //ミニマップのフレーム用テクスチャ
-
+void Minimap_Initialize()
+{
+}
 
 void MiniMap_Render3D()
 {
@@ -31,6 +34,7 @@ void MiniMap_Render3D()
 
     Map_DrawForMinimap();
     Player_DrawMarker();
+    Game_DrawEnemyMarkers();
 
     Player_Camera_ApplyMainViewProj();
     Direct3D_EndOffScreen();

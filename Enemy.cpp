@@ -24,6 +24,8 @@
 #include "ItemManager.h"
 #include "DamagePopup.h"
 #include "Shadow_Map.h"
+#include "particle_spark.h"
+#include "BossDefeat.h"
 
 using namespace DirectX;
 
@@ -31,21 +33,44 @@ namespace
 {
     int g_enemy_hitSE = -1;
     int g_enemy_deadSE = -1;
+
+    constexpr float ATTENUATION_MAX_DIST = 30.0f;
+
+    static float CalcDistToPlayer(const XMFLOAT3& pos)
+    {
+        const XMFLOAT3 p = Player_GetPosition();
+        const float dx = pos.x - p.x;
+        const float dz = pos.z - p.z;
+        return sqrtf(dx * dx + dz * dz);
+    }
 }
 
 void Enemy_LoadSE()
 {
     if (g_enemy_hitSE < 0)
-        g_enemy_hitSE = LoadAudioWithVolume("resource/sound/hit.wav", 0.2f);
+    {
+        g_enemy_hitSE = LoadAudioWithVolume("resource/sound/hit.wav", 0.1f);
+        SetAudioAttenuationEnabled(g_enemy_hitSE, true);
+    }
 
     if (g_enemy_deadSE < 0)
+    {
         g_enemy_deadSE = LoadAudioWithVolume("resource/sound/dead.wav", 1.0f);
+        SetAudioAttenuationEnabled(g_enemy_deadSE, true);
+    }
 }
 
 void Enemy_UnloadSE()
 {
     if (g_enemy_hitSE >= 0) { UnloadAudio(g_enemy_hitSE);  g_enemy_hitSE = -1; }
     if (g_enemy_deadSE >= 0) { UnloadAudio(g_enemy_deadSE); g_enemy_deadSE = -1; }
+}
+
+void Enemy::ConfirmDeath()
+{
+    if (!IsDead() || !IsAlive()) return;
+    m_IsAlive = false;
+    Score_Addscore(GetKillScore());
 }
 
 void Enemy_PlayDeathSE()
@@ -243,9 +268,13 @@ void Enemy::Update(double elapsed_time)
     // 死亡判定（スコア・アイテムは各サブクラスまたはここで一括処理）
     if (IsDead() && IsAlive())
     {
+        // 死亡を遅延させるエネミー（ボス）は外部（game.cpp）から ConfirmDeath() で確定
+        if (IsDeferDeath()) return;
+
         m_IsAlive = false;
         Score_Addscore(GetKillScore());
-        ItemManager_SpawnRandom(m_Position);
+        if (IsDropItem())
+            ItemManager_SpawnRandom(m_Position);
     }
 }
 
@@ -620,6 +649,7 @@ void Enemy::ResolvePlayerCollision(XMVECTOR* ioPos, XMVECTOR* ioVel)
     if (m_ContactDamageCooldown <= 0.0f)
     {
         Player_TakeDamage(ENEMY_DAMAGE);
+        UpdateAudioAttenuation(g_enemy_hitSE, CalcDistToPlayer(m_Position), ATTENUATION_MAX_DIST);
         PlayAudio(g_enemy_hitSE, false);
         m_ContactDamageCooldown = CONTACT_DAMAGE_INTERVAL;
     }
@@ -668,6 +698,7 @@ void Enemy::ResolveBulletHits()
             continue;
 
         //ヒットSE
+        UpdateAudioAttenuation(g_enemy_hitSE, CalcDistToPlayer(m_Position), ATTENUATION_MAX_DIST);
         PlayAudio(g_enemy_hitSE, false);
 
         // ダメージ量を取得
@@ -692,8 +723,13 @@ void Enemy::ResolveBulletHits()
 
         if (IsDead())
         {
-            // 死亡SE（弾ヒット時に即時再生）
-            PlayAudio(g_enemy_deadSE, false);
+            if (!IsDeferDeath())
+            {
+                // 死亡SE・エフェクト（ボスは演出側で制御するためスキップ）
+                UpdateAudioAttenuation(g_enemy_deadSE, CalcDistToPlayer(m_Position), ATTENUATION_MAX_DIST);
+                PlayAudio(g_enemy_deadSE, false);
+                SparkEffect_Create(m_Position, 1.5f);
+            }
             break;
         }
     }

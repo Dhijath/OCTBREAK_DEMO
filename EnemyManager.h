@@ -43,6 +43,7 @@ public:
     void Update(double elapsed_time);                     // 全体更新
     void Draw();                                          // 全体描画
     void DrawShadow();                                    // シャドウパス用深度描画
+    void DrawMarkers();                                   // ミニマップ用エネミーマーカー描画
 
     //==========================================================================
     // エネミー生成
