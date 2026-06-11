@@ -1,4 +1,4 @@
-/*==============================================================================
+﻿/*==============================================================================
 
    シールドシステム [shield.cpp]
                                                          Author : 51106
@@ -34,11 +34,11 @@ namespace
         XMFLOAT4 color; // RGBA
     };
 
-    static constexpr int   VERTEX_COUNT     = 20;     // 正12面体（ドデカヘドロン）頂点数
-    static constexpr int   INDEX_COUNT      = 108;    // 12面 × 3三角形 × 3頂点
-    static constexpr float SHIELD_RADIUS    = 0.85f;  // シールド半径（m）
+    static constexpr int   VERTEX_COUNT = 20;     // 正12面体（ドデカヘドロン）頂点数
+    static constexpr int   INDEX_COUNT = 108;    // 12面 × 3三角形 × 3頂点
+    static constexpr float SHIELD_RADIUS = 0.85f;  // シールド半径（m）
     static constexpr float DAMAGE_REDUCTION = 0.5f;   // 被ダメ軽減率
-    static constexpr float FLASH_DURATION   = 0.15f;  // フラッシュ持続（秒）
+    static constexpr float FLASH_DURATION = 0.15f;  // フラッシュ持続（秒）
 
     //--------------------------------------------------------------------------
     // D10 ローカル頂点・インデックス（起動時に BuildGeometry() で生成）
@@ -49,22 +49,22 @@ namespace
     //--------------------------------------------------------------------------
     // 状態
     //--------------------------------------------------------------------------
-    bool  g_Active     = false;
+    bool  g_Active = false;
     float g_FlashTimer = 0.0f;
 
     //--------------------------------------------------------------------------
     // GPU リソース
     //--------------------------------------------------------------------------
-    ID3D11VertexShader*      g_pVS     = nullptr;
-    ID3D11PixelShader*       g_pPS     = nullptr;
-    ID3D11InputLayout*       g_pIL     = nullptr;
-    ID3D11Buffer*            g_pVB     = nullptr;   // 動的頂点バッファ
-    ID3D11Buffer*            g_pIB     = nullptr;   // 静的インデックスバッファ
-    ID3D11Buffer*            g_pCBView = nullptr;   // VS b1: View
-    ID3D11Buffer*            g_pCBProj = nullptr;   // VS b2: Proj
-    ID3D11BlendState*        g_pBS     = nullptr;   // αブレンド
-    ID3D11DepthStencilState* g_pDSS    = nullptr;   // 深度テストON / 書き込みOFF
-    ID3D11RasterizerState*   g_pRS     = nullptr;   // 両面描画
+    ID3D11VertexShader* g_pVS = nullptr;
+    ID3D11PixelShader* g_pPS = nullptr;
+    ID3D11InputLayout* g_pIL = nullptr;
+    ID3D11Buffer* g_pVB = nullptr;   // 動的頂点バッファ
+    ID3D11Buffer* g_pIB = nullptr;   // 静的インデックスバッファ
+    ID3D11Buffer* g_pCBView = nullptr;   // VS b1: View
+    ID3D11Buffer* g_pCBProj = nullptr;   // VS b2: Proj
+    ID3D11BlendState* g_pBS = nullptr;   // αブレンド
+    ID3D11DepthStencilState* g_pDSS = nullptr;   // 深度テストON / 書き込みOFF
+    ID3D11RasterizerState* g_pRS = nullptr;   // 両面描画
 
     //--------------------------------------------------------------------------
     // 正12面体（ドデカヘドロン）ジオメトリ生成
@@ -79,34 +79,34 @@ namespace
     void BuildGeometry()
     {
         const float phi = (1.0f + sqrtf(5.0f)) / 2.0f; // 黄金比 φ ≈ 1.618
-        const float r   = 1.0f / phi;                   // 1/φ ≈ 0.618
-        const float s   = 1.0f / sqrtf(3.0f);           // 正規化スケール（外接球半径 → 1）
-        const float sp  = phi * s;
-        const float sr  = r    * s;
+        const float r = 1.0f / phi;                   // 1/φ ≈ 0.618
+        const float s = 1.0f / sqrtf(3.0f);           // 正規化スケール（外接球半径 → 1）
+        const float sp = phi * s;
+        const float sr = r * s;
 
         // ── 頂点 ─────────────────────────────────────────────────────────────
         // G1: (±1, ±1, ±1)
-        s_LocalVerts[ 0] = {  s,  s,  s };
-        s_LocalVerts[ 1] = {  s,  s, -s };
-        s_LocalVerts[ 2] = {  s, -s,  s };
-        s_LocalVerts[ 3] = {  s, -s, -s };
-        s_LocalVerts[ 4] = { -s,  s,  s };
-        s_LocalVerts[ 5] = { -s,  s, -s };
-        s_LocalVerts[ 6] = { -s, -s,  s };
-        s_LocalVerts[ 7] = { -s, -s, -s };
+        s_LocalVerts[0] = { s,  s,  s };
+        s_LocalVerts[1] = { s,  s, -s };
+        s_LocalVerts[2] = { s, -s,  s };
+        s_LocalVerts[3] = { s, -s, -s };
+        s_LocalVerts[4] = { -s,  s,  s };
+        s_LocalVerts[5] = { -s,  s, -s };
+        s_LocalVerts[6] = { -s, -s,  s };
+        s_LocalVerts[7] = { -s, -s, -s };
         // G2: (0, ±φ, ±1/φ)
-        s_LocalVerts[ 8] = {  0,  sp,  sr };
-        s_LocalVerts[ 9] = {  0,  sp, -sr };
-        s_LocalVerts[10] = {  0, -sp,  sr };
-        s_LocalVerts[11] = {  0, -sp, -sr };
+        s_LocalVerts[8] = { 0,  sp,  sr };
+        s_LocalVerts[9] = { 0,  sp, -sr };
+        s_LocalVerts[10] = { 0, -sp,  sr };
+        s_LocalVerts[11] = { 0, -sp, -sr };
         // G3: (±1/φ, 0, ±φ)
-        s_LocalVerts[12] = {  sr, 0,  sp };
+        s_LocalVerts[12] = { sr, 0,  sp };
         s_LocalVerts[13] = { -sr, 0,  sp };
-        s_LocalVerts[14] = {  sr, 0, -sp };
+        s_LocalVerts[14] = { sr, 0, -sp };
         s_LocalVerts[15] = { -sr, 0, -sp };
         // G4: (±φ, ±1/φ, 0)
-        s_LocalVerts[16] = {  sp,  sr, 0 };
-        s_LocalVerts[17] = {  sp, -sr, 0 };
+        s_LocalVerts[16] = { sp,  sr, 0 };
+        s_LocalVerts[17] = { sp, -sr, 0 };
         s_LocalVerts[18] = { -sp,  sr, 0 };
         s_LocalVerts[19] = { -sp, -sr, 0 };
 
@@ -178,7 +178,7 @@ void Shield_Initialize()
     }
 
     dev->CreateVertexShader(vsBin.data(), vsBin.size(), nullptr, &g_pVS);
-    dev->CreatePixelShader (psBin.data(), psBin.size(), nullptr, &g_pPS);
+    dev->CreatePixelShader(psBin.data(), psBin.size(), nullptr, &g_pPS);
 
     // ── 入力レイアウト（Trail と同じ: float4 POSITION + float4 COLOR0）──
     D3D11_INPUT_ELEMENT_DESC layout[] =
@@ -190,16 +190,16 @@ void Shield_Initialize()
 
     // ── 動的頂点バッファ──────────────────────────────────────────────────
     D3D11_BUFFER_DESC vbDesc{};
-    vbDesc.ByteWidth      = sizeof(ShieldVertex) * VERTEX_COUNT;
-    vbDesc.Usage          = D3D11_USAGE_DYNAMIC;
-    vbDesc.BindFlags      = D3D11_BIND_VERTEX_BUFFER;
+    vbDesc.ByteWidth = sizeof(ShieldVertex) * VERTEX_COUNT;
+    vbDesc.Usage = D3D11_USAGE_DYNAMIC;
+    vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
     vbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
     dev->CreateBuffer(&vbDesc, nullptr, &g_pVB);
 
     // ── 静的インデックスバッファ──────────────────────────────────────────
     D3D11_BUFFER_DESC ibDesc{};
     ibDesc.ByteWidth = sizeof(UINT16) * INDEX_COUNT;
-    ibDesc.Usage     = D3D11_USAGE_IMMUTABLE;
+    ibDesc.Usage = D3D11_USAGE_IMMUTABLE;
     ibDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
     D3D11_SUBRESOURCE_DATA ibData{ s_Indices };
     dev->CreateBuffer(&ibDesc, &ibData, &g_pIB);
@@ -213,27 +213,27 @@ void Shield_Initialize()
 
     // ── αブレンドステート────────────────────────────────────────────────
     D3D11_BLEND_DESC blendDesc{};
-    blendDesc.RenderTarget[0].BlendEnable           = TRUE;
-    blendDesc.RenderTarget[0].SrcBlend              = D3D11_BLEND_SRC_ALPHA;
-    blendDesc.RenderTarget[0].DestBlend             = D3D11_BLEND_INV_SRC_ALPHA;
-    blendDesc.RenderTarget[0].BlendOp               = D3D11_BLEND_OP_ADD;
-    blendDesc.RenderTarget[0].SrcBlendAlpha         = D3D11_BLEND_ONE;
-    blendDesc.RenderTarget[0].DestBlendAlpha        = D3D11_BLEND_ZERO;
-    blendDesc.RenderTarget[0].BlendOpAlpha          = D3D11_BLEND_OP_ADD;
+    blendDesc.RenderTarget[0].BlendEnable = TRUE;
+    blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
+    blendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+    blendDesc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+    blendDesc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+    blendDesc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
+    blendDesc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
     blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
     dev->CreateBlendState(&blendDesc, &g_pBS);
 
     // ── 深度ステート（テストON / 書き込みOFF）────────────────────────────
     D3D11_DEPTH_STENCIL_DESC dssDesc{};
-    dssDesc.DepthEnable    = TRUE;
+    dssDesc.DepthEnable = TRUE;
     dssDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
-    dssDesc.DepthFunc      = D3D11_COMPARISON_LESS;
+    dssDesc.DepthFunc = D3D11_COMPARISON_LESS;
     dev->CreateDepthStencilState(&dssDesc, &g_pDSS);
 
     // ── ラスタライザ（両面描画）──────────────────────────────────────────
     D3D11_RASTERIZER_DESC rsDesc{};
-    rsDesc.FillMode        = D3D11_FILL_SOLID;
-    rsDesc.CullMode        = D3D11_CULL_NONE;
+    rsDesc.FillMode = D3D11_FILL_SOLID;
+    rsDesc.CullMode = D3D11_CULL_NONE;
     rsDesc.DepthClipEnable = TRUE;
     dev->CreateRasterizerState(&rsDesc, &g_pRS);
 }
@@ -356,6 +356,6 @@ void Shield_Draw(const XMFLOAT3& center)
 //==============================================================================
 // その他 API
 //==============================================================================
-bool  Shield_IsActive()          { return g_Active; }
-void  Shield_NotifyHit()         { g_FlashTimer = FLASH_DURATION; }
-float Shield_GetDamageReduction(){ return DAMAGE_REDUCTION; }
+bool  Shield_IsActive() { return g_Active; }
+void  Shield_NotifyHit() { g_FlashTimer = FLASH_DURATION; }
+float Shield_GetDamageReduction() { return DAMAGE_REDUCTION; }

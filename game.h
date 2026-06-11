@@ -55,5 +55,18 @@ void Game_SetBossRoomMode(bool isBossRoom);
 // ボスの向き（正面ベクトル）をセット（BossIntro_Start から呼ぶ）
 void Game_SetBossLookDir(const DirectX::XMFLOAT3& dir);
 
+// ミニマップ用：エネミーマーカー一括描画
+void Game_DrawEnemyMarkers();
+
+// サバイバル用：現在の生存エネミー数
+int Game_GetAliveEnemyCount();
+
+// サバイバルモード中か
+bool Game_IsSurvivalMode();
+void Game_SetSurvivalMode(bool val);
+
+// サバイバル用：指定位置にエネミーをスポーン
+void Game_SpawnEnemy(const DirectX::XMFLOAT3& pos, int type);
+
 #endif // !GAME_H
 

@@ -15,10 +15,12 @@
 enum class GameState
 {
     Title,        // タイトル画面
+    StageSelect,  // ステージ選択（Adventure / Survival）
     PreGame,      // 中間メニュー（アセンブリ / スコア確認）
     WeaponSelect, // 武器選択画面（アセンブリ）
     ScoreCheck,   // スコア確認画面
-    Playing,      // ゲーム中
+    Playing,      // ゲーム中（Adventure）
+    Survival,     // ゲーム中（Survival）
     PlayerDeath,  // 死亡演出（爆発→GAME OVER表示）→ Result へ
     Option,       // オプション（音量等）
     Result,       // ゲームオーバー

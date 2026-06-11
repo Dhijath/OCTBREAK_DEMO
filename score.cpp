@@ -52,7 +52,24 @@ void Score_Draw()
 
 unsigned int Score_GetScore()  { return g_Score; }
 void Score_Addscore(int score) { g_Score += score; }
-void Score_Reset()             { g_Score = 0; }
+
+//------------------------------------------------------------------------------
+// ダメージ統計
+//------------------------------------------------------------------------------
+static int g_DamageDealt = 0;
+static int g_DamageTaken = 0;
+
+void Score_Reset()
+{
+    g_Score       = 0;
+    g_DamageDealt = 0;
+    g_DamageTaken = 0;
+}
+
+void Score_AddDamageDealt(int d) { if (d > 0) g_DamageDealt += d; }
+void Score_AddDamageTaken(int d) { if (d > 0) g_DamageTaken += d; }
+int  Score_GetDamageDealt()      { return g_DamageDealt; }
+int  Score_GetDamageTaken()      { return g_DamageTaken; }
 
 void drawNumber(float x, float y, int number)
 {

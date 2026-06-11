@@ -259,9 +259,6 @@
     <ClCompile Include="Trail.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
-    <ClCompile Include=".claude\worktrees\nifty-mahavira\shield.cpp">
-      <Filter>ソース ファイル</Filter>
-    </ClCompile>
     <ClCompile Include="AssemblyScreen.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
@@ -290,6 +287,9 @@
       <Filter>ソース ファイル</Filter>
     </ClCompile>
     <ClCompile Include="SaveData.cpp">
+      <Filter>ソース ファイル</Filter>
+    </ClCompile>
+    <ClCompile Include="shield.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
   </ItemGroup>
@@ -546,9 +546,6 @@
     <ClInclude Include="Trail.h">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
-    <ClInclude Include=".claude\worktrees\nifty-mahavira\shield.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
     <ClInclude Include="AssemblyScreen.h">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
@@ -577,6 +574,9 @@
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
     <ClInclude Include="ScoreCheck.h">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
+    <ClInclude Include="shield.h">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
   </ItemGroup>

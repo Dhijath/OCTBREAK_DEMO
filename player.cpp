@@ -1645,6 +1645,7 @@ bool Player_TakeDamage(int damage) // ダメージ処理（無敵中は無効、
     }
 
     g_PlayerHP -= damage;
+    Score_AddDamageTaken(damage);
 
     //g_InvincibleTimer = INVINCIBLE_DURATION; // TODO: 無敵時間 一時無効化中
 

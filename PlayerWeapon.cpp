@@ -22,7 +22,7 @@ using namespace DirectX;
 void WeaponNormal::Initialize()
 {
     m_cooldown = 0.0;
-    m_shootSE  = LoadAudioWithVolume("resource/sound/maou_se_battle_gun05.wav", 0.2f);
+    m_shootSE  = LoadAudioWithVolume("resource/sound/machine_gun.wav", 0.5f);
 }
 
 void WeaponNormal::Finalize()
@@ -167,7 +167,7 @@ void WeaponBeam::AddEnergy(float amount)
 void WeaponShotgun::Initialize()
 {
     m_cooldown = 0.0;
-    m_shootSE  = LoadAudioWithVolume("resource/sound/shotgun.wav", 0.5f);
+    m_shootSE  = LoadAudioWithVolume("resource/sound/shotgun.wav", 0.2f);
 }
 
 void WeaponShotgun::Finalize()

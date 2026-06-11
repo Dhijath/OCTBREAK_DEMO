@@ -150,11 +150,10 @@
     </FxCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include=".claude\worktrees\nifty-mahavira\shield.cpp" />
-    <ClCompile Include="Assimp\assimp\cexport.cpp" />
     <ClCompile Include="Audio.cpp" />
     <ClCompile Include="billboard.cpp" />
     <ClCompile Include="blob_shadow.cpp" />
+    <ClCompile Include="BossDefeat.cpp" />
     <ClCompile Include="BossIntro.cpp" />
     <ClCompile Include="bullet.cpp" />
     <ClCompile Include="bullet_hit_effect.cpp" />
@@ -174,6 +173,11 @@
     <ClCompile Include="particle_spark.cpp" />
     <ClCompile Include="PreGame.cpp" />
     <ClCompile Include="ScoreCheck.cpp" />
+    <ClCompile Include="Shop.cpp" />
+    <ClCompile Include="StageSelect.cpp" />
+    <ClCompile Include="WaveManager.cpp" />
+    <ClCompile Include="shield.cpp" />
+    <ClCompile Include="Skybox.cpp" />
     <ClCompile Include="text_logo.cpp" />
     <ClCompile Include="UIInput.cpp" />
     <ClCompile Include="SaveData.cpp" />
@@ -202,6 +206,7 @@
     <ClCompile Include="light.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="map.cpp" />
+    <ClCompile Include="map_outdoor.cpp" />
     <ClCompile Include="MapPatrolAI.cpp" />
     <ClCompile Include="meshfield.cpp" />
     <ClCompile Include="Minimap.cpp" />
@@ -243,12 +248,12 @@
     <ClCompile Include="WICTextureLoader11.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include=".claude\worktrees\nifty-mahavira\shield.h" />
     <ClInclude Include="Assimp\assimp\ai_assert.h" />
     <ClInclude Include="Assimp\assimp\cexport.h" />
     <ClInclude Include="Audio.h" />
     <ClInclude Include="billboard.h" />
     <ClInclude Include="blob_shadow.h" />
+    <ClInclude Include="BossDefeat.h" />
     <ClInclude Include="BossIntro.h" />
     <ClInclude Include="bullet_hit_effect.h" />
     <ClInclude Include="camera.h" />
@@ -267,6 +272,11 @@
     <ClInclude Include="PreGame.h" />
     <ClInclude Include="SaveData.h" />
     <ClInclude Include="ScoreCheck.h" />
+    <ClInclude Include="Shop.h" />
+    <ClInclude Include="StageSelect.h" />
+    <ClInclude Include="WaveManager.h" />
+    <ClInclude Include="shield.h" />
+    <ClInclude Include="Skybox.h" />
     <ClInclude Include="text_logo.h" />
     <ClInclude Include="UIInput.h" />
     <ClInclude Include="WeaponDef.h" />
@@ -351,10 +361,12 @@
     <FxCompile Include="shader_pixel_edge.hlsl">
       <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(ProjectDir)Resource/Shader/%(Filename).cso</ObjectFileOutput>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Pixel</ShaderType>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Pixel</ShaderType>
     </FxCompile>
     <FxCompile Include="shader_pixel_normal.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Pixel</ShaderType>
       <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(ProjectDir)Resource/Shader/%(Filename).cso</ObjectFileOutput>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Pixel</ShaderType>
     </FxCompile>
     <FxCompile Include="shader_pixel_outline.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Pixel</ShaderType>
@@ -409,6 +421,12 @@
     <FxCompile Include="Resource\Shader\shader_vertex_field.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Vertex</ShaderType>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Vertex</ShaderType>
+      <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(ProjectDir)Resource/Shader/%(Filename).cso</ObjectFileOutput>
+      <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(ProjectDir)Resource/Shader/%(Filename).cso</ObjectFileOutput>
+    </FxCompile>
+    <FxCompile Include="shader_pixel_sky.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Pixel</ShaderType>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Pixel</ShaderType>
       <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(ProjectDir)Resource/Shader/%(Filename).cso</ObjectFileOutput>
       <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(ProjectDir)Resource/Shader/%(Filename).cso</ObjectFileOutput>
     </FxCompile>
@@ -474,6 +492,11 @@
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Vertex</ShaderType>
       <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(ProjectDir)Resource/Shader/%(Filename).cso</ObjectFileOutput>
       <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(ProjectDir)Resource/Shader/%(Filename).cso</ObjectFileOutput>
+    </FxCompile>
+    <FxCompile Include="shader_vertex_sky.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Vertex</ShaderType>
+      <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(ProjectDir)Resource/Shader/%(Filename).cso</ObjectFileOutput>
+      <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(ProjectDir)Resource/Shader/%(Filename).cso</ObjectFileOutput>
     </FxCompile>
     <FxCompile Include="shader_vertex_trail.hlsl">
       <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(ProjectDir)Resource/Shader/%(Filename).cso</ObjectFileOutput>

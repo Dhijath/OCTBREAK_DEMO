@@ -50,10 +50,12 @@ using namespace DirectX;
 #include "EnemyManager.h"
 #include "DamagePopup.h"
 #include "BossIntro.h"
+#include "BossDefeat.h"
 #include "Shadow_Map.h"
 #include "pad_logger.h"
 #include "Option.h"
 #include "Score.h"
+#include "Skybox.h"
 
 
 
@@ -120,9 +122,23 @@ namespace
 
     // ボス管理
     static Enemy* g_pBossEnemy = nullptr; // ボスへの生ポインタ（生存中のみ有効）
-    static bool   g_BossDefeated = false;   // ボスが撃破されたか
-    static bool   g_IsBossRoom = false;   // ボス部屋フェーズ中フラグ
-    static int g_TexLockon = -1;
+    static bool   g_BossDefeated = false;       // ボスが撃破されたか
+    static bool   g_IsBossRoom    = false;
+    static bool   g_IsSurvival    = false;  // サバイバルモード中フラグ
+    static int    g_TexLockon     = -1;
+}
+
+// ボス消滅コールバック（BossDefeat演出のHOLD終了時に呼ばれる）
+static void OnBossVanish()
+{
+    const int cnt = g_EnemyManager.GetCount();
+    for (int i = 0; i < cnt; ++i)
+    {
+        Enemy& e = g_EnemyManager.GetEnemy(i);
+        if (e.IsDead() && e.IsAlive())
+            e.ConfirmDeath();
+    }
+    g_EnemyManager.RemoveDead();
 }
 
 //==============================================================================
@@ -161,6 +177,9 @@ void Game_Initialize()
 
     // マップ初期化（ここでスポーン位置が確定する想定）
     Map_Initialize();
+    Skybox_Initialize();
+
+    Map_SetCeilingVisible(false);  // TODO: テスト用（確認後に消す）
 
 
     // 念のため床登録を更新（支持面判定に使う場合がある）
@@ -196,6 +215,7 @@ void Game_Initialize()
     Billboard_Initialize();
 
     HUD_Initialize();
+    Minimap_Initialize();
 
     // プレイヤー初期位置と進行方向（生成マップのスポーンへ）
     Player_Initialize(Map_GetSpawnPosition(), { 0.0f, 0.0f, 1.0f });
@@ -217,9 +237,9 @@ void Game_Initialize()
 //==============================================================================
 void Game_RespawnEnemies()
 {
-    g_pBossEnemy = nullptr;   // 旧ポインタを先に無効化
+    g_pBossEnemy = nullptr;
     g_BossDefeated = false;
-    g_EnemyManager.Initialize(); // 既存エネミーを全削除
+    g_EnemyManager.Initialize();
 
     const auto& spawns = Map_GetEnemySpawnPositions();
     for (int i = 0; i < static_cast<int>(spawns.size()); ++i)
@@ -275,6 +295,31 @@ void Game_SetBossRoomMode(bool isBossRoom)
 void Game_SetBossLookDir(const XMFLOAT3& dir)
 {
     if (g_pBossEnemy) g_pBossEnemy->SetFront(dir);
+}
+
+void Game_DrawEnemyMarkers()
+{
+    g_EnemyManager.DrawMarkers();
+}
+
+int Game_GetAliveEnemyCount()
+{
+    return g_EnemyManager.GetCount();
+}
+
+bool Game_IsSurvivalMode()
+{
+    return g_IsSurvival;
+}
+
+void Game_SetSurvivalMode(bool val)
+{
+    g_IsSurvival = val;
+}
+
+void Game_SpawnEnemy(const XMFLOAT3& pos, int type)
+{
+    g_EnemyManager.Spawn(pos, static_cast<EnemyType>(type));
 }
 
 //==============================================================================
@@ -360,10 +405,8 @@ void Game_Update(double elapsed_time)
             if (s_ItemSpawnTimer <= 0.0)
             {
                 const XMFLOAT3 pos = Player_GetPosition();
-                ItemManager_Spawn(ItemType::HP_HEAL,     pos);
-                ItemManager_Spawn(ItemType::ENERGY_HEAL, pos);
-                ItemManager_Spawn(ItemType::ATK_UP,      pos);
-                ItemManager_Spawn(ItemType::SPEED_UP,    pos);
+                for (int i = 0; i < 12; ++i)
+                    ItemManager_Spawn(ItemType::ATK_UP, pos);
                 s_ItemSpawnTimer = SPAWN_INTERVAL;
             }
         }
@@ -384,6 +427,15 @@ void Game_Update(double elapsed_time)
         BossIntro_Update(elapsed_time);
         if (g_pBossEnemy) g_pBossEnemy->Update(elapsed_time);
         Player_Update(elapsed_time); // 入力無効中でも重力・物理だけ動かす（Player.cpp 684行の分岐で処理）
+        return;
+    }
+
+    if (BossDefeat_IsPlaying())
+    {
+        BossDefeat_Update(elapsed_time);
+        SparkEffect_Update(elapsed_time);
+        Player_Update(elapsed_time);
+
         return;
     }
 
@@ -457,19 +509,21 @@ void Game_Update(double elapsed_time)
 
     HUD_Update(elapsed_time);
 
-    // 追尾エネミー更新
-    // エネミー側でプレイヤー衝突判定（ダメージ＋ノックバック）を実施
-    //複数種版に変更
-    g_EnemyManager.Update(elapsed_time);
-
-    // ボス撃破チェック（RemoveDead の前に実施：削除後はポインタが無効になるため）
-    if (!g_BossDefeated && g_pBossEnemy && !g_pBossEnemy->IsAlive())
+    // ボス撃破チェック（Update より前に実施：演出開始後に Update を走らせることで
+    // BossDefeat_IsPlaying()==true の状態で死亡フラグのセットを抑制できる）
+    if (!g_BossDefeated && g_pBossEnemy && g_pBossEnemy->IsDead())
     {
         g_BossDefeated = true;
+        const XMFLOAT3 bossPos = g_pBossEnemy->GetPosition();
         g_pBossEnemy = nullptr;
+        BossDefeat_Start(bossPos, OnBossVanish);
     }
 
-    g_EnemyManager.RemoveDead();
+    // 追尾エネミー更新
+    g_EnemyManager.Update(elapsed_time);
+
+    if (!BossDefeat_IsPlaying())
+        g_EnemyManager.RemoveDead();
 
     // ミサイル爆発エリアダメージ（BulletManager に蓄積された爆発を消費）
     {
@@ -635,6 +689,13 @@ void Game_Draw()
             ctx->PSSetConstantBuffers(6, 1, &nullCB);
         }
 
+        // スカイボックス（Map_Draw より前に描く）
+        {
+            const XMMATRIX view = XMLoadFloat4x4(&Player_Camera_GetViewMatrix());
+            const XMMATRIX proj = XMLoadFloat4x4(&Player_Camera_GetProjectionMatrix());
+            Skybox_Draw(view, proj);
+        }
+
         Map_Draw();
 
         // b6 クリア（次の描画への影響防止）
@@ -700,7 +761,7 @@ void Game_Draw()
     Direct3D_SetDepthEnable(false);
 
     //HUD・ミニマップ描画（F3で一括表示/非表示切替可能）
-    if (g_HudVisible)
+    if (g_HudVisible && !BossDefeat_IsPlaying())
     {
         MiniMap_Draw2D();   // 画面に貼る
         HUD_Draw();
@@ -777,6 +838,7 @@ void Game_Finalize()
     Billboard_Finalize();
 
     // マップ関連
+    Skybox_Finalize();
     Map_Finalize();
 
     // カメラ・プレイヤー

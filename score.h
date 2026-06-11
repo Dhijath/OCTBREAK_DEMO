@@ -29,6 +29,14 @@ void         Score_Addscore(int score);
 void         Score_Reset();
 
 //------------------------------------------------------------------------------
+// ダメージ統計
+//------------------------------------------------------------------------------
+void Score_AddDamageDealt(int damage);
+void Score_AddDamageTaken(int damage);
+int  Score_GetDamageDealt();
+int  Score_GetDamageTaken();
+
+//------------------------------------------------------------------------------
 // ランキング
 //------------------------------------------------------------------------------
 void               Score_AddRecord(unsigned int score, WeaponID right, WeaponID left);

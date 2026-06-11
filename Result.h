@@ -20,4 +20,7 @@ void Result_Update(double elapsed_time);
 
 void Result_Draw();
 
+// GAME OVER / GAME CLEAR 共通リザルトパネル（スコア・与ダメ・被ダメ）
+void ResultPanel_Draw();
+
 #endif // RESULT_H

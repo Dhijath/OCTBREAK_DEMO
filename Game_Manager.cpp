@@ -38,6 +38,11 @@
 #include "pad_logger.h"
 #include "Pause.h"
 #include "BossIntro.h"
+#include "StageSelect.h"
+#include "WaveManager.h"
+#include "WeaponDef.h"
+#include "Shop.h"
+#include "BossDefeat.h"
 #include "ItemManager.h"
 #include "player_camera.h"
 #include "HUD.h"
@@ -122,8 +127,9 @@ static void StartBgmLoop(const char* path, float volume = 0.35f)
 static void SwitchInstant(GameState next)
 {
     g_GameState = next;
-    if      (next == GameState::PreGame) PreGame_Initialize();
-    else if (next == GameState::Title)   Title_Initialize();
+    if      (next == GameState::PreGame)      PreGame_Initialize();
+    else if (next == GameState::Title)        Title_Initialize();
+    else if (next == GameState::StageSelect)  StageSelect_Initialize();
 }
 
 static void BeginTransition(GameState next, const char* nextBgmPath, float bgmVolume = BGM_VOL)
@@ -208,7 +214,7 @@ void GameManager_Update(double elapsed_time)
             TitleResult tr = Title_GetResult();
             if (tr == TitleResult::Start)
             {
-                SwitchInstant(GameState::PreGame);  // 同一背景・BGMなのでフェードなし
+                SwitchInstant(GameState::PreGame);
             }
             else if (tr == TitleResult::Option)
             {
@@ -223,6 +229,32 @@ void GameManager_Update(double elapsed_time)
         break;
     }
 
+    case GameState::StageSelect:
+    {
+        if (!g_IsTransitioning)
+        {
+            StageSelect_Update(elapsed_time);
+            const StageSelectResult r = StageSelect_GetResult();
+            if (r == StageSelectResult::Adventure)
+            {
+                StageSelect_Finalize();
+                SaveData_Save();
+                BeginTransition(GameState::Playing, BGM_GAME, BGM_VOL_GAME);
+            }
+            else if (r == StageSelectResult::Survival)
+            {
+                StageSelect_Finalize();
+                BeginTransition(GameState::Survival, BGM_BOSS, BGM_VOL);
+            }
+            else if (r == StageSelectResult::Back)
+            {
+                StageSelect_Finalize();
+                SwitchInstant(GameState::PreGame);
+            }
+        }
+        break;
+    }
+
     case GameState::PreGame:
     {
         if (!g_IsTransitioning)
@@ -231,8 +263,7 @@ void GameManager_Update(double elapsed_time)
             PreGameResult pr = PreGame_GetResult();
             if (pr == PreGameResult::QuickStart)
             {
-                SaveData_Save();
-                BeginTransition(GameState::Playing, BGM_GAME, BGM_VOL_GAME);
+                SwitchInstant(GameState::StageSelect);
             }
             else if (pr == PreGameResult::Assembly)
                 BeginTransition(GameState::WeaponSelect, BGM_ASSEMBLY);
@@ -281,7 +312,7 @@ void GameManager_Update(double elapsed_time)
         // ポーズトグル（ESC / PAD_START）
         // ボス演出中・遷移中はポーズ不可
         //----------------------------------------------------------
-        if (!BossIntro_IsPlaying() && !g_IsPaused)
+        if (!BossIntro_IsPlaying() && !BossDefeat_IsPlaying() && !g_IsPaused)
         {
             const bool pauseKey = KeyLogger_IsTrigger(KK_ESCAPE)
                                 || PadLogger_IsTrigger(PAD_START);
@@ -326,7 +357,7 @@ void GameManager_Update(double elapsed_time)
 
         // ゲームオーバー：プレイヤー無効化かつ演出中でないとき
         // → 即 Result に飛ばさず、PlayerDeath 演出ステートへ移行
-        if (!Player_IsEnable() && !BossIntro_IsPlaying())
+        if (!Player_IsEnable() && !BossIntro_IsPlaying() && !BossDefeat_IsPlaying())
         {
             g_GameState        = GameState::PlayerDeath;
             g_DeathTimer       = 0.0;
@@ -363,12 +394,48 @@ void GameManager_Update(double elapsed_time)
         }
 
         // ボス部屋フェーズ中にボスを倒したらクリア（演出終了後のみチェック）
-        if (g_InBossRoom && !BossIntro_IsPlaying() && !Game_IsBossAlive())
+        if (g_InBossRoom && !BossIntro_IsPlaying() && !BossDefeat_IsPlaying() && !Game_IsBossAlive())
         {
             PlayAudio(g_PlayerclearSE);
             Score_AddRecord(Score_GetScore(),
                 AssemblyScreen_GetRightWeapon(),
                 AssemblyScreen_GetLeftWeapon());
+            SaveData_SaveScores();
+            BeginTransition(GameState::Clear, BGM_RESULT);
+        }
+
+        break;
+    }
+
+    case GameState::Survival:
+    {
+        if (g_IsTransitioning) break;
+
+        Game_Update(elapsed_time);
+        WaveManager_Update(elapsed_time);
+        Shop_Update(elapsed_time);
+
+        // プレイヤー死亡
+        if (!Player_IsEnable())
+        {
+            Shop_Finalize();
+            WaveManager_Finalize();
+            g_GameState        = GameState::PlayerDeath;
+            g_DeathTimer       = 0.0;
+            g_DeathExplodeNext = 0.0;
+            g_IsPaused         = false;
+            Player_OnPause();
+            break;
+        }
+
+        // 全ウェーブクリア
+        if (WaveManager_IsVictory())
+        {
+            Shop_Finalize();
+            WaveManager_Finalize();
+            Score_AddRecord(Score_GetScore(),
+                WeaponID::WEAPON_MACHINEGUN,
+                WeaponID::WEAPON_SHIELD);
             SaveData_SaveScores();
             BeginTransition(GameState::Clear, BGM_RESULT);
         }
@@ -519,12 +586,25 @@ void GameManager_Update(double elapsed_time)
         else if (g_GameState == GameState::Playing)
         {
             Game_Initialize();
-            Score_Reset();      // 新規ゲーム開始時にスコアをリセット
-            g_RoomTimer = 0.0;  // タイムボーナス用タイマーをリセット
+            Score_Reset();
+            g_RoomTimer = 0.0;
             Player_SetNormalWeaponIndex(
-                static_cast<int>(AssemblyScreen_GetRightWeapon()));  // 右腕武器を反映
+                static_cast<int>(AssemblyScreen_GetRightWeapon()));
             Player_SetLeftWeaponIndex(
-                static_cast<int>(AssemblyScreen_GetLeftWeapon()));   // 左腕武器を反映
+                static_cast<int>(AssemblyScreen_GetLeftWeapon()));
+        }
+        else if (g_GameState == GameState::Survival)
+        {
+            Map_GenerateOutdoor(Map_GenerateRandomSeed());
+            Map_RegisterFloors();
+            Game_Initialize();
+            Game_SetSurvivalMode(true);
+            Score_Reset();
+            Player_SetNormalWeaponIndex(static_cast<int>(WeaponID::WEAPON_MACHINEGUN));
+            Player_SetLeftWeaponIndex  (static_cast<int>(WeaponID::WEAPON_SHIELD));
+            WaveManager_Initialize();
+            WaveManager_StartSurvival();
+            Shop_Initialize(Map_GetSpawnPosition());
         }
         else if (g_GameState == GameState::Title)
         {
@@ -558,14 +638,20 @@ void GameManager_Draw()
     switch (g_GameState)
     {
     case GameState::Title:        Title_Draw();          break;
+    case GameState::StageSelect:  StageSelect_Draw();    break;
     case GameState::PreGame:      PreGame_Draw();        break;
     case GameState::WeaponSelect: AssemblyScreen_Draw(); break;
     case GameState::ScoreCheck:   ScoreCheck_Draw();     break;
     case GameState::Playing:
         Game_Draw();
-        // ポーズ中はゲーム画面の上にメニューを重ねる
         if (g_IsPaused)
             Pause_Draw();
+        break;
+    case GameState::Survival:
+        Game_Draw();
+        Shop_Draw();
+        WaveManager_Draw();
+        Shop_DrawUI();
         break;
     case GameState::PlayerDeath:
         Game_Draw();

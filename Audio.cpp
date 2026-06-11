@@ -71,6 +71,8 @@ struct AUDIO
     BYTE* SoundData{};                  // PCMデータ
     int Length{};                       // バイト数
     int PlayLength{};                   // 再生可能なサンプル数
+    bool AttenuationEnabled = false;    // 距離減衰を使うか
+    float BaseVolume = 1.0f;            // 減衰計算前の基準音量
 };
 
 #define AUDIO_MAX 100
@@ -257,6 +259,7 @@ int LoadAudioWithVolume(const char* FileName, float volume)
     // SourceVoice 単位で音量設定
     if (g_Audio[index].SourceVoice)
     {
+        g_Audio[index].BaseVolume = volume;
         g_Audio[index].SourceVoice->SetVolume(volume);
     }
 
@@ -295,6 +298,35 @@ void SetAudioVolume(int Index, float volume)
     if (!g_Audio[Index].SourceVoice) return;
     if (volume < 0.0f) volume = 0.0f;
     if (volume > 1.0f) volume = 1.0f;
+    g_Audio[Index].BaseVolume = volume;
     g_Audio[Index].SourceVoice->SetVolume(volume);
+}
+
+// -----------------------------------------------------------------------------
+// 距離減衰の有効/無効を切り替える
+// -----------------------------------------------------------------------------
+void SetAudioAttenuationEnabled(int Index, bool enabled)
+{
+    if (Index < 0 || Index >= AUDIO_MAX) return;
+    g_Audio[Index].AttenuationEnabled = enabled;
+}
+
+// -----------------------------------------------------------------------------
+// 距離に応じて音量を更新する（毎フレーム呼ぶ）
+// AttenuationEnabled が false のサウンドは無視される
+// maxDist : この距離以上で無音（0.0f）
+// -----------------------------------------------------------------------------
+void UpdateAudioAttenuation(int Index, float distance, float maxDist)
+{
+    if (Index < 0 || Index >= AUDIO_MAX) return;
+    if (!g_Audio[Index].SourceVoice) return;
+    if (!g_Audio[Index].AttenuationEnabled) return;
+    if (maxDist <= 0.0f) return;
+
+    float t = 1.0f - (distance / maxDist);
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+
+    g_Audio[Index].SourceVoice->SetVolume(g_Audio[Index].BaseVolume * t);
 }
 

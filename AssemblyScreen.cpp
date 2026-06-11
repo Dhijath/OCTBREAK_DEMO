@@ -165,10 +165,10 @@ void AssemblyScreen_Initialize()
     g_Cancelled    = false;
     g_Time         = 0.0;
 
-    if (g_SeCursorMove < 0) g_SeCursorMove = LoadAudio("resource/Sound/ui_cursor_move.wav");
-    if (g_SeSelect     < 0) g_SeSelect     = LoadAudio("resource/Sound/ui_select.wav");
-    if (g_SeCancel     < 0) g_SeCancel     = LoadAudio("resource/Sound/ui_cancel.wav");
-    if (g_SeTabSwitch  < 0) g_SeTabSwitch  = LoadAudio("resource/Sound/ui_tab_switch.wav");
+    if (g_SeCursorMove < 0) g_SeCursorMove = LoadAudioWithVolume("resource/Sound/ui_cursor_move.wav", 0.5f);
+    if (g_SeSelect     < 0) g_SeSelect     = LoadAudioWithVolume("resource/Sound/ui_select.wav", 0.5f);
+    if (g_SeCancel     < 0) g_SeCancel     = LoadAudioWithVolume("resource/Sound/ui_cancel.wav", 0.5f);
+    if (g_SeTabSwitch  < 0) g_SeTabSwitch  = LoadAudioWithVolume("resource/Sound/ui_tab_switch.wav",0.5f);
 
     // テクスチャ
     if (g_WhiteTexID < 0) g_WhiteTexID = Texture_Load(L"resource/Texture/white.png");
@@ -805,4 +805,8 @@ void AssemblyScreen_SetDefaults(WeaponID right, WeaponID left)
 {
     g_DefaultRight = static_cast<int>(right);
     g_DefaultLeft  = static_cast<int>(left);
+
+    // カーソルも即時更新（Initialize() が呼ばれない QuickStart でも正しい値を返せるように）
+    g_RightCursor = g_DefaultRight;
+    g_LeftCursor  = g_DefaultLeft;
 }

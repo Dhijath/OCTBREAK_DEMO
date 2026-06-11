@@ -92,6 +92,8 @@ namespace
     std::vector<MapObject> g_MapObjects;
     // エネミースポーン候補（ワールド座標）
     std::vector<XMFLOAT3> g_EnemySpawnPositions;
+
+    bool g_CeilingVisible = true;  // false にすると天井を描画しない（屋外マップ用）
     std::vector<WallPlane> g_WallPlanes;
     WallPlaneRenderer      g_WallRenderer;
 
@@ -1275,6 +1277,59 @@ void Map_GenerateDungeon(std::uint32_t seed)
 // ・FloorRegistry（床判定用）に床AABBだけ登録する
 // ・Player 等の「接地判定」がこの床リストを参照する想定
 //==============================================================================
+//==============================================================================
+// map_outdoor.cpp などの外部マップモジュール向け内部API
+//==============================================================================
+void Map_Internal_ClearObjects()
+{
+    g_MapObjects.clear();
+}
+
+void Map_Internal_AddObject(int kindId, const XMFLOAT3& pos, const AABB& aabb)
+{
+    AddMapObject(kindId, pos, aabb);
+}
+
+void Map_Internal_SetSpawnPos(const XMFLOAT3& pos)    { g_SpawnPos     = pos; }
+void Map_Internal_SetGoalInvalid()
+{
+    g_GoalPos  = { 0.0f, -100.0f, 0.0f };
+    g_GoalAabb = { { -0.01f,-101.0f,-0.01f }, { 0.01f,-99.0f,0.01f } };
+}
+void Map_Internal_SetBossSpawnPos(const XMFLOAT3& pos) { g_BossSpawnPos = pos; }
+
+void Map_Internal_ClearEnemySpawns()                  { g_EnemySpawnPositions.clear(); }
+void Map_Internal_AddEnemySpawn(const XMFLOAT3& pos)  { g_EnemySpawnPositions.push_back(pos); }
+
+void Map_Internal_BuildWalls(
+    const std::vector<int>& tiles, int w, int h, float ox, float oz,
+    float floorY, float wallH)
+{
+    TileWallParams par{};
+    par.cellSize    = CELL_SIZE;
+    par.floorY      = floorY;
+    par.wallHeight  = wallH;
+    par.panelHeight = wallH;
+    par.uvUnitMeter = 1.0f;
+
+    g_WallPlanes.clear();
+    TileWall_BuildFromTiles(tiles, w, h, ox, oz, par, g_WallPlanes);
+    g_WallRenderer.Build(g_WallPlanes);
+    BuildWallCollidersFromWallPlanes(g_WallPlanes, 0.15f);
+}
+
+XMFLOAT3 Map_Internal_TileToWorld(int tx, int ty, int w, int h, float y)
+{
+    return TileCoordToWorldCenter(tx, ty, w, h, CELL_SIZE, 0.5f, 0.5f, y);
+}
+
+float Map_Internal_GetFloorY()  { return FLOOR_Y;  }
+float Map_Internal_GetWallH()   { return WALL_HEIGHT; }
+int   Map_Internal_KindFloor()  { return KIND_FLOOR; }
+int   Map_Internal_KindMinimapFloor() { return KIND_MINIMAP_FLOOR; }
+int   Map_Internal_KindMinimapWall()  { return KIND_MINIMAP_WALL;  }
+int   Map_Internal_KindWall()   { return KIND_WALL; }
+
 void Map_RegisterFloors()
 {
     FloorRegistry::Clear();
@@ -1337,7 +1392,7 @@ void Map_Draw()
             const XMMATRIX world = XMMatrixTranslation(o.Position.x, o.Position.y, o.Position.z);
             MeshField_DrawTile(world, g_FloorTexID, CELL_SIZE);
         }
-        else if (o.KindId == KIND_CEILING)
+        else if (o.KindId == KIND_CEILING && g_CeilingVisible)
         {
             // 天井：メッシュフィールド（法線下向き）
             const XMMATRIX world = XMMatrixTranslation(o.Position.x, o.Position.y, o.Position.z);
@@ -1721,6 +1776,11 @@ void Map_DrawForMinimap()
     }
 
     Shader3d_SetColor({ 1.0f, 1.0f, 1.0f, 1.0f });
+}
+
+void Map_SetCeilingVisible(bool visible)
+{
+    g_CeilingVisible = visible;
 }
 
 void Map_Light_Reset()

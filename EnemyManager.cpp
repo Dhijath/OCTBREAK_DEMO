@@ -14,6 +14,11 @@
 #include "EnemyBoss.h"
 #include <cassert>
 #include <algorithm>
+#include "shader3d.h"
+#include "direct3d.h"
+#include "Meshfield.h"
+#include "texture.h"
+#include <DirectXMath.h>
 
 //==============================================================================
 // 初期化
@@ -50,6 +55,43 @@ void EnemyManager::Draw()
 {
     for (auto& e : m_Enemies)          // 全Enemy
         e->Draw();                     // 描画
+}
+
+//==============================================================================
+// ミニマップ用エネミーマーカー描画（頭上に赤タイルを配置）
+//==============================================================================
+void EnemyManager::DrawMarkers()
+{
+    static int s_TexID = Texture_Load(L"resource/texture/Enemy_Maker.png");
+
+    Shader3d_Begin();
+
+    ID3D11DeviceContext* ctx = Direct3D_GetContext();
+    ID3D11Buffer* nullCB = nullptr;
+    ctx->PSSetConstantBuffers(6, 1, &nullCB);
+
+    ID3D11BlendState* pOldBlend = nullptr;
+    FLOAT oldFactor[4];
+    UINT  oldMask;
+    ctx->OMGetBlendState(&pOldBlend, oldFactor, &oldMask);
+    Direct3D_SetBlendState(true);
+
+    Shader3d_SetColor({ 1.0f, 0.1f, 0.1f, 1.0f });
+
+    int idx = 0;
+    for (auto& e : m_Enemies)
+    {
+        const DirectX::XMFLOAT3& pos = e->GetPosition();
+        const float markerY = 10.0f + 1.2f + idx * 0.01f;
+        const DirectX::XMMATRIX world =
+            DirectX::XMMatrixTranslation(pos.x, markerY, pos.z);
+        MeshField_DrawTile(world, s_TexID, 2.0f);
+        ++idx;
+    }
+
+    Shader3d_SetColor({ 1.0f, 1.0f, 1.0f, 1.0f });
+    ctx->OMSetBlendState(pOldBlend, oldFactor, oldMask);
+    SAFE_RELEASE(pOldBlend);
 }
 
 //==============================================================================

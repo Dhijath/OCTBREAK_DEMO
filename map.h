@@ -224,6 +224,29 @@ std::uint32_t Map_GenerateRandomSeed();
 //==============================================================================
 void Map_GenerateBossRoom(std::uint32_t seed);
 
+// 屋外アリーナ生成（天井なし・広いフラット空間）
+void Map_GenerateOutdoor(std::uint32_t seed);
+
+// 外部マップモジュール向け内部API（map_outdoor.cpp 等から使用）
+#include "collision.h"
+#include <vector>
+void     Map_Internal_ClearObjects();
+void     Map_Internal_AddObject(int kindId, const DirectX::XMFLOAT3& pos, const AABB& aabb);
+void     Map_Internal_SetSpawnPos(const DirectX::XMFLOAT3& pos);
+void     Map_Internal_SetGoalInvalid();
+void     Map_Internal_SetBossSpawnPos(const DirectX::XMFLOAT3& pos);
+void     Map_Internal_ClearEnemySpawns();
+void     Map_Internal_AddEnemySpawn(const DirectX::XMFLOAT3& pos);
+void     Map_Internal_BuildWalls(const std::vector<int>& tiles, int w, int h,
+                                  float ox, float oz, float floorY, float wallH);
+DirectX::XMFLOAT3 Map_Internal_TileToWorld(int tx, int ty, int w, int h, float y);
+float    Map_Internal_GetFloorY();
+float    Map_Internal_GetWallH();
+int      Map_Internal_KindFloor();
+int      Map_Internal_KindMinimapFloor();
+int      Map_Internal_KindMinimapWall();
+int      Map_Internal_KindWall();
+
 // map.h
 void Map_DrawMinimap();  // ミニマップ専用
 
@@ -278,5 +301,8 @@ bool Map_HasLineOfSight(
     bool wallsOnly = false);   // true = 壁のみ判定（床・天井を無視）
 
 void Map_DrawForMinimap();
+
+// 天井描画のON/OFF（屋外マップでは false にする）
+void Map_SetCeilingVisible(bool visible);
 
 #endif // MAP_H

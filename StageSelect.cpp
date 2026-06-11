@@ -1,10 +1,9 @@
 /*==============================================================================
-   中間メニュー [PreGame.cpp]
-   タイトルで START を選んだ後に表示
-   選択肢: アセンブリ / スコア確認
-   ESC / Bボタン → タイトルへ戻る
+   ステージ選択画面 [StageSelect.cpp]
+   Author : 51106
+   Date   : 2026/06/12
 ==============================================================================*/
-#include "PreGame.h"
+#include "StageSelect.h"
 #include "UIInput.h"
 #include "audio.h"
 #include "sprite.h"
@@ -17,30 +16,21 @@
 #include <algorithm>
 using namespace DirectX;
 
-//------------------------------------------------------------------------------
-// 定数
-//------------------------------------------------------------------------------
-static constexpr int   ITEM_COUNT = 3;
-static const wchar_t*  ITEM_LABELS[ITEM_COUNT] = { L"GAME MODE", L"ASSEMBLY", L"SCOREBOARD" };
+static constexpr int  ITEM_COUNT = 2;
+static const wchar_t* ITEM_LABELS[ITEM_COUNT] = { L"ADVENTURE", L"SURVIVAL" };
 
-//------------------------------------------------------------------------------
-// 状態
-//------------------------------------------------------------------------------
-static int           g_Selected = 0;
-static float         g_Time     = 0.0f;
-static PreGameResult g_Result   = PreGameResult::None;
+static int              g_Selected = 0;
+static float            g_Time     = 0.0f;
+static StageSelectResult g_Result  = StageSelectResult::None;
 
-// テクスチャ
 static int g_BgTex    = -1;
 static int g_WhiteTex = -1;
 
-// SE
 static int g_SeCursorMove = -1;
 static int g_SeSelect     = -1;
 static int g_SeCancel     = -1;
 
-//------------------------------------------------------------------------------
-void PreGame_Initialize()
+void StageSelect_Initialize()
 {
     g_BgTex    = Texture_Load(L"resource/texture/titleBg.png");
     g_WhiteTex = Texture_Load(L"resource/texture/white.png");
@@ -51,19 +41,17 @@ void PreGame_Initialize()
 
     g_Selected = 0;
     g_Time     = 0.0f;
-    g_Result   = PreGameResult::None;
+    g_Result   = StageSelectResult::None;
 }
 
-//------------------------------------------------------------------------------
-void PreGame_Finalize()
+void StageSelect_Finalize()
 {
     UnloadAudio(g_SeCursorMove); g_SeCursorMove = -1;
     UnloadAudio(g_SeSelect);     g_SeSelect     = -1;
     UnloadAudio(g_SeCancel);     g_SeCancel     = -1;
 }
 
-//------------------------------------------------------------------------------
-void PreGame_Update(double elapsed_time)
+void StageSelect_Update(double elapsed_time)
 {
     g_Time += static_cast<float>(elapsed_time);
 
@@ -81,20 +69,19 @@ void PreGame_Update(double elapsed_time)
     if (UI_IsConfirm())
     {
         PlayAudio(g_SeSelect, false);
-        if      (g_Selected == 0) g_Result = PreGameResult::QuickStart;
-        else if (g_Selected == 1) g_Result = PreGameResult::Assembly;
-        else                      g_Result = PreGameResult::ScoreCheck;
+        g_Result = (g_Selected == 0)
+                   ? StageSelectResult::Adventure
+                   : StageSelectResult::Survival;
     }
 
     if (UI_IsCancel())
     {
         PlayAudio(g_SeCancel, false);
-        g_Result = PreGameResult::Back;
+        g_Result = StageSelectResult::Back;
     }
 }
 
-//------------------------------------------------------------------------------
-void PreGame_Draw()
+void StageSelect_Draw()
 {
     Direct3D_SetDepthEnable(false);
     Direct3D_SetBlendState(true);
@@ -102,13 +89,12 @@ void PreGame_Draw()
     const int sw = SPRITE_SCREEN_W;
     const int sh = SPRITE_SCREEN_H;
 
-    static constexpr float BOX_W  = 260.0f;   // Title と同じ
-    static constexpr float BOX_H  = 82.0f;
+    static constexpr float BOX_W = 260.0f;
+    static constexpr float BOX_H = 82.0f;
     const float baseX = sw * 0.5f;
-    const float baseY = sh * 0.55f;           // Title と同じ
-    const float gapY  = 100.0f;               // Title と同じ
+    const float baseY = sh * 0.55f;
+    const float gapY  = 100.0f;
 
-    // ── スプライト ─────────────────────────────────
     Sprite_Begin();
 
     // 背景
@@ -145,9 +131,7 @@ void PreGame_Draw()
         }
     }
 
-    // ── TextLogo ────────────────────────────────────
-
-    // タイトルロゴ（Title と同じスタイル）
+    // タイトルロゴ
     {
         LogoStyle s;
         s.fontSize     = 148.0f;
@@ -159,7 +143,7 @@ void PreGame_Draw()
         TextLogo_Draw(L"Oct Break", baseX, (float)sh * 0.20f, s);
     }
 
-    // メニュー項目（Title と同じスタイル）
+    // メニュー項目
     {
         LogoStyle s;
         s.fontSize     = 68.0f;
@@ -178,12 +162,11 @@ void PreGame_Draw()
         }
     }
 
-    // フッター（InputHint バー）
+    // フッター
     Direct3D_BindMainRenderTarget();
     static const wchar_t* itemDesc[ITEM_COUNT] = {
-        L"ダンジョン最奥にいるボスの討伐が目的です",
-        L"武器の組み合わせを変更します",
-        L"過去のスコアと順位を確認します",
+        L"ダンジョンを探索し、最奥のボスを討伐してクリアを目指します",
+        L"屋外アリーナで10ウェーブを生き残ります",
     };
     InputHint_Draw(
         "{UP}{DOWN} Move    {ENTER} Select    {ESC} Back",
@@ -191,10 +174,9 @@ void PreGame_Draw()
         itemDesc[g_Selected]);
 }
 
-//------------------------------------------------------------------------------
-PreGameResult PreGame_GetResult()
+StageSelectResult StageSelect_GetResult()
 {
-    PreGameResult r = g_Result;
-    g_Result = PreGameResult::None;
+    StageSelectResult r = g_Result;
+    g_Result = StageSelectResult::None;
     return r;
 }
