@@ -92,6 +92,8 @@ namespace
     std::vector<MapObject> g_MapObjects;
     // エネミースポーン候補（ワールド座標）
     std::vector<XMFLOAT3> g_EnemySpawnPositions;
+
+    bool g_CeilingVisible = true;  // false にすると天井を描画しない（屋外マップ用）
     std::vector<WallPlane> g_WallPlanes;
     WallPlaneRenderer      g_WallRenderer;
 
@@ -1337,7 +1339,7 @@ void Map_Draw()
             const XMMATRIX world = XMMatrixTranslation(o.Position.x, o.Position.y, o.Position.z);
             MeshField_DrawTile(world, g_FloorTexID, CELL_SIZE);
         }
-        else if (o.KindId == KIND_CEILING)
+        else if (o.KindId == KIND_CEILING && g_CeilingVisible)
         {
             // 天井：メッシュフィールド（法線下向き）
             const XMMATRIX world = XMMatrixTranslation(o.Position.x, o.Position.y, o.Position.z);
@@ -1721,6 +1723,11 @@ void Map_DrawForMinimap()
     }
 
     Shader3d_SetColor({ 1.0f, 1.0f, 1.0f, 1.0f });
+}
+
+void Map_SetCeilingVisible(bool visible)
+{
+    g_CeilingVisible = visible;
 }
 
 void Map_Light_Reset()

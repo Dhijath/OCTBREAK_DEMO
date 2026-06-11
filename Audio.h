@@ -32,3 +32,10 @@ void StopAudio(int Index);
 
 // 個別音量変更（0.0f ～ 1.0f）
 void SetAudioVolume(int Index, float volume);
+
+// 距離減衰：有効/無効切り替え（デフォルト無効）
+void SetAudioAttenuationEnabled(int Index, bool enabled);
+
+// 距離減衰：毎フレーム呼んで音量を更新する
+// distance : 音源とリスナーの距離、maxDist : この距離以上で無音
+void UpdateAudioAttenuation(int Index, float distance, float maxDist);

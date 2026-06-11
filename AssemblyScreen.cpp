@@ -805,4 +805,8 @@ void AssemblyScreen_SetDefaults(WeaponID right, WeaponID left)
 {
     g_DefaultRight = static_cast<int>(right);
     g_DefaultLeft  = static_cast<int>(left);
+
+    // カーソルも即時更新（Initialize() が呼ばれない QuickStart でも正しい値を返せるように）
+    g_RightCursor = g_DefaultRight;
+    g_LeftCursor  = g_DefaultLeft;
 }

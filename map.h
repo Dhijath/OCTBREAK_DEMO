@@ -279,4 +279,7 @@ bool Map_HasLineOfSight(
 
 void Map_DrawForMinimap();
 
+// 天井描画のON/OFF（屋外マップでは false にする）
+void Map_SetCeilingVisible(bool visible);
+
 #endif // MAP_H
