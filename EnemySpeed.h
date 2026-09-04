@@ -25,9 +25,9 @@ class EnemySpeed : public Enemy
 public:
     static constexpr float SIGHT_DIST     = 12.0f;  // 視野距離（スピード型は鋭い）
     static constexpr int   HP             = 120;   // 最大HP（通常の0.4倍）
-    static constexpr float CHASE_SPD      = 4.0f;  // 追跡速度（m/s）
-    static constexpr float PATROL_SPD     = 2.0f;  // 巡回速度（m/s）
-    static constexpr float MAX_SPEED_MULT = 2.5f;  // 最大速度の倍率（ジェット速度）
+    static constexpr float CHASE_SPD      = 8.0f;  // 追跡速度（m/s・通常3.2の2.5倍）
+    static constexpr float PATROL_SPD     = 3.5f;  // 巡回速度（m/s）
+    static constexpr float MAX_SPEED_MULT = 2.5f;  // 最大速度の倍率（クランプ上限＝5.0×2.5＝12.5）
 
     //==========================================================================
     // 初期化処理

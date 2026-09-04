@@ -161,6 +161,7 @@ namespace
     //--------------------------------------------------------------------------
     int g_PlayerParticleTexID = -1;                     // スラスター用テクスチャID
     ThrusterEmitter* g_PlayerThrusterEmitter = nullptr; // 後方噴射用エミッター
+    ThrusterEmitter* g_PlayerSmokeEmitter    = nullptr; // HP低下時のダメージ煙
 
     // ローカルオフセット（right/up/front 基底で組み立て）
     // Initialize() でスラスターモデルの AABB から自動計算される
@@ -798,6 +799,20 @@ void Player_Initialize(const DirectX::XMFLOAT3& position, const DirectX::XMFLOAT
     g_PlayerThrusterEmitter->SetColor({ 1.0f, 0.5f, 2.5f, 1.0f }); // パーティクルの色（R,G,B,A）
     g_PlayerThrusterEmitter->SetUVRect({ 0.0f, 0.0f, 80.0f, 80.0f }); // UV矩形（x, y, 幅, 高さ）
     g_PlayerThrusterEmitter->SetLocalOffset(g_ThrusterOffsetLocal); // エミッターのローカルオフセット座標
+
+    //--------------------------------------------------------------------------
+    // ダメージ煙エミッター（HPが低いとき体から立ち上る）
+    //--------------------------------------------------------------------------
+    g_PlayerSmokeEmitter = new ThrusterEmitter(playerVec, 70.0, false); // 濃いめに多く出す
+    g_PlayerSmokeEmitter->SetParticleTextureId(g_PlayerParticleTexID);
+    g_PlayerSmokeEmitter->SetScaleRange(0.14f, 0.42f);         // 大きく厚みのある塊
+    g_PlayerSmokeEmitter->SetSpeedRange(2.0f, 3.6f);           // 上へ勢いよく立ち上る
+    g_PlayerSmokeEmitter->SetLifeRange(0.7f, 1.5f);            // 長め（もやっと残る）
+    g_PlayerSmokeEmitter->SetConeAngleDeg(22.0f);             // 縦方向中心（上へ噴き上がる）
+    g_PlayerSmokeEmitter->SetAspectRatio(1.0f);              // 丸い塊
+    g_PlayerSmokeEmitter->SetColor({ 0.55f, 0.28f, 0.14f, 1.0f }); // 焦げた暖色＝ダメージ煙
+    g_PlayerSmokeEmitter->SetUVRect({ 0.0f, 0.0f, 80.0f, 80.0f });
+    g_PlayerSmokeEmitter->SetLocalOffset({ 0.0f, 0.0f, 0.0f });
 }
 
 //==============================================================================
@@ -837,6 +852,11 @@ void Player_Finalize() // プレイヤーの終了処理（モデル解放・ス
     {
         delete g_PlayerThrusterEmitter;
         g_PlayerThrusterEmitter = nullptr;
+    }
+    if (g_PlayerSmokeEmitter)
+    {
+        delete g_PlayerSmokeEmitter;
+        g_PlayerSmokeEmitter = nullptr;
     }
 
     Texture_Release(g_PlayerParticleTexID);
@@ -1357,6 +1377,21 @@ void Player_Update(double elapsed_time)
 
         g_PlayerThrusterEmitter->Update(elapsed_time);
     }
+
+    //--------------------------------------------------------------------------
+    // ダメージ煙：HPが40%以下のとき体の中心から上へ立ち上らせる
+    //--------------------------------------------------------------------------
+    if (g_PlayerSmokeEmitter)
+    {
+        const bool hpLow = (g_PlayerHP <= (PLAYER_MAX_HP * 4) / 10);
+        XMVECTOR smokePos = XMLoadFloat3(&g_PlayerPosition)
+                          + XMVectorSet(0.0f, PLAYER_HEIGHT_OFFSET, 0.0f, 0.0f);
+        g_PlayerSmokeEmitter->SetPosition(smokePos);
+        g_PlayerSmokeEmitter->SetWorldDirection({ 0.0f, 1.0f, 0.0f }); // 上へ
+        g_PlayerSmokeEmitter->SetWorldUp({ 0.0f, 0.0f, 1.0f });
+        g_PlayerSmokeEmitter->Emmit(hpLow);
+        g_PlayerSmokeEmitter->Update(elapsed_time);
+    }
 }
 
 void Player_Draw() // プレイヤー描画（無敵点滅の考慮、モデル描画、スラスター描画）
@@ -1485,6 +1520,10 @@ void Player_Draw() // プレイヤー描画（無敵点滅の考慮、モデル�
     if (g_PlayerThrusterEmitter)
     {
         g_PlayerThrusterEmitter->Draw();
+    }
+    if (g_PlayerSmokeEmitter)
+    {
+        g_PlayerSmokeEmitter->Draw();
     }
 
     //--------------------------------------------------------------------------
@@ -1687,6 +1726,11 @@ void Player_ClearParticles() // スラスターパーティクル＆トレイル
     {
         g_PlayerThrusterEmitter->ClearAll();    // パーティクル消去
         g_PlayerThrusterEmitter->ClearTrail();  // トレイル軌跡も消去
+    }
+    if (g_PlayerSmokeEmitter)
+    {
+        g_PlayerSmokeEmitter->ClearAll();
+        g_PlayerSmokeEmitter->ClearTrail();
     }
 }
 
