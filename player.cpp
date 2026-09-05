@@ -54,6 +54,12 @@ namespace
     MODEL* g_pShieldModel     = nullptr;  // シールドモデル（左右共用）
     MODEL* g_pLeftBarrelModel = nullptr;  // 左腕モデル（バレル系）
 
+    // 近接（Blade）の発光パーツ。装備時のみロードし、刃本体に重ねて描画する。
+    MODEL* g_pBarrelEdgeModel     = nullptr;  // 右腕 BladeEdge
+    MODEL* g_pLeftBarrelEdgeModel = nullptr;  // 左腕 BladeEdge
+    constexpr char MELEE_EDGE_MODEL_PATH[] = "resource/Models/BladeEdge.fbx";
+    constexpr XMFLOAT3 EDGE_GLOW_AMBIENT = { 3.0f, 3.0f, 3.0f }; // エッジ描画時だけ上げるアンビエント（発光風）
+
     int g_RightWeaponIdx = WEAPON_MACHINEGUN; // 右腕武器ID（0-3）
     int g_LeftWeaponIdx  = WEAPON_SHIELD;     // 左腕武器ID（0-3）
     PlayerWeapon* g_pLeftWeapon = nullptr;    // 左腕武器インスタンス
@@ -268,13 +274,24 @@ namespace
         const AABB bodyAABB = ModelGetAABB(g_pPlayerModel, bodyWorldPos);
 
         // バレル原点位置（ボディ底面・右側）
-        const XMFLOAT3 barrelOriginPos = {
+        XMFLOAT3 barrelOriginPos = {
             g_PlayerPosition.x + XMVectorGetX(playerRight) * BARREL_SIDE_X
                                + XMVectorGetX(playerFront) * BARREL_FORWARD_OFFSET,
             bodyAABB.min.y,
             g_PlayerPosition.z + XMVectorGetZ(playerRight) * BARREL_SIDE_X
                                + XMVectorGetZ(playerFront) * BARREL_FORWARD_OFFSET
         };
+        // 近接は共通定数（WeaponDef.h）で胴体側面中心＋前へ。アセンブリと位置を一致させる。
+        if (g_RightWeaponIdx == WEAPON_MELEE)
+        {
+            barrelOriginPos = {
+                g_PlayerPosition.x + XMVectorGetX(playerRight) * MELEE_REST_SIDE
+                                   + XMVectorGetX(playerFront) * MELEE_REST_FWD,
+                bodyAABB.min.y + (bodyAABB.max.y - bodyAABB.min.y) * MELEE_REST_UP_R,
+                g_PlayerPosition.z + XMVectorGetZ(playerRight) * MELEE_REST_SIDE
+                                   + XMVectorGetZ(playerFront) * MELEE_REST_FWD
+            };
+        }
         XMMATRIX barrelTrans = XMMatrixTranslation(
             barrelOriginPos.x, barrelOriginPos.y, barrelOriginPos.z);
 
@@ -398,7 +415,7 @@ namespace
             XMMatrixRotationX(XMConvertToRadians(BARREL_TILT_DEG));
 
         return localRot * aimRot * barrelTrans;
-    }
+    }   
 
     // 左腕バレル（右腕の鏡像：サイドオフセット・リーンを反転）
     static XMMATRIX Player_GetLeftBarrelWorldMatrix()
@@ -408,6 +425,7 @@ namespace
         constexpr float BARREL_TILT_DEG          =   0.0f;
         constexpr float BARREL_SIDE_X            = -0.30f;  // 左側
         constexpr float BARREL_FORWARD_OFFSET    =  0.3f;
+
 
         const XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
         XMVECTOR playerFront = XMVector3Normalize(XMLoadFloat3(&g_PlayerFront));
@@ -420,13 +438,24 @@ namespace
         };
         const AABB bodyAABB = ModelGetAABB(g_pPlayerModel, bodyWorldPos);
 
-        const XMFLOAT3 barrelOriginPos = {
+        XMFLOAT3 barrelOriginPos = {
             g_PlayerPosition.x + XMVectorGetX(playerRight) * BARREL_SIDE_X
                                + XMVectorGetX(playerFront) * BARREL_FORWARD_OFFSET,
             bodyAABB.min.y,
             g_PlayerPosition.z + XMVectorGetZ(playerRight) * BARREL_SIDE_X
                                + XMVectorGetZ(playerFront) * BARREL_FORWARD_OFFSET
         };
+        // 近接は共通定数で胴体側面中心＋前へ（左腕は横を反転）
+        if (g_LeftWeaponIdx == WEAPON_MELEE)
+        {
+            barrelOriginPos = {
+                g_PlayerPosition.x - XMVectorGetX(playerRight) * MELEE_REST_SIDE
+                                   + XMVectorGetX(playerFront) * MELEE_REST_FWD,
+                bodyAABB.min.y + (bodyAABB.max.y - bodyAABB.min.y) * MELEE_REST_UP_R,
+                g_PlayerPosition.z - XMVectorGetZ(playerRight) * MELEE_REST_SIDE
+                                   + XMVectorGetZ(playerFront) * MELEE_REST_FWD
+            };
+        }
         XMMATRIX barrelTrans = XMMatrixTranslation(
             barrelOriginPos.x, barrelOriginPos.y, barrelOriginPos.z);
 
@@ -821,6 +850,8 @@ void Player_Initialize(const DirectX::XMFLOAT3& position, const DirectX::XMFLOAT
     g_pPlayerModel = ModelLoad("resource/Models/body.fbx", 0.3f);
     g_pThrusterModel = ModelLoad("resource/Models/Thruster.fbx", 0.3f);
     g_pBarrelModel = ModelLoad(k_WeaponDefs[g_NormalWeaponIdx].modelPath, k_WeaponDefs[g_NormalWeaponIdx].scale);
+    if (g_NormalWeaponIdx == WEAPON_MELEE)  // 近接なら発光パーツも
+        g_pBarrelEdgeModel = ModelLoad(MELEE_EDGE_MODEL_PATH, k_WeaponDefs[g_NormalWeaponIdx].scale);
     g_pHeadModel   = ModelLoad("resource/Models/Head.fbx", 0.3f);
     g_pShieldModel = ModelLoad(k_WeaponDefs[WEAPON_SHIELD].modelPath, k_WeaponDefs[WEAPON_SHIELD].scale);
 
@@ -964,12 +995,16 @@ void Player_Finalize() // プレイヤーの終了処理（モデル解放・ス
 
     ModelRelease(g_pBarrelModel);
     g_pBarrelModel = nullptr;
+    ModelRelease(g_pBarrelEdgeModel);
+    g_pBarrelEdgeModel = nullptr;
 
     ModelRelease(g_pShieldModel);
     g_pShieldModel = nullptr;
 
     ModelRelease(g_pLeftBarrelModel);
     g_pLeftBarrelModel = nullptr;
+    ModelRelease(g_pLeftBarrelEdgeModel);
+    g_pLeftBarrelEdgeModel = nullptr;
     if (g_pLeftWeapon) { g_pLeftWeapon->Finalize(); delete g_pLeftWeapon; g_pLeftWeapon = nullptr; }
 
     if (g_PlayerThrusterEmitter)
@@ -1600,6 +1635,7 @@ void Player_Draw() // プレイヤー描画（無敵点滅の考慮、モデル�
     {
         ShaderEdge_SetWorldMatrix(barrelWorld);
         ModelDrawWithoutBegin(g_pBarrelModel, barrelWorld);
+        // ※発光エッジ(BladeEdge)はアウトライン検出に含めない（後段で加算描画）
     }
     // 左腕：バレル or シールド
     if (g_pLeftBarrelModel)
@@ -1649,6 +1685,17 @@ void Player_Draw() // プレイヤー描画（無敵点滅の考慮、モデル�
         ModelDrawToon(g_pLeftBarrelModel, leftBarrelWorld);
     else if (g_pShieldModel)
         ModelDrawToon(g_pShieldModel, shieldWorld);
+
+    // 近接の発光エッジ（BladeEdge）：この描画のときだけアンビエントを上げて
+    // 明るく＝光っているように見せる。直後に元のアンビエントへ戻し他に影響させない。
+    if (g_pBarrelEdgeModel || g_pLeftBarrelEdgeModel)
+    {
+        const XMFLOAT3 prevAmbient = Light_GetAmbient();
+        Light_SetAmbient(EDGE_GLOW_AMBIENT);   // 発光風の明るさ
+        if (g_pBarrelEdgeModel)     ModelDrawToon(g_pBarrelEdgeModel,     barrelWorld);
+        if (g_pLeftBarrelEdgeModel) ModelDrawToon(g_pLeftBarrelEdgeModel, leftBarrelWorld);
+        Light_SetAmbient(prevAmbient);         // 元に戻す
+    }
 
     //--------------------------------------------------------------------------
     // スラスターパーティクル
@@ -1895,17 +1942,26 @@ bool Player_TakeDamage(int damage) // ダメージ処理（無敵中は無効、
     if (g_InvincibleTimer > 0.0 || !g_PlayerEnable)
         return false;
 
-    // 両腕シールド → ダメージ無効（-100%）
+    // シールド展開中：ダメージを一部 EN（ビームエネルギー）に肩代わりさせる。
+    //   片手：HP 50% / EN 50%    両手：HP 25% / EN 75%
+    //   EN が足りない分は HP に回す（無効化はしない）。
     const bool rightIsShield = (g_RightWeaponIdx == WEAPON_SHIELD);
     const bool leftIsShield  = (g_LeftWeaponIdx == WEAPON_SHIELD);
-    if (rightIsShield && leftIsShield && Shield_IsActive())
-        return false;
-
-    // シールドガード中はダメージ軽減（最低 1 ダメージは通す）
-    if (Shield_IsActive())
+    if (Shield_IsActive() && (rightIsShield || leftIsShield))
     {
-        damage = static_cast<int>(damage * (1.0f - Shield_GetDamageReduction()));
-        if (damage < 1) damage = 1;
+        const bool  dual   = rightIsShield && leftIsShield;
+        const float enFrac = dual ? 0.75f : 0.50f;      // EN が肩代わりする割合
+
+        int enPortion = static_cast<int>(damage * enFrac);
+        int hpPortion = damage - enPortion;
+
+        // EN で肩代わりできる分だけ EN を消費、足りない分は HP へ
+        const int en      = static_cast<int>(Player_GetBeamEnergy());
+        const int covered = (enPortion < en) ? enPortion : en;
+        if (covered > 0) Player_AddBeamEnergy(-static_cast<float>(covered));
+        hpPortion += (enPortion - covered);
+
+        damage = hpPortion;
         Shield_NotifyHit();
     }
 
@@ -1967,6 +2023,8 @@ bool Player_IsDashing() // ダッシュ中かどうかを返す（trueでダッ�
 bool Player_IsShieldDashing()
 {
     if (g_DashTimer <= 0.0f) return false;
+    // 盾を「展開中」のときだけダッシュ接触ダメージを出す（装備だけでは出さない）
+    if (!Shield_IsActive()) return false;
     return (g_RightWeaponIdx == WEAPON_SHIELD) || (g_LeftWeaponIdx == WEAPON_SHIELD);
 }
 
@@ -2054,11 +2112,16 @@ void Player_SetNormalWeaponIndex(int idx)
     // バレル系ならモデルをロード、シールドならバレルを解放
     ModelRelease(g_pBarrelModel);
     g_pBarrelModel = nullptr;
+    ModelRelease(g_pBarrelEdgeModel);
+    g_pBarrelEdgeModel = nullptr;
 
     if (idx != WEAPON_SHIELD)
     {
         g_NormalWeaponIdx = idx;  // 武器クラスのインデックスも更新
         g_pBarrelModel = ModelLoad(k_WeaponDefs[idx].modelPath, k_WeaponDefs[idx].scale);
+        // 近接は発光パーツ（BladeEdge）も同スケールでロード（重ね描画用）
+        if (idx == WEAPON_MELEE)
+            g_pBarrelEdgeModel = ModelLoad(MELEE_EDGE_MODEL_PATH, k_WeaponDefs[idx].scale);
     }
     // SHIELD の場合は g_pShieldModel（常時ロード済み）を右腕にも使う
 }
@@ -2071,6 +2134,7 @@ void Player_SetLeftWeaponIndex(int idx)
 
     // 既存の左腕リソースを解放
     ModelRelease(g_pLeftBarrelModel); g_pLeftBarrelModel = nullptr;
+    ModelRelease(g_pLeftBarrelEdgeModel); g_pLeftBarrelEdgeModel = nullptr;
     if (g_pLeftWeapon) { g_pLeftWeapon->Finalize(); delete g_pLeftWeapon; g_pLeftWeapon = nullptr; }
 
     if (idx != WEAPON_SHIELD)
@@ -2079,6 +2143,9 @@ void Player_SetLeftWeaponIndex(int idx)
         g_pLeftBarrelModel = ModelLoad(k_WeaponDefs[idx].modelPath, k_WeaponDefs[idx].scale);
         g_pLeftWeapon      = CreateWeaponByID(idx);
         if (g_pLeftWeapon) g_pLeftWeapon->Initialize();
+        // 近接は発光パーツ（BladeEdge）も重ね描画用にロード
+        if (idx == WEAPON_MELEE)
+            g_pLeftBarrelEdgeModel = ModelLoad(MELEE_EDGE_MODEL_PATH, k_WeaponDefs[idx].scale);
     }
     // SHIELD の場合は g_pShieldModel（常時ロード済み）をそのまま使う
 }

@@ -51,3 +51,14 @@ struct WeaponDef
 };
 
 extern const WeaponDef k_WeaponDefs[WEAPON_COUNT];
+
+//------------------------------------------------------------------------------
+// 近接（WEAPON_MELEE）の初期(握り)位置：胴体側面の中心を基準に前へ出す。
+// ゲーム中(player.cpp)とアセンブリ(AssemblyScreen.cpp)の両方から参照し、位置を一致させる。
+//   SIDE  : 胴体側面までの横距離
+//   FWD   : 側面中心から前に出す量（7:3の“3”＝控えめ）
+//   UP_R  : 高さ比（0=ボディ底, 1=ボディ頭, 0.5=中央）
+//------------------------------------------------------------------------------
+constexpr float MELEE_REST_SIDE   = 0.30f;
+constexpr float MELEE_REST_FWD    = 0.10f;
+constexpr float MELEE_REST_UP_R   = 0.50f;

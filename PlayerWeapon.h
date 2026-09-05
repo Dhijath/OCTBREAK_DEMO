@@ -349,10 +349,11 @@ public:
     double GetSwingElapsed() const override { return m_swinging ? m_swingTimer : 0.0; }
 
 private:
-    static constexpr int    BASE_DAMAGE     = 200;    // 1振りのダメージ
+    static constexpr int    BASE_DAMAGE     = 920;    // 1振りのダメージ（DPSでトリプルMGの約1.2倍：920/0.85≈1082 vs 900）
     static constexpr float  REACH           = 3.0f;   // 前方の当たり中心までの距離
-    static constexpr float  HIT_RADIUS      = 2.0f;   // 当たり球の半径
-    static constexpr float  KNOCKBACK_DIST  = 2.0f;   // ヒット時に敵を押し出す距離
+    static constexpr float  HIT_RADIUS      = 2.5f;   // 当たり半径（水平＝前方リーチ）
+    static constexpr float  HIT_VSCALE      = 0.5f;   // 縦判定の倍率（<1で上下に広い。縦半径≒HIT_RADIUS/HIT_VSCALE）
+    static constexpr float  KNOCKBACK_STRENGTH = 15.0f;  // ヒット時に敵へ与えるノックバック速度（減衰して止まる）
     static constexpr double SWING_DURATION  = 0.60;   // 振り動作の長さ（秒）※ゆっくり
     static constexpr double CONTACT_TIME    = 0.26;   // 振り開始から何秒でヒット判定するか（薙ぎが正面を通る頃）
     static constexpr double FIRE_INTERVAL   = 0.85;   // 次の振りまでのクールダウン（秒）

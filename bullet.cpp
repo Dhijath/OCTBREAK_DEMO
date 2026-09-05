@@ -1011,10 +1011,10 @@ void BulletManager::CreateMissileBezier(const XMFLOAT3& p0, const XMFLOAT3& p1,
 //==============================================================================
 // 爆発イベントをキューに追加
 //==============================================================================
-void BulletManager::AddExplosion(const XMFLOAT3& pos, float radius, int damage, float knockback)
+void BulletManager::AddExplosion(const XMFLOAT3& pos, float radius, int damage, float knockback, float vScale)
 {
     if (m_explosionCount >= MAX_EXPLOSIONS) return;
-    m_pendingExplosions[m_explosionCount++] = { pos, radius, damage, knockback };
+    m_pendingExplosions[m_explosionCount++] = { pos, radius, damage, knockback, vScale };
     // 爆発SEは呼び出し側で鳴らす（通常ミサイル / マルチミサイルで音を分けるため）
 }
 
@@ -1073,8 +1073,8 @@ void Bullet_ClearPendingExplosions()
     GetManager().ClearPendingExplosions();
 }
 
-void Bullet_AddExplosion(const XMFLOAT3& center, float radius, int damage, float knockback)
+void Bullet_AddExplosion(const XMFLOAT3& center, float radius, int damage, float knockback, float vScale)
 {
-    GetManager().AddExplosion(center, radius, damage, knockback);
+    GetManager().AddExplosion(center, radius, damage, knockback, vScale);
 }
 

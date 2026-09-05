@@ -451,7 +451,7 @@ void WeaponMelee::Update(double dt)
     {
         // 当たり判定は武器の刃先位置で出す（描画側が毎フレーム更新。未更新なら前方フォールバック）
         // knockback を渡すと game.cpp 側で敵の押し出し＋ヒットストップが発生する
-        Bullet_AddExplosion(m_bladeWorldPos, HIT_RADIUS, m_hitDamage, KNOCKBACK_DIST);
+        Bullet_AddExplosion(m_bladeWorldPos, HIT_RADIUS, m_hitDamage, KNOCKBACK_STRENGTH, HIT_VSCALE);
         if (m_hitSE >= 0) PlayAudio(m_hitSE, false);
         m_hasHit = true;
     }

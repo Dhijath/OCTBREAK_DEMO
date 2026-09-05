@@ -225,6 +225,9 @@ protected:
     //==========================================================================
     void ResolveWallCollisionAtPosition(DirectX::XMVECTOR* ioPos, DirectX::XMVECTOR* ioVel, DirectX::XMFLOAT3* ioDest);
 
+    // 水平方向へ dist だけ移動。壁（円 r=ENEMY_HALF_WIDTH_X）に当たったら押し出して止める。
+    void MoveHorizWithWallClamp(DirectX::XMFLOAT3& p, float nx, float nz, float dist);
+
     //==========================================================================
     // サブステップ移動（トンネリング対策）
     //
@@ -265,6 +268,7 @@ protected:
 
     DirectX::XMFLOAT3 m_Position    {};  // 現在位置
     DirectX::XMFLOAT3 m_Velocity    {};  // 速度
+    DirectX::XMFLOAT3 m_KnockbackVel{};  // ノックバック速度（AI/クランプと独立に減衰しながら位置へ反映）
     DirectX::XMFLOAT3 m_Front       {};  // 向き（正面ベクトル）
     DirectX::XMFLOAT3 m_Destination {};  // 巡回目的地
 

@@ -152,6 +152,7 @@ namespace
 
     // プレビューモデル（武器ごとに 1 つ）
     MODEL* g_pPreviewModels[WEAPON_COUNT] = {};
+    MODEL* g_pMeleeEdgePreview = nullptr;   // 近接の発光パーツ（Blade に重ねて描画）
 
     // プレイヤープレビューモデル（ボディ・ヘッド・スラスター）
     MODEL* g_pPlayerPreviewBody     = nullptr;
@@ -243,6 +244,9 @@ void AssemblyScreen_Initialize()
         if (g_pPreviewModels[i]) { ModelRelease(g_pPreviewModels[i]); g_pPreviewModels[i] = nullptr; }
         g_pPreviewModels[i] = ModelLoad(k_WeaponDefs[i].modelPath, k_WeaponDefs[i].scale);
     }
+    // 近接の発光パーツ（BladeEdge）を Blade と同スケールでロード
+    if (g_pMeleeEdgePreview) { ModelRelease(g_pMeleeEdgePreview); g_pMeleeEdgePreview = nullptr; }
+    g_pMeleeEdgePreview = ModelLoad("resource/Models/BladeEdge.fbx", k_WeaponDefs[WEAPON_MELEE].scale);
 
     // プレイヤープレビューモデル（同様に解放→再ロード）
     if (g_pPlayerPreviewBody)     { ModelRelease(g_pPlayerPreviewBody);     g_pPlayerPreviewBody     = nullptr; }
@@ -299,6 +303,8 @@ void AssemblyScreen_Finalize()
         ModelRelease(g_pPreviewModels[i]);
         g_pPreviewModels[i] = nullptr;
     }
+    ModelRelease(g_pMeleeEdgePreview);
+    g_pMeleeEdgePreview = nullptr;
 
     ModelRelease(g_pPlayerPreviewBody);     g_pPlayerPreviewBody     = nullptr;
     ModelRelease(g_pPlayerPreviewHead);     g_pPlayerPreviewHead     = nullptr;
@@ -564,14 +570,25 @@ void AssemblyScreen_Draw()
             Light_SetAmbient({ 0.65f, 0.65f, 0.65f });   // プレビューを少し明るく（モデル視認性UP）
 
             // 法線パス（エッジ検出用）
+            const bool hoverMelee = (hoverId == WEAPON_MELEE && g_pMeleeEdgePreview);
+
             ShaderEdge_BeginNormalPass();
             ShaderEdge_SetWorldMatrix(world);
             ModelDrawWithoutBegin(previewModel, world);
+            // ※発光エッジはアウトラインに含めない（ゲーム中と同じ）
             ShaderEdge_EndNormalPass();
 
             // トゥーン描画
             setSubVP();
             ModelDrawToon(previewModel, world);
+            // 発光エッジ：この描画だけアンビエントを上げて光って見せる（ゲーム中と同じ）
+            if (hoverMelee)
+            {
+                const XMFLOAT3 prevAmb = Light_GetAmbient();
+                Light_SetAmbient({ 3.0f, 3.0f, 3.0f });
+                ModelDrawToon(g_pMeleeEdgePreview, world);
+                Light_SetAmbient(prevAmb);
+            }
 
             // エッジ合成
             // DrawEdge は UV 0→1 をフル画面にマップするので、sub-viewport を解除してから呼ぶ
@@ -648,7 +665,7 @@ void AssemblyScreen_Draw()
         const XMVECTOR worldRight = XMVector3Normalize(
             XMVector3Cross(ppUp2, worldFront));
 
-        auto makeWeaponWorld = [&](const WeaponDef& def, float sideSign) -> XMMATRIX
+        auto makeWeaponWorld = [&](const WeaponDef& def, float sideSign, bool isMelee = false) -> XMMATRIX
         {
             // 位置：player.cpp の barrelOriginPos / shieldOriginPos と同方式
             XMFLOAT3 posF3 = {
@@ -658,6 +675,17 @@ void AssemblyScreen_Draw()
                 XMVectorGetZ(worldRight) * sideSign * def.sideOffset
                     + XMVectorGetZ(worldFront) * def.forwardOffset
             };
+            // 近接は共通定数（WeaponDef.h）で胴体側面中心＋前へ。ゲーム中と一致させる。
+            if (isMelee)
+            {
+                posF3 = {
+                    XMVectorGetX(worldRight) * sideSign * MELEE_REST_SIDE
+                        + XMVectorGetX(worldFront) * MELEE_REST_FWD,
+                    bodyAABB.min.y + (bodyAABB.max.y - bodyAABB.min.y) * MELEE_REST_UP_R,
+                    XMVectorGetZ(worldRight) * sideSign * MELEE_REST_SIDE
+                        + XMVectorGetZ(worldFront) * MELEE_REST_FWD
+                };
+            }
             // 向き：aimDir = playerFront 固定（カメラ追従なし）
             XMVECTOR aimZ = XMVectorNegate(worldFront);
             XMVECTOR aimX = XMVector3Normalize(XMVector3Cross(ppUp2, aimZ));
@@ -676,8 +704,8 @@ void AssemblyScreen_Draw()
         };
 
         // プレイヤー人形には確定済み（装備）の武器を表示する
-        const XMMATRIX rWeaponWorld = makeWeaponWorld(k_WeaponDefs[g_RightSelected], +1.0f);
-        const XMMATRIX lWeaponWorld = makeWeaponWorld(k_WeaponDefs[g_LeftSelected],  -1.0f);
+        const XMMATRIX rWeaponWorld = makeWeaponWorld(k_WeaponDefs[g_RightSelected], +1.0f, g_RightSelected == WEAPON_MELEE);
+        const XMMATRIX lWeaponWorld = makeWeaponWorld(k_WeaponDefs[g_LeftSelected],  -1.0f, g_LeftSelected  == WEAPON_MELEE);
         MODEL* rWeaponModel = g_pPreviewModels[g_RightSelected];
         MODEL* lWeaponModel = g_pPreviewModels[g_LeftSelected];
 
@@ -707,6 +735,7 @@ void AssemblyScreen_Draw()
         ModelDrawWithoutBegin(g_pPlayerPreviewThruster, thrusterWorld);
         if (rWeaponModel) { ShaderEdge_SetWorldMatrix(rWeaponWorld); ModelDrawWithoutBegin(rWeaponModel, rWeaponWorld); }
         if (lWeaponModel) { ShaderEdge_SetWorldMatrix(lWeaponWorld); ModelDrawWithoutBegin(lWeaponModel, lWeaponWorld); }
+        // ※発光エッジ(BladeEdge)はアウトラインに含めない（後段でアンビアップ描画）
         ShaderEdge_EndNormalPass();
 
         // トゥーン描画
@@ -716,6 +745,15 @@ void AssemblyScreen_Draw()
         ModelDrawToon(g_pPlayerPreviewThruster, thrusterWorld);
         if (rWeaponModel) ModelDrawToon(rWeaponModel, rWeaponWorld);
         if (lWeaponModel) ModelDrawToon(lWeaponModel, lWeaponWorld);
+        // 近接装備時は発光パーツをアンビアップで重ねる（ゲーム中と同じ光り方）
+        if ((g_RightSelected == WEAPON_MELEE || g_LeftSelected == WEAPON_MELEE) && g_pMeleeEdgePreview)
+        {
+            const XMFLOAT3 prevAmb = Light_GetAmbient();
+            Light_SetAmbient({ 3.0f, 3.0f, 3.0f });
+            if (g_RightSelected == WEAPON_MELEE) ModelDrawToon(g_pMeleeEdgePreview, rWeaponWorld);
+            if (g_LeftSelected  == WEAPON_MELEE) ModelDrawToon(g_pMeleeEdgePreview, lWeaponWorld);
+            Light_SetAmbient(prevAmb);
+        }
 
         // エッジ合成（フルVP復元してから DrawEdge）
         {

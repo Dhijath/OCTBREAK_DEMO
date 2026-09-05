@@ -57,6 +57,7 @@ using namespace DirectX;
 #include "Score.h"
 #include "Skybox.h"
 #include "Shop.h"
+#include <cstdlib>   // rand（ダメージポップアップ位置のランダム化）
 
 
 
@@ -120,10 +121,6 @@ namespace
 
     std::uint32_t g_DungeonSeed = 12345u;
     static EnemyManager g_EnemyManager;
-
-    // ヒットストップ残り時間（秒）。>0 の間ゲーム更新を止める。
-    static double g_HitStopTimer = 0.0;
-    constexpr double HITSTOP_SEC = 0.07;   // 近接ヒット時の静止時間
 
     // ボス管理
     static Enemy* g_pBossEnemy = nullptr; // ボスへの生ポインタ（生存中のみ有効）
@@ -398,14 +395,6 @@ void Game_Update(double elapsed_time)
     if (elapsed_time > MAX_DT)
         elapsed_time = MAX_DT;
 
-    // ヒットストップ：残り時間がある間はゲーム更新を止める（dt=0）。
-    // タイマーは実時間で減らすので、数フレームだけ全体が静止して手応えが出る。
-    if (g_HitStopTimer > 0.0)
-    {
-        g_HitStopTimer -= elapsed_time;
-        elapsed_time = 0.0;
-    }
-
     //--------------------------------------------------------------------------
     // デバッグ：F3 キーで HUD の表示/非表示トグル
     //--------------------------------------------------------------------------
@@ -548,44 +537,62 @@ void Game_Update(double elapsed_time)
     // ミサイル爆発エリアダメージ（BulletManager に蓄積された爆発を消費）
     {
         const int ec = Bullet_GetPendingExplosionCount();
+        const int enemyCnt = g_EnemyManager.GetCount();
+
+        // ① 全爆発のダメージを先に適用する（この時点では Kill しない）。
+        //    先に Kill すると、同フレームの2発目（両手同時振り等）が !IsAlive でスキップされ、
+        //    片方のダメージしか入らなくなるため。撃破処理は②でまとめて1回だけ行う。
         for (int i = 0; i < ec; ++i)
         {
             const ExplosionEvent exp = Bullet_GetPendingExplosion(i);
             const XMVECTOR vCenter = XMLoadFloat3(&exp.center);
-            const int enemyCnt = g_EnemyManager.GetCount();
-            bool anyHit = false;   // この爆発で1体以上ヒットしたか（ヒットストップ用）
             for (int j = 0; j < enemyCnt; ++j)
             {
                 Enemy& e = g_EnemyManager.GetEnemy(j);
-                if (!e.IsAlive()) continue;
-                const float dist = XMVectorGetX(XMVector3Length(
-                    XMLoadFloat3(&e.GetPosition()) - vCenter));
+                if (!e.IsAlive()) continue;   // 前フレームまでに死亡した敵は対象外
+                // 縦(Y)は vScale を掛けて距離を割り引く（vScale<1 で縦に広い楕円判定）
+                XMVECTOR d = XMLoadFloat3(&e.GetPosition()) - vCenter;
+                d = XMVectorSetY(d, XMVectorGetY(d) * exp.vScale);
+                const float dist = XMVectorGetX(XMVector3Length(d));
                 if (dist <= exp.radius)
                 {
                     e.Damage(exp.damage);
-                    anyHit = true;
-                    // ノックバック（近接ヒットなど knockback>0 の時のみ）
                     if (exp.knockback > 0.0f)
                         e.ApplyKnockback(exp.center, exp.knockback);
-                    // 爆発ダメージもポップアップ表示
-                    XMFLOAT3 popupPos = e.GetPosition();
-                    popupPos.y += 1.2f;
+                    // ポップアップはヒット箇所（敵位置）を中心に少しランダムにばらす
+                    // （同じ敵に複数ヒットしても重ならないように）。
+                    // 横は「画面の横＝カメラ右方向」でばらす（ワールドXだとカメラ向きでズレるため）。
+                    auto rnd = [](float a) {
+                        return (static_cast<float>(rand()) / RAND_MAX * 2.0f - 1.0f) * a;
+                    };
+                    XMFLOAT3 camF = Player_Camera_GetFront();
+                    XMVECTOR camFwd = XMVector3Normalize(XMVectorSet(camF.x, 0.0f, camF.z, 0.0f));
+                    XMVECTOR camRight = XMVector3Normalize(
+                        XMVector3Cross(XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f), camFwd));
+                    XMVECTOR popup = XMLoadFloat3(&e.GetPosition())
+                        + camRight * rnd(0.2f)                                  // 画面横
+                        + XMVectorSet(0.0f, 1.2f + rnd(0.2f), 0.0f, 0.0f);      // 上方向
+                    XMFLOAT3 popupPos;
+                    XMStoreFloat3(&popupPos, popup);
                     DamagePopup_Add(popupPos, exp.damage);
-                    // 爆発範囲で倒した時も死亡SE・スコア・アイテムを処理
-                    // Kill() で m_IsAlive=false にし、翌フレームのサブクラス Update での二重加算を防ぐ
-                    // GetKillScore() は virtual なので敵の種類ごとに正しい値が返る
-                    if (e.IsDead())
-                    {
-                        e.Kill();
-                        Enemy_PlayDeathSE();
-                        Score_Addscore(e.GetKillScore());
-                        ItemManager_SpawnRandom(e.GetPosition());
-                    }
                 }
             }
-            // 近接ヒット（knockback>0）が敵に当たったフレームだけヒットストップ
-            if (exp.knockback > 0.0f && anyHit)
-                g_HitStopTimer = HITSTOP_SEC;
+        }
+
+        // ② このフレームの爆発で HP0 になった敵の撃破処理（各敵1回だけ）。
+        if (ec > 0)
+        {
+            for (int j = 0; j < enemyCnt; ++j)
+            {
+                Enemy& e = g_EnemyManager.GetEnemy(j);
+                if (e.IsAlive() && e.IsDead())
+                {
+                    e.Kill();
+                    Enemy_PlayDeathSE();
+                    Score_Addscore(e.GetKillScore());
+                    ItemManager_SpawnRandom(e.GetPosition());
+                }
+            }
         }
         Bullet_ClearPendingExplosions();
     }

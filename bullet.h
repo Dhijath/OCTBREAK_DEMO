@@ -265,6 +265,7 @@ struct ExplosionEvent
     float              radius;       // 爆発半径
     int                damage;       // 爆発ダメージ
     float              knockback = 0.0f; // ノックバック距離（0=なし。近接ヒットで使用）
+    float              vScale    = 1.0f; // 縦(Y)距離の倍率（<1で縦に広い判定。近接の上下拡大用）
 };
 
 //==============================================================================
@@ -472,7 +473,7 @@ public:
     // 爆発イベントをキューに追加
     // ・弾を介さない範囲ダメージ（近接武器など）を外部から登録するための公開窓口
     //==========================================================================
-    void AddExplosion(const DirectX::XMFLOAT3& pos, float radius, int damage, float knockback = 0.0f);
+    void AddExplosion(const DirectX::XMFLOAT3& pos, float radius, int damage, float knockback = 0.0f, float vScale = 1.0f);
 
     //==========================================================================
     // 弾削除
@@ -782,6 +783,6 @@ void Bullet_ClearPendingExplosions();
 // ・radius : 範囲半径
 // ・damage : ダメージ量
 //==============================================================================
-void Bullet_AddExplosion(const DirectX::XMFLOAT3& center, float radius, int damage, float knockback = 0.0f);
+void Bullet_AddExplosion(const DirectX::XMFLOAT3& center, float radius, int damage, float knockback = 0.0f, float vScale = 1.0f);
 
 #endif // BULLET_H
