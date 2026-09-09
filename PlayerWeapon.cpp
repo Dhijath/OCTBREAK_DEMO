@@ -274,9 +274,13 @@ void WeaponBeam::Update(double dt)
     if (m_cooldown   > 0.0) m_cooldown   -= dt;
     if (m_seCooldown > 0.0) m_seCooldown -= dt;
 
-    // エネルギー自動回復（1分で全回復ペース）。
-    // 飛行時は消費(150/秒)の方が大きいので飛びっぱなしにはならない。
-    if (m_energy < ENERGY_MAX)
+    // 最後にエネルギーを消費してから REGEN_DELAY 秒経過するまでは自動回復しない。
+    // 発射・飛行・ダッシュのたびに待ち時間がリセットされる。アイテム回復は常に有効。
+    if (m_regenDelay > 0.0)
+    {
+        m_regenDelay -= dt;
+    }
+    else if (m_energy < ENERGY_MAX)
     {
         m_energy += ENERGY_REGEN * static_cast<float>(dt);
         if (m_energy > ENERGY_MAX) m_energy = ENERGY_MAX;
@@ -299,6 +303,7 @@ bool WeaponBeam::TryFire(
 
     m_energy -= ENERGY_COST;
     if (m_energy < 0.0f) m_energy = 0.0f;
+    m_regenDelay = REGEN_DELAY;   // 発射で消費 → 回復開始を REGEN_DELAY 秒後まで遅らせる
 
     // SE は連射でも一定間隔以上空けてから鳴らす
     if (m_seCooldown <= 0.0 && m_shootSE >= 0)
@@ -313,6 +318,10 @@ bool WeaponBeam::TryFire(
 
 void WeaponBeam::AddEnergy(float amount)
 {
+    // マイナス＝消費（飛行・ダッシュ）→ 回復開始を REGEN_DELAY 秒後まで遅らせる。
+    // プラス＝アイテム回復 → 遅延させない。
+    if (amount < 0.0f) m_regenDelay = REGEN_DELAY;
+
     m_energy += amount;
     if (m_energy > ENERGY_MAX) m_energy = ENERGY_MAX;
 }
@@ -385,4 +394,149 @@ bool WeaponShotgun::TryFire(
 
     m_cooldown = FIRE_INTERVAL;
     return true;
+}
+
+
+//==============================================================================
+// WeaponMelee（近接：前方薙ぎ払い）
+//==============================================================================
+
+//------------------------------------------------------------------------------
+// 薙ぎ払いの3フェーズ境界（正規化 0..1）と補間ヘルパー。Update より前に置く。
+//------------------------------------------------------------------------------
+namespace
+{
+    constexpr float MELEE_WINDUP_END = 0.25f;  // タメ終わり
+    constexpr float MELEE_SWEEP_END  = 0.60f;  // 薙ぎ切り（ここで姿勢を止める）
+
+    // 0..1 を滑らかに（smootherstep：両端の加減速がより滑らかなイージング）
+    float SmoothStep01(float t)
+    {
+        if (t < 0.0f) t = 0.0f;
+        if (t > 1.0f) t = 1.0f;
+        return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
+    }
+}
+
+void WeaponMelee::Initialize()
+{
+    m_cooldown   = 0.0;
+    m_swingTimer = 0.0;
+    m_swinging   = false;
+    m_hasHit     = false;
+    m_hitDamage  = 0;
+    // 振りの風切り音（ダッシュと同じ素材を流用）＋ヒットの打撃音
+    m_swingSE = LoadAudioWithVolume("resource/sound/dash_whoosh.wav", 0.7f);
+    m_hitSE   = LoadAudioWithVolume("resource/sound/dageki5.wav", 0.6f);
+}
+
+void WeaponMelee::Finalize()
+{
+    UnloadAudio(m_swingSE);
+    UnloadAudio(m_hitSE);
+    m_swingSE = -1;
+    m_hitSE   = -1;
+}
+
+void WeaponMelee::Update(double dt)
+{
+    if (m_cooldown > 0.0) m_cooldown -= dt;
+
+    if (!m_swinging) return;
+
+    m_swingTimer += dt;
+
+    // 振りの当たるフレームで一度だけヒット判定を出す
+    if (!m_hasHit && m_swingTimer >= CONTACT_TIME)
+    {
+        // 当たり判定は武器の刃先位置で出す（描画側が毎フレーム更新。未更新なら前方フォールバック）
+        // knockback を渡すと game.cpp 側で敵の押し出し＋ヒットストップが発生する
+        Bullet_AddExplosion(m_bladeWorldPos, HIT_RADIUS, m_hitDamage, KNOCKBACK_STRENGTH, HIT_VSCALE);
+        if (m_hitSE >= 0) PlayAudio(m_hitSE, false);
+        m_hasHit = true;
+    }
+
+    // 振り終了（タメ→薙ぎ→戻りを SWING_DURATION で通しで再生）
+    if (m_swingTimer >= SWING_DURATION)
+    {
+        m_swinging   = false;
+        m_swingTimer = 0.0;
+    }
+}
+
+bool WeaponMelee::TryFire(
+    const XMFLOAT3& muzzlePos,
+    const XMFLOAT3& aimDir,
+    float           damageMult)
+{
+    // クールダウン中・振り動作中は新しい振りを受け付けない
+    if (m_cooldown > 0.0 || m_swinging) return false;
+
+    // 前方 REACH の位置を当たり球の中心に確定（振り開始時に固定）
+    XMVECTOR vAim = XMVector3Normalize(XMLoadFloat3(&aimDir));
+    XMVECTOR vCenter = XMLoadFloat3(&muzzlePos) + vAim * REACH;
+    XMStoreFloat3(&m_hitCenter, vCenter);
+    m_bladeWorldPos = m_hitCenter;   // 刃先が未更新でも当たるようフォールバック初期化
+
+    m_hitDamage  = static_cast<int>(BASE_DAMAGE * damageMult);
+    m_swinging   = true;
+    m_swingTimer = 0.0;
+    m_hasHit     = false;
+    m_cooldown   = FIRE_INTERVAL;
+
+    if (m_swingSE >= 0) PlayAudio(m_swingSE, false);
+    return true;
+}
+
+//------------------------------------------------------------------------------
+// 描画側が参照する振り角（度）。振り切り(MELEE_SWEEP_END)でクランプし、
+// ホールド中はその姿勢のまま。非振り時は 0。
+//------------------------------------------------------------------------------
+float WeaponMelee::GetSwingAngleDeg() const
+{
+    if (!m_swinging) return 0.0f;
+
+    float p = static_cast<float>(m_swingTimer / SWING_DURATION);
+    if (p < 0.0f) p = 0.0f;
+    if (p > 1.0f) p = 1.0f;
+
+    // 右手基準：+ が右（外側）、- が左（内側）、0 が正面。
+    // 左前へ構える（START=-40°）→ 外側（右 END=+90°）へ振り抜く → 戻る。
+    if (p < MELEE_WINDUP_END)          // タメ：0 → START（左前へ構える）
+    {
+        float t = SmoothStep01(p / MELEE_WINDUP_END);
+        return SWING_START_DEG * t;
+    }
+    if (p < MELEE_SWEEP_END)           // 薙ぎ：START → END（左前→右へ外向きに）
+    {
+        float t = SmoothStep01((p - MELEE_WINDUP_END) / (MELEE_SWEEP_END - MELEE_WINDUP_END));
+        return SWING_START_DEG + (SWING_END_DEG - SWING_START_DEG) * t;
+    }
+    float t = SmoothStep01((p - MELEE_SWEEP_END) / (1.0f - MELEE_SWEEP_END)); // 戻り：END → 0
+    return SWING_END_DEG * (1.0f - t);
+}
+
+//------------------------------------------------------------------------------
+// 突き出し量（0..1）。タメでは短く、薙ぎで前方へ伸ばし（先端を突き出す）、
+// 戻りで縮める。描画側が腕の前方リーチに掛けて使う。
+//------------------------------------------------------------------------------
+float WeaponMelee::GetSwingThrust01() const
+{
+    if (!m_swinging) return 0.0f;
+
+    float p = static_cast<float>(m_swingTimer / SWING_DURATION);
+    if (p < 0.0f) p = 0.0f;
+    if (p > 1.0f) p = 1.0f;
+
+    if (p < MELEE_WINDUP_END)          // タメ：0 → 1.0（先端を左前へ突き出す）
+    {
+        float t = SmoothStep01(p / MELEE_WINDUP_END);
+        return t;
+    }
+    if (p < MELEE_SWEEP_END)           // 薙ぎ：伸ばしたまま外側へ薙ぐ
+    {
+        return 1.0f;
+    }
+    float t = SmoothStep01((p - MELEE_SWEEP_END) / (1.0f - MELEE_SWEEP_END)); // 戻り：1.0 → 0
+    return 1.0f - t;
 }

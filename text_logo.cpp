@@ -8,7 +8,9 @@
 #include "text_logo.h"
 #include "direct3d.h"
 #include <dwrite.h>
+#include <dwrite_3.h>   // 同梱フォント（ファイル）読み込み用
 #include <dxgi.h>
+#include <windows.h>    // GetFullPathNameW
 #include <d2d1helper.h>
 #include <wincodec.h>
 #include <string>
@@ -29,6 +31,7 @@ struct MaskEntry
 {
     std::wstring text;
     std::wstring fontName;
+    std::wstring fontFilePath;   // 同梱フォント使用時のキー（system は空）
     float        fontSize = 0.f;
     float        maskW    = 0.f;
     float        maskH    = 0.f;
@@ -44,6 +47,7 @@ struct MaskEntry
         valid = false;
         text.clear();
         fontName.clear();
+        fontFilePath.clear();
     }
 };
 
@@ -56,9 +60,11 @@ static void ClearPool()
 
 static MaskEntry* FindEntry(const wchar_t* text, const LogoStyle& style)
 {
+    const std::wstring ffp = style.fontFilePath ? style.fontFilePath : L"";
     for (auto& e : s_Pool)
         if (e.valid && e.text == text &&
             e.fontName == style.fontName &&
+            e.fontFilePath == ffp &&
             e.fontSize == style.fontSize)
             return &e;
     return nullptr;
@@ -80,6 +86,81 @@ static ID2D1Factory*       s_pD2DFactory = nullptr;
 static IDWriteFactory*     s_pDWFactory  = nullptr;
 static ID2D1RenderTarget*  s_pRT         = nullptr;
 static IWICImagingFactory* s_pWICFactory = nullptr;
+
+// 同梱フォント（ファイルから読み込むカスタムコレクション）
+static IDWriteFontCollection* s_pCustomColl   = nullptr;
+static std::wstring           s_customFamily;   // コレクション先頭のファミリ名
+static std::wstring           s_customPath;     // 読み込み済みファイルパス
+
+// フォントファイルからカスタムコレクションを作成し、ファミリ名を取得する。
+// 同じパスなら再利用。成功で true。
+static bool EnsureCustomFont(const wchar_t* path)
+{
+    if (!path || !s_pDWFactory) return false;
+    if (s_pCustomColl && s_customPath == path) return true;
+
+    if (s_pCustomColl) { s_pCustomColl->Release(); s_pCustomColl = nullptr; }
+    s_customFamily.clear();
+    s_customPath.clear();
+
+    IDWriteFactory3* f3 = nullptr;
+    if (FAILED(s_pDWFactory->QueryInterface(__uuidof(IDWriteFactory3),
+        reinterpret_cast<void**>(&f3))) || !f3)
+        return false;
+
+    wchar_t absPath[MAX_PATH] = {};
+    GetFullPathNameW(path, MAX_PATH, absPath, nullptr);
+
+    IDWriteFontSetBuilder*  builder  = nullptr;
+    IDWriteFontSetBuilder1* builder1 = nullptr;
+    IDWriteFontFile*        file     = nullptr;
+    IDWriteFontSet*         set      = nullptr;
+    IDWriteFontCollection1* coll1    = nullptr;
+
+    if (SUCCEEDED(f3->CreateFontSetBuilder(&builder)) &&
+        SUCCEEDED(builder->QueryInterface(__uuidof(IDWriteFontSetBuilder1),
+            reinterpret_cast<void**>(&builder1))) &&
+        SUCCEEDED(f3->CreateFontFileReference(absPath, nullptr, &file)))
+    {
+        builder1->AddFontFile(file);
+        if (SUCCEEDED(builder1->CreateFontSet(&set)) &&
+            SUCCEEDED(f3->CreateFontCollectionFromFontSet(set, &coll1)) && coll1)
+        {
+            IDWriteFontFamily* fam = nullptr;
+            if (coll1->GetFontFamilyCount() > 0 &&
+                SUCCEEDED(coll1->GetFontFamily(0, &fam)) && fam)
+            {
+                IDWriteLocalizedStrings* names = nullptr;
+                if (SUCCEEDED(fam->GetFamilyNames(&names)) && names)
+                {
+                    UINT32 idx = 0; BOOL exists = FALSE;
+                    names->FindLocaleName(L"en-us", &idx, &exists);
+                    if (!exists) idx = 0;
+                    UINT32 len = 0;
+                    names->GetStringLength(idx, &len);
+                    std::wstring nm(static_cast<size_t>(len) + 1, L'\0');
+                    names->GetString(idx, &nm[0], len + 1);
+                    nm.resize(len);
+                    s_customFamily = nm;
+                    names->Release();
+                }
+                fam->Release();
+            }
+            s_pCustomColl = coll1;   // IDWriteFontCollection1 → IDWriteFontCollection
+            coll1 = nullptr;
+            s_customPath = path;
+        }
+    }
+
+    if (coll1)    coll1->Release();
+    if (set)      set->Release();
+    if (file)     file->Release();
+    if (builder1) builder1->Release();
+    if (builder)  builder->Release();
+    f3->Release();
+
+    return (s_pCustomColl != nullptr) && !s_customFamily.empty();
+}
 
 // テクスチャビットマップキャッシュ（1 枚）
 struct TexCache
@@ -127,6 +208,7 @@ void TextLogo_Finalize()
 {
     ClearPool();
     s_TexCache.Release();
+    if (s_pCustomColl) { s_pCustomColl->Release(); s_pCustomColl = nullptr; s_customFamily.clear(); s_customPath.clear(); }
     if (s_pRT)         { s_pRT->Release();         s_pRT         = nullptr; }
     if (s_pWICFactory) { s_pWICFactory->Release(); s_pWICFactory = nullptr; }
     if (s_pDWFactory)  { s_pDWFactory->Release();  s_pDWFactory  = nullptr; }
@@ -185,9 +267,18 @@ static MaskEntry* BuildMask(const wchar_t* text, const LogoStyle& style)
 {
     if (!s_pRT || !s_pDWFactory || !s_pD2DFactory) return nullptr;
 
+    // 同梱フォント指定時はファイルから作ったコレクション＋そのファミリ名を使う
+    IDWriteFontCollection* coll   = nullptr;
+    const wchar_t*         family = style.fontName;
+    if (style.fontFilePath && EnsureCustomFont(style.fontFilePath))
+    {
+        coll   = s_pCustomColl;
+        family = s_customFamily.c_str();
+    }
+
     IDWriteTextFormat* pFmt = nullptr;
     if (FAILED(s_pDWFactory->CreateTextFormat(
-        style.fontName, nullptr,
+        family, coll,
         DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
         style.fontSize, L"en-us", &pFmt))) return nullptr;
 
@@ -245,10 +336,11 @@ static MaskEntry* BuildMask(const wchar_t* text, const LogoStyle& style)
     if (!pBitmap) { pBitmapRT->Release(); return nullptr; }
 
     // スロットに登録
-    MaskEntry* slot  = GetFreeSlot();
-    slot->text       = text;
-    slot->fontName   = style.fontName;
-    slot->fontSize   = style.fontSize;
+    MaskEntry* slot     = GetFreeSlot();
+    slot->text          = text;
+    slot->fontName      = style.fontName;
+    slot->fontFilePath  = style.fontFilePath ? style.fontFilePath : L"";
+    slot->fontSize      = style.fontSize;
     slot->maskW      = maskW;
     slot->maskH      = maskH;
     slot->pBitmapRT  = pBitmapRT;

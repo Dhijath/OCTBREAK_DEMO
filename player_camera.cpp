@@ -27,6 +27,7 @@
 #include <DirectXMath.h>                                 // XMVECTOR/XMMATRIX など
 #include <cmath>                                         // sinf/cosf/fabsf/sqrtf/ceilf など
 #include <algorithm>                                     // std::clamp / std::max / std::min
+#include <cstdlib>                                       // rand（カメラシェイク用）
 
 #include "key_logger.h"                                  // キー入力
 #include "pad_logger.h"                                  // ゲームパッド入力
@@ -80,6 +81,11 @@ namespace                                                // ファイル内限�
     float gMouseSensPitch = 0.0012f;                    // マウス上下感度（オプションから変更可）
     bool  gMouseInvertY   = false;                      // Y軸反転（true=上向きで下を向く）
     float gPadSens        = 1.0f;                        // ゲームパッド右スティック感度（倍率・オプションから変更可）
+
+    // カメラシェイク（被弾時など）
+    float gShakeTimer    = 0.0f;                          // 残り時間
+    float gShakeDuration = 0.0f;                          // 全体時間（減衰計算用）
+    float gShakeMag      = 0.0f;                          // 揺れ幅（ワールド単位）
 
     //==========================================================================
     // スペクテイターカメラ用パラメータ（プレイヤーから独立した自由移動）
@@ -380,6 +386,20 @@ static void UpdateMouseCamera(double elapsed_time)       // 自由視点を更�
     }
 
 
+    // カメラシェイク（被弾時）：eye/target を同じランダムオフセットで平行移動して揺らす
+    if (gShakeTimer > 0.0f)
+    {
+        gShakeTimer -= static_cast<float>(elapsed_time);
+        if (gShakeTimer < 0.0f) gShakeTimer = 0.0f;
+        const float t   = (gShakeDuration > 0.0f) ? (gShakeTimer / gShakeDuration) : 0.0f;
+        const float amp = gShakeMag * t;   // 時間で減衰
+        const float ox = ((rand() % 2001 - 1000) / 1000.0f) * amp;
+        const float oy = ((rand() % 2001 - 1000) / 1000.0f) * amp;
+        const XMVECTOR off = XMVectorSet(ox, oy, 0.0f, 0.0f);
+        eye    += off;
+        target += off;
+    }
+
     XMStoreFloat3(&g_Pos, eye);                          // 視点位置を保存
 
     XMMATRIX view = XMMatrixLookAtLH(                    // View行列
@@ -656,4 +676,17 @@ void Player_Camera_SetPadSensitivity(float sens)             // パッド感度�
     if (sens < 0.05f) sens = 0.05f;
     if (sens > 3.0f)  sens = 3.0f;
     gPadSens = sens;
+}
+
+//==============================================================================
+// カメラシェイク開始（被弾時など）。magnitude=揺れ幅 duration=継続秒
+//==============================================================================
+void Player_Camera_AddShake(float magnitude, float duration)
+{
+    if (magnitude <= 0.0f || duration <= 0.0f) return;
+    // 進行中より強い揺れのときだけ強さを更新（弱い揺れで上書きしない）
+    if (gShakeTimer <= 0.0f || magnitude >= gShakeMag)
+        gShakeMag = magnitude;
+    gShakeTimer    = duration;
+    gShakeDuration = duration;
 }

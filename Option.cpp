@@ -363,7 +363,7 @@ void Option_Draw()
         static const wchar_t* shadowLabels[] = { L"なし", L"低", L"中", L"高" };
         g_pDWBody->DrawAt(std::wstring(shadowLabels[g_ShadowMode % 4]), VAL_CX, ROW_Y5, VAL_HW + 60.0f, (g_CursorItem == 5) ? dCYAN : dGRAY, 1.5f);
     }
-    g_pDWBody->DrawAt(std::wstring(L"ENTER / B : 戻る"), cx, PNL_Y + PNL_H - 25.0f, 200.0f, dGRAY, 1.2f);
+    g_pDWBody->DrawAt(std::wstring(L"ESC / B : 戻る"), cx, PNL_Y + PNL_H - 25.0f, 200.0f, dGRAY, 1.2f);
     g_pDWBody->EndBatch();
     g_pDWBody->SetScale(1.0f, 1.0f);
 }

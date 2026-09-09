@@ -58,7 +58,6 @@ static IconEntry s_Icons[] =
     { "{K_A}",     L"resource/texture/Keyboard & Mouse/Default/keyboard_a.png",            -1 },
     { "{K_D}",     L"resource/texture/Keyboard & Mouse/Default/keyboard_d.png",            -1 },
     { "{E}",       L"resource/texture/Keyboard & Mouse/Default/keyboard_e.png",            -1 },
-    { "{F}",       L"resource/texture/Keyboard & Mouse/Default/keyboard_f.png",            -1 },
     { "{SHIFT}",   L"resource/texture/Keyboard & Mouse/Default/keyboard_shift.png",        -1 },
     { "{SPACE}",   L"resource/texture/Keyboard & Mouse/Default/keyboard_space.png",        -1 },
     { "{UP}",      L"resource/texture/Keyboard & Mouse/Default/keyboard_arrow_up.png",     -1 },
@@ -72,8 +71,6 @@ static IconEntry s_Icons[] =
     // ── Xbox ゲームパッド ────────────────────────────────────────────────
     { "{LB}",      L"resource/texture/Xbox Series/Default/xbox_lb.png",                   -1 },
     { "{RB}",      L"resource/texture/Xbox Series/Default/xbox_rb.png",                   -1 },
-    { "{LT}",      L"resource/texture/Xbox Series/Default/xbox_lt.png",                   -1 },
-    { "{RT}",      L"resource/texture/Xbox Series/Default/xbox_rt.png",                   -1 },
     { "{A}",       L"resource/texture/Xbox Series/Default/xbox_button_color_a.png",       -1 },
     { "{B}",       L"resource/texture/Xbox Series/Default/xbox_button_color_b.png",       -1 },
     { "{X}",       L"resource/texture/Xbox Series/Default/xbox_button_color_x.png",       -1 },

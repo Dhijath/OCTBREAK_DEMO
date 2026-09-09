@@ -308,8 +308,8 @@ void Shop_DrawUI()
 
     // 操作ヒント（アセンブリ準拠。ショップなので Back → Close）
     InputHint_Draw(
-        "{W}{S} Move    {ENTER} Set / Buy    {TAB} Jump    {ESC} Close",
-        "{DPAD_UP}{DPAD_DN} Move    {A} Set / Buy    {LB}{RB} Jump    {B} Close");
+        "{W}{S} Move    {ENTER} Set / Buy    {TAB} Switch    {ESC} Close",
+        "{DPAD_UP}{DPAD_DN} Move    {A} Set / Buy    {LB}{RB} Switch    {B} Close");
 }
 
 //==============================================================================

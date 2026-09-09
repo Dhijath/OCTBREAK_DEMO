@@ -94,6 +94,37 @@ public:
     // ・false になったとき player.cpp 側で自動切り替えをトリガーする
     //==========================================================================
     virtual bool HasEnergy() const { return true; }
+
+    //==========================================================================
+    // スイング角（度）
+    // ・近接武器が振り動作中に返す。描画側が武器モデルの向きに加算して
+    //   「薙ぎ払い」を手続きアニメで表現する
+    // ・射撃武器は 0（振らない）を返す
+    //==========================================================================
+    virtual float GetSwingAngleDeg() const { return 0.0f; }
+
+    //==========================================================================
+    // 振り動作中か
+    // ・true の間、描画側は肩を軸にした薙ぎ払いの姿勢で武器を描く
+    //==========================================================================
+    virtual bool IsSwinging() const { return false; }
+
+    //==========================================================================
+    // 突き出し量（0.0〜1.0）
+    // ・薙ぎのピーク付近で 1.0 に近づく。描画側が腕の長さ（前方リーチ）を
+    //   伸ばして「先端を前へ突き出す」表現に使う
+    //==========================================================================
+    virtual float GetSwingThrust01() const { return 0.0f; }
+
+    //==========================================================================
+    // 刃先のワールド座標を設定
+    // ・描画側が毎フレーム武器モデルの先端位置を渡す。近接武器はこの位置で
+    //   当たり判定を出す（＝武器自体に当たり判定を載せる）
+    //==========================================================================
+    virtual void SetBladeWorldPos(const DirectX::XMFLOAT3&) {}
+
+    // 【診断用】振り開始からの経過秒（非振り時は 0）。スピン表示に使う。
+    virtual double GetSwingElapsed() const { return 0.0; }
 };
 
 
@@ -252,11 +283,13 @@ private:
     static constexpr float  ENERGY_COST   = 1.0f;    // 1発のエネルギーコスト
     static constexpr float  ENERGY_REGEN  = 50.0f;   // 自動回復量/秒（3000 を約60秒で全回復）
     static constexpr double SE_INTERVAL   = 0.1;     // SE重複再生防止間隔（秒）
+    static constexpr double REGEN_DELAY   = 0.7;     // 最後に消費してから自動回復が始まるまでの待ち時間（秒）
 
     double m_cooldown   = 0.0;
     double m_seCooldown = 0.0;
     float  m_energy     = ENERGY_MAX;
     int    m_shootSE    = -1;
+    double m_regenDelay = 0.0;      // 自動回復再開までの残り待ち時間（秒）。消費のたび REGEN_DELAY にリセット
 };
 
 
@@ -287,4 +320,54 @@ private:
 
     double m_cooldown = 0.0;
     int    m_shootSE  = -1;
+};
+
+
+//==============================================================================
+// 近接武器（WeaponMelee）
+//
+// ■特性
+// ・弾を撃たず、前方を薙ぎ払って範囲ダメージを与える白兵武器
+// ・TryFire で振り動作を開始し、振りの当たるフレームで前方の敵にヒット
+// ・ヒットは Bullet_AddExplosion（球状の範囲ダメージ）で既存の爆発経路に載せる
+// ・見た目はマシンガンモデルを流用し、振りは手続きアニメ（GetSwingAngleDeg）
+//==============================================================================
+class WeaponMelee : public PlayerWeapon
+{
+public:
+    void        Initialize() override;
+    void        Finalize()   override;
+    void        Update(double dt) override;
+    bool        TryFire(const DirectX::XMFLOAT3& muzzlePos,
+                        const DirectX::XMFLOAT3& aimDir,
+                        float damageMult) override;
+    const char* GetName() const override { return "近接ブレード"; }
+    float GetSwingAngleDeg() const override;
+    bool  IsSwinging()       const override { return m_swinging; }
+    float GetSwingThrust01() const override;
+    void  SetBladeWorldPos(const DirectX::XMFLOAT3& p) override { m_bladeWorldPos = p; }
+    double GetSwingElapsed() const override { return m_swinging ? m_swingTimer : 0.0; }
+
+private:
+    static constexpr int    BASE_DAMAGE     = 920;    // 1振りのダメージ（DPSでトリプルMGの約1.2倍：920/0.85≈1082 vs 900）
+    static constexpr float  REACH           = 3.0f;   // 前方の当たり中心までの距離
+    static constexpr float  HIT_RADIUS      = 2.5f;   // 当たり半径（水平＝前方リーチ）
+    static constexpr float  HIT_VSCALE      = 0.5f;   // 縦判定の倍率（<1で上下に広い。縦半径≒HIT_RADIUS/HIT_VSCALE）
+    static constexpr float  KNOCKBACK_STRENGTH = 15.0f;  // ヒット時に敵へ与えるノックバック速度（減衰して止まる）
+    static constexpr double SWING_DURATION  = 0.60;   // 振り動作の長さ（秒）※ゆっくり
+    static constexpr double CONTACT_TIME    = 0.26;   // 振り開始から何秒でヒット判定するか（薙ぎが正面を通る頃）
+    static constexpr double FIRE_INTERVAL   = 0.85;   // 次の振りまでのクールダウン（秒）
+    // 肩を軸にした薙ぎの角度（右手基準：+が右=外側, -が左=内側, 0が正面）
+    static constexpr float  SWING_START_DEG = -50.0f; // タメ位置＝左前（斜め前。真左にはしない）
+    static constexpr float  SWING_END_DEG   = 120.0f; // 振り抜き＝右（外側）
+
+    double            m_cooldown   = 0.0;
+    double            m_swingTimer = 0.0;             // 振り開始からの経過（秒）
+    bool              m_swinging   = false;           // 振り動作中か
+    bool              m_hasHit     = false;           // この振りで既にヒット判定を出したか
+    DirectX::XMFLOAT3 m_hitCenter  = { 0.0f, 0.0f, 0.0f }; // ヒット球の中心（フォールバック）
+    DirectX::XMFLOAT3 m_bladeWorldPos = { 0.0f, 0.0f, 0.0f }; // 刃先ワールド座標（描画側が毎フレーム更新）
+    int               m_hitDamage  = 0;               // この振りのダメージ量（倍率適用済み）
+    int               m_swingSE    = -1;              // 振りSE（風切り音）
+    int               m_hitSE      = -1;              // ヒットSE（打撃音）
 };

@@ -49,6 +49,11 @@ struct LogoStyle
     float           fontSize     = 90.0f;
     const wchar_t*  fontName     = L"Agency FB";
 
+    // ── フォントファイル（未インストールの同梱フォントを使う場合に指定） ─────
+    // 例: L"resource/Fonts/Y1GaenSansserif.otf"
+    // nullptr のときは fontName（システムフォント）を使用する
+    const wchar_t*  fontFilePath = nullptr;
+
     // ── グラデーション塗り（texturePath が nullptr の場合に使用） ──────────
     D2D1_COLOR_F    colorTop     = D2D1::ColorF(1.0f,  0.85f, 0.1f,  1.0f);
     D2D1_COLOR_F    colorBottom  = D2D1::ColorF(0.85f, 0.40f, 0.0f,  1.0f);

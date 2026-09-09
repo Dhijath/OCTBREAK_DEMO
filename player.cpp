@@ -34,6 +34,7 @@
 #include "shield.h"
 #include "ModelToon.h"
 #include "Shadow_Map.h"
+#include "Trail.h"
 using namespace DirectX;
 
 namespace
@@ -52,6 +53,12 @@ namespace
     MODEL* g_pBarrelModel     = nullptr;  // 右腕モデル（バレル系）
     MODEL* g_pShieldModel     = nullptr;  // シールドモデル（左右共用）
     MODEL* g_pLeftBarrelModel = nullptr;  // 左腕モデル（バレル系）
+
+    // 近接（Blade）の発光パーツ。装備時のみロードし、刃本体に重ねて描画する。
+    MODEL* g_pBarrelEdgeModel     = nullptr;  // 右腕 BladeEdge
+    MODEL* g_pLeftBarrelEdgeModel = nullptr;  // 左腕 BladeEdge
+    constexpr char MELEE_EDGE_MODEL_PATH[] = "resource/Models/BladeEdge.fbx";
+    constexpr XMFLOAT3 EDGE_GLOW_AMBIENT = { 3.0f, 3.0f, 3.0f }; // エッジ描画時だけ上げるアンビエント（発光風）
 
     int g_RightWeaponIdx = WEAPON_MACHINEGUN; // 右腕武器ID（0-3）
     int g_LeftWeaponIdx  = WEAPON_SHIELD;     // 左腕武器ID（0-3）
@@ -141,6 +148,7 @@ namespace
         case WEAPON_MISSILE:      return new WeaponMissile();
         case WEAPON_MULTIMISSILE: return new WeaponMultiMissile();
         case WEAPON_TRIPLEGUN:    return new WeaponTripleGun();
+        case WEAPON_MELEE:        return new WeaponMelee();
         default:                  return nullptr;
         }
     }
@@ -162,6 +170,11 @@ namespace
     int g_PlayerParticleTexID = -1;                     // スラスター用テクスチャID
     ThrusterEmitter* g_PlayerThrusterEmitter = nullptr; // 後方噴射用エミッター
     ThrusterEmitter* g_PlayerSmokeEmitter    = nullptr; // HP低下時のダメージ煙
+
+    // 近接武器の刃先トレイル（振り中のみ。色はスラスターと同じ）
+    Trail g_MeleeTrailR;   // 右腕
+    Trail g_MeleeTrailL;   // 左腕
+    constexpr XMFLOAT4 MELEE_TRAIL_COLOR = { 1.0f, 0.5f, 2.5f, 1.0f }; // スラスターの色
 
     // ローカルオフセット（right/up/front 基底で組み立て）
     // Initialize() でスラスターモデルの AABB から自動計算される
@@ -226,6 +239,20 @@ namespace
         return thrusterLocalRot * bodyRot * thrusterTrans;
     }
 
+    //--------------------------------------------------------------------------
+    // 近接（薙ぎ払い）姿勢の調整値【左右共通】。ここ1か所を変えれば両腕に効く。
+    //--------------------------------------------------------------------------
+    constexpr float MELEE_PIVOT_SIDE  = 0.10f;  // 肩の横位置
+    constexpr float MELEE_PIVOT_FWD   = 0.10f;  // 肩の前方位置
+    constexpr float MELEE_PIVOT_UP    = 0.55f;  // 肩（胸）の高さ比
+    constexpr float MELEE_GRIP_RADIUS = 0.50f;  // 肩から武器までの距離（体からの近さ）
+    constexpr float MELEE_FWD_THRUST  = 0.10f;  // 前方（照準方向）への突き出し量
+    // 刃の向き調整（振り中の武器姿勢）。swingRot（-Z が外側）に対して掛ける追加回転。
+    // 見ながら3軸を数値で合わせてください。既定は元の銃向き相当（Z=150）。
+    constexpr float MELEE_ROT_X = 0.0f;    // X軸（銃身を上下に倒す）
+    constexpr float MELEE_ROT_Y = 0.0f;    // Y軸（左右に振る）
+    constexpr float MELEE_ROT_Z = 90.0f;   // Z軸ロール（=底面を外側へ向ける90°回転）
+
     static XMMATRIX Player_GetBarrelWorldMatrix()
     {
         constexpr float BARREL_FLIP_DEG = 180.0f; // Z軸反転（モデル上下補正）
@@ -248,13 +275,24 @@ namespace
         const AABB bodyAABB = ModelGetAABB(g_pPlayerModel, bodyWorldPos);
 
         // バレル原点位置（ボディ底面・右側）
-        const XMFLOAT3 barrelOriginPos = {
+        XMFLOAT3 barrelOriginPos = {
             g_PlayerPosition.x + XMVectorGetX(playerRight) * BARREL_SIDE_X
                                + XMVectorGetX(playerFront) * BARREL_FORWARD_OFFSET,
             bodyAABB.min.y,
             g_PlayerPosition.z + XMVectorGetZ(playerRight) * BARREL_SIDE_X
                                + XMVectorGetZ(playerFront) * BARREL_FORWARD_OFFSET
         };
+        // 近接は共通定数（WeaponDef.h）で胴体側面中心＋前へ。アセンブリと位置を一致させる。
+        if (g_RightWeaponIdx == WEAPON_MELEE)
+        {
+            barrelOriginPos = {
+                g_PlayerPosition.x + XMVectorGetX(playerRight) * MELEE_REST_SIDE
+                                   + XMVectorGetX(playerFront) * MELEE_REST_FWD,
+                bodyAABB.min.y + (bodyAABB.max.y - bodyAABB.min.y) * MELEE_REST_UP_R,
+                g_PlayerPosition.z + XMVectorGetZ(playerRight) * MELEE_REST_SIDE
+                                   + XMVectorGetZ(playerFront) * MELEE_REST_FWD
+            };
+        }
         XMMATRIX barrelTrans = XMMatrixTranslation(
             barrelOriginPos.x, barrelOriginPos.y, barrelOriginPos.z);
 
@@ -282,7 +320,69 @@ namespace
             aimDir = XMVector3Normalize(XMLoadFloat3(&g_PlayerFront));
         }
 
-        // 発射リコイル：銃口方向(aimDir)の逆＝後方へバレルをずらす
+        // 近接武器：薙ぎ払い中は「後端(グリップ)をプレイヤー側・先端を外側」に向けて薙ぐ。
+        PlayerWeapon* const rWeapon = g_NormalWeapons[g_NormalWeaponIdx];
+
+        if (rWeapon && rWeapon->IsSwinging())
+        {
+            const float swingDeg = rWeapon->GetSwingAngleDeg();
+            const float thrust   = rWeapon->GetSwingThrust01();
+
+            // 先端(穂先)の向き：照準を鉛直軸まわりに swingDeg 回した水平方向
+            XMVECTOR outward = XMVector3Normalize(XMVector3TransformNormal(
+                aimDir, XMMatrixRotationY(XMConvertToRadians(swingDeg))));
+
+            // 回転中心(肩)＝プレイヤー近く。
+            const float pivotY = bodyAABB.min.y + (bodyAABB.max.y - bodyAABB.min.y) * MELEE_PIVOT_UP;
+            XMVECTOR pivot = XMVectorSet(
+                g_PlayerPosition.x + XMVectorGetX(playerRight) * MELEE_PIVOT_SIDE
+                                   + XMVectorGetX(playerFront) * MELEE_PIVOT_FWD,
+                pivotY,
+                g_PlayerPosition.z + XMVectorGetZ(playerRight) * MELEE_PIVOT_SIDE
+                                   + XMVectorGetZ(playerFront) * MELEE_PIVOT_FWD,
+                0.0f);
+
+            // 振り切った時の狙い位置（肩から outward へ＋前方突き出し）
+            XMVECTOR swingPos = pivot
+                + outward * MELEE_GRIP_RADIUS
+                + aimDir  * MELEE_FWD_THRUST;
+            // 元の held 位置（通常のバレル位置）から thrust で補間＝元の位置から突き出す
+            XMVECTOR restPos = XMLoadFloat3(&barrelOriginPos);
+            XMVECTOR gripPos = XMVectorLerp(restPos, swingPos, thrust);
+
+            // 目標の向き（2条件を同時に満たす）：
+            //   底面(-Y) → 外側＝半径方向 R(=outward)
+            //   先端(-Z) → 円周＝進行方向 T
+            // 基準：-Z(先端) を outward(敵側/外側) へ。後端(+Z)は自動でプレイヤー側。
+            // 上は自然（局所+Y→上）。底面を外へ向ける90°は MELEE_ROT_Z で掛ける。
+            XMVECTOR sZ = XMVectorNegate(outward);
+            XMVECTOR sX = XMVector3Normalize(XMVector3Cross(up, sZ));
+            if (XMVectorGetX(XMVector3LengthSq(sX)) < 0.001f)
+                sX = XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
+            XMVECTOR sY = XMVector3Cross(sZ, sX);
+
+            XMFLOAT3 sx, sy, sz;
+            XMStoreFloat3(&sx, sX);
+            XMStoreFloat3(&sy, sY);
+            XMStoreFloat3(&sz, sZ);
+            XMMATRIX swingRot(
+                sx.x, sx.y, sx.z, 0.0f,
+                sy.x, sy.y, sy.z, 0.0f,
+                sz.x, sz.y, sz.z, 0.0f,
+                0.0f, 0.0f, 0.0f, 1.0f);
+
+            // 微調整用の追加回転。右腕は鏡像なのでZロールを反転（底面の向きを左手と揃える）。
+            XMMATRIX localRot =
+                XMMatrixRotationX(XMConvertToRadians(MELEE_ROT_X)) *
+                XMMatrixRotationY(XMConvertToRadians(MELEE_ROT_Y)) *
+                XMMatrixRotationZ(XMConvertToRadians(-MELEE_ROT_Z));
+
+            XMMATRIX gripTrans = XMMatrixTranslation(
+                XMVectorGetX(gripPos), XMVectorGetY(gripPos), XMVectorGetZ(gripPos));
+            return localRot * swingRot * gripTrans;
+        }
+
+        // 通常：発射リコイル（銃口方向の逆＝後方へバレルをずらす）
         {
             XMVECTOR recoil = XMVectorNegate(aimDir) * g_RightBarrelRecoil;
             barrelTrans = XMMatrixTranslation(
@@ -316,7 +416,7 @@ namespace
             XMMatrixRotationX(XMConvertToRadians(BARREL_TILT_DEG));
 
         return localRot * aimRot * barrelTrans;
-    }
+    }   
 
     // 左腕バレル（右腕の鏡像：サイドオフセット・リーンを反転）
     static XMMATRIX Player_GetLeftBarrelWorldMatrix()
@@ -326,6 +426,7 @@ namespace
         constexpr float BARREL_TILT_DEG          =   0.0f;
         constexpr float BARREL_SIDE_X            = -0.30f;  // 左側
         constexpr float BARREL_FORWARD_OFFSET    =  0.3f;
+
 
         const XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
         XMVECTOR playerFront = XMVector3Normalize(XMLoadFloat3(&g_PlayerFront));
@@ -338,13 +439,24 @@ namespace
         };
         const AABB bodyAABB = ModelGetAABB(g_pPlayerModel, bodyWorldPos);
 
-        const XMFLOAT3 barrelOriginPos = {
+        XMFLOAT3 barrelOriginPos = {
             g_PlayerPosition.x + XMVectorGetX(playerRight) * BARREL_SIDE_X
                                + XMVectorGetX(playerFront) * BARREL_FORWARD_OFFSET,
             bodyAABB.min.y,
             g_PlayerPosition.z + XMVectorGetZ(playerRight) * BARREL_SIDE_X
                                + XMVectorGetZ(playerFront) * BARREL_FORWARD_OFFSET
         };
+        // 近接は共通定数で胴体側面中心＋前へ（左腕は横を反転）
+        if (g_LeftWeaponIdx == WEAPON_MELEE)
+        {
+            barrelOriginPos = {
+                g_PlayerPosition.x - XMVectorGetX(playerRight) * MELEE_REST_SIDE
+                                   + XMVectorGetX(playerFront) * MELEE_REST_FWD,
+                bodyAABB.min.y + (bodyAABB.max.y - bodyAABB.min.y) * MELEE_REST_UP_R,
+                g_PlayerPosition.z - XMVectorGetZ(playerRight) * MELEE_REST_SIDE
+                                   + XMVectorGetZ(playerFront) * MELEE_REST_FWD
+            };
+        }
         XMMATRIX barrelTrans = XMMatrixTranslation(
             barrelOriginPos.x, barrelOriginPos.y, barrelOriginPos.z);
 
@@ -369,7 +481,58 @@ namespace
             aimDir = XMVector3Normalize(XMLoadFloat3(&g_PlayerFront));
         }
 
-        // 発射リコイル：銃口方向(aimDir)の逆＝後方へバレルをずらす
+        // 近接武器：薙ぎ払い中は「後端をプレイヤー側・先端を外側」に（左腕は鏡像）。
+        if (g_pLeftWeapon && g_pLeftWeapon->IsSwinging())
+        {
+            const float swingDeg = -g_pLeftWeapon->GetSwingAngleDeg();  // 鏡像
+            const float thrust   =  g_pLeftWeapon->GetSwingThrust01();
+
+            XMVECTOR outward = XMVector3Normalize(XMVector3TransformNormal(
+                aimDir, XMMatrixRotationY(XMConvertToRadians(swingDeg))));
+
+            const float pivotY = bodyAABB.min.y + (bodyAABB.max.y - bodyAABB.min.y) * MELEE_PIVOT_UP;
+            XMVECTOR pivot = XMVectorSet(
+                g_PlayerPosition.x - XMVectorGetX(playerRight) * MELEE_PIVOT_SIDE     // 左肩
+                                   + XMVectorGetX(playerFront) * MELEE_PIVOT_FWD,
+                pivotY,
+                g_PlayerPosition.z - XMVectorGetZ(playerRight) * MELEE_PIVOT_SIDE
+                                   + XMVectorGetZ(playerFront) * MELEE_PIVOT_FWD,
+                0.0f);
+
+            XMVECTOR swingPos = pivot
+                + outward * MELEE_GRIP_RADIUS
+                + aimDir  * MELEE_FWD_THRUST;
+            XMVECTOR restPos = XMLoadFloat3(&barrelOriginPos);
+            XMVECTOR gripPos = XMVectorLerp(restPos, swingPos, thrust);
+
+            // 基準：-Z(先端)→outward(敵側)、後端はプレイヤー側、上は自然（左腕も同じ）
+            XMVECTOR sZ = XMVectorNegate(outward);
+            XMVECTOR sX = XMVector3Normalize(XMVector3Cross(up, sZ));
+            if (XMVectorGetX(XMVector3LengthSq(sX)) < 0.001f)
+                sX = XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f);
+            XMVECTOR sY = XMVector3Cross(sZ, sX);
+
+            XMFLOAT3 sx, sy, sz;
+            XMStoreFloat3(&sx, sX);
+            XMStoreFloat3(&sy, sY);
+            XMStoreFloat3(&sz, sZ);
+            XMMATRIX swingRot(
+                sx.x, sx.y, sx.z, 0.0f,
+                sy.x, sy.y, sy.z, 0.0f,
+                sz.x, sz.y, sz.z, 0.0f,
+                0.0f, 0.0f, 0.0f, 1.0f);
+
+            XMMATRIX localRot =
+                XMMatrixRotationX(XMConvertToRadians(MELEE_ROT_X)) *
+                XMMatrixRotationY(XMConvertToRadians(MELEE_ROT_Y)) *
+                XMMatrixRotationZ(XMConvertToRadians(MELEE_ROT_Z));
+
+            XMMATRIX gripTrans = XMMatrixTranslation(
+                XMVectorGetX(gripPos), XMVectorGetY(gripPos), XMVectorGetZ(gripPos));
+            return localRot * swingRot * gripTrans;
+        }
+
+        // 通常：発射リコイル
         {
             XMVECTOR recoil = XMVectorNegate(aimDir) * g_LeftBarrelRecoil;
             barrelTrans = XMMatrixTranslation(
@@ -688,6 +851,8 @@ void Player_Initialize(const DirectX::XMFLOAT3& position, const DirectX::XMFLOAT
     g_pPlayerModel = ModelLoad("resource/Models/body.fbx", 0.3f);
     g_pThrusterModel = ModelLoad("resource/Models/Thruster.fbx", 0.3f);
     g_pBarrelModel = ModelLoad(k_WeaponDefs[g_NormalWeaponIdx].modelPath, k_WeaponDefs[g_NormalWeaponIdx].scale);
+    if (g_NormalWeaponIdx == WEAPON_MELEE)  // 近接なら発光パーツも
+        g_pBarrelEdgeModel = ModelLoad(MELEE_EDGE_MODEL_PATH, k_WeaponDefs[g_NormalWeaponIdx].scale);
     g_pHeadModel   = ModelLoad("resource/Models/Head.fbx", 0.3f);
     g_pShieldModel = ModelLoad(k_WeaponDefs[WEAPON_SHIELD].modelPath, k_WeaponDefs[WEAPON_SHIELD].scale);
 
@@ -764,6 +929,7 @@ void Player_Initialize(const DirectX::XMFLOAT3& position, const DirectX::XMFLOAT
     g_NormalWeapons[WEAPON_MISSILE]      = new WeaponMissile();
     g_NormalWeapons[WEAPON_MULTIMISSILE] = new WeaponMultiMissile();
     g_NormalWeapons[WEAPON_TRIPLEGUN]    = new WeaponTripleGun();
+    g_NormalWeapons[WEAPON_MELEE]        = new WeaponMelee();
     for (int i = 0; i < WEAPON_COUNT; ++i)
         if (g_NormalWeapons[i]) g_NormalWeapons[i]->Initialize();
 
@@ -800,19 +966,9 @@ void Player_Initialize(const DirectX::XMFLOAT3& position, const DirectX::XMFLOAT
     g_PlayerThrusterEmitter->SetUVRect({ 0.0f, 0.0f, 80.0f, 80.0f }); // UV矩形（x, y, 幅, 高さ）
     g_PlayerThrusterEmitter->SetLocalOffset(g_ThrusterOffsetLocal); // エミッターのローカルオフセット座標
 
-    //--------------------------------------------------------------------------
-    // ダメージ煙エミッター（HPが低いとき体から立ち上る）
-    //--------------------------------------------------------------------------
-    g_PlayerSmokeEmitter = new ThrusterEmitter(playerVec, 70.0, false); // 濃いめに多く出す
-    g_PlayerSmokeEmitter->SetParticleTextureId(g_PlayerParticleTexID);
-    g_PlayerSmokeEmitter->SetScaleRange(0.14f, 0.42f);         // 大きく厚みのある塊
-    g_PlayerSmokeEmitter->SetSpeedRange(2.0f, 3.6f);           // 上へ勢いよく立ち上る
-    g_PlayerSmokeEmitter->SetLifeRange(0.7f, 1.5f);            // 長め（もやっと残る）
-    g_PlayerSmokeEmitter->SetConeAngleDeg(22.0f);             // 縦方向中心（上へ噴き上がる）
-    g_PlayerSmokeEmitter->SetAspectRatio(1.0f);              // 丸い塊
-    g_PlayerSmokeEmitter->SetColor({ 0.55f, 0.28f, 0.14f, 1.0f }); // 焦げた暖色＝ダメージ煙
-    g_PlayerSmokeEmitter->SetUVRect({ 0.0f, 0.0f, 80.0f, 80.0f });
-    g_PlayerSmokeEmitter->SetLocalOffset({ 0.0f, 0.0f, 0.0f });
+    // 近接トレイル（刃先の軌跡）。色はスラスターと同じ。
+    g_MeleeTrailR.Initialize(24, 0.18f, 0.18f, MELEE_TRAIL_COLOR);
+    g_MeleeTrailL.Initialize(24, 0.18f, 0.18f, MELEE_TRAIL_COLOR);
 }
 
 //==============================================================================
@@ -840,12 +996,16 @@ void Player_Finalize() // プレイヤーの終了処理（モデル解放・ス
 
     ModelRelease(g_pBarrelModel);
     g_pBarrelModel = nullptr;
+    ModelRelease(g_pBarrelEdgeModel);
+    g_pBarrelEdgeModel = nullptr;
 
     ModelRelease(g_pShieldModel);
     g_pShieldModel = nullptr;
 
     ModelRelease(g_pLeftBarrelModel);
     g_pLeftBarrelModel = nullptr;
+    ModelRelease(g_pLeftBarrelEdgeModel);
+    g_pLeftBarrelEdgeModel = nullptr;
     if (g_pLeftWeapon) { g_pLeftWeapon->Finalize(); delete g_pLeftWeapon; g_pLeftWeapon = nullptr; }
 
     if (g_PlayerThrusterEmitter)
@@ -858,6 +1018,9 @@ void Player_Finalize() // プレイヤーの終了処理（モデル解放・ス
         delete g_PlayerSmokeEmitter;
         g_PlayerSmokeEmitter = nullptr;
     }
+
+    g_MeleeTrailR.Finalize();
+    g_MeleeTrailL.Finalize();
 
     Texture_Release(g_PlayerParticleTexID);
     g_PlayerParticleTexID = -1;
@@ -1185,6 +1348,35 @@ void Player_Update(double elapsed_time)
     //--------------------------------------------------------------------------
     // 全武器を毎フレーム更新（クールダウンを常に正確に保持する）
     //--------------------------------------------------------------------------
+    // 近接：振り中は武器モデルの刃先ワールド座標を武器へ渡す（当たりを刃に載せる）。
+    // Update より前に渡すことで、この振りのヒット判定が現在フレームの刃先で出る。
+    if (g_NormalWeapons[g_NormalWeaponIdx] && g_NormalWeapons[g_NormalWeaponIdx]->IsSwinging() && g_pBarrelModel)
+    {
+        const AABB bl = ModelGetAABB(g_pBarrelModel, { 0.0f, 0.0f, 0.0f });
+        const XMMATRIX bw = Player_GetBarrelWorldMatrix();
+        XMFLOAT3 tip;
+        XMStoreFloat3(&tip, XMVector3TransformCoord(XMVectorSet(0.0f, 0.0f, bl.min.z, 1.0f), bw));
+        g_NormalWeapons[g_NormalWeaponIdx]->SetBladeWorldPos(tip);
+        g_MeleeTrailR.Update(elapsed_time, tip);   // 刃先トレイル
+    }
+    else
+    {
+        g_MeleeTrailR.Clear();   // 非振り時は軌跡を消す（次の振りが繋がらないように）
+    }
+    if (g_pLeftWeapon && g_pLeftWeapon->IsSwinging() && g_pLeftBarrelModel)
+    {
+        const AABB bl = ModelGetAABB(g_pLeftBarrelModel, { 0.0f, 0.0f, 0.0f });
+        const XMMATRIX bw = Player_GetLeftBarrelWorldMatrix();
+        XMFLOAT3 tip;
+        XMStoreFloat3(&tip, XMVector3TransformCoord(XMVectorSet(0.0f, 0.0f, bl.min.z, 1.0f), bw));
+        g_pLeftWeapon->SetBladeWorldPos(tip);
+        g_MeleeTrailL.Update(elapsed_time, tip);
+    }
+    else
+    {
+        g_MeleeTrailL.Clear();
+    }
+
     if (g_pBeamWeapon)
         g_pBeamWeapon->Update(elapsed_time);
     if (g_NormalWeapons[g_NormalWeaponIdx])
@@ -1464,6 +1656,7 @@ void Player_Draw() // プレイヤー描画（無敵点滅の考慮、モデル�
     {
         ShaderEdge_SetWorldMatrix(barrelWorld);
         ModelDrawWithoutBegin(g_pBarrelModel, barrelWorld);
+        // ※発光エッジ(BladeEdge)はアウトライン検出に含めない（後段で加算描画）
     }
     // 左腕：バレル or シールド
     if (g_pLeftBarrelModel)
@@ -1514,6 +1707,17 @@ void Player_Draw() // プレイヤー描画（無敵点滅の考慮、モデル�
     else if (g_pShieldModel)
         ModelDrawToon(g_pShieldModel, shieldWorld);
 
+    // 近接の発光エッジ（BladeEdge）：この描画のときだけアンビエントを上げて
+    // 明るく＝光っているように見せる。直後に元のアンビエントへ戻し他に影響させない。
+    if (g_pBarrelEdgeModel || g_pLeftBarrelEdgeModel)
+    {
+        const XMFLOAT3 prevAmbient = Light_GetAmbient();
+        Light_SetAmbient(EDGE_GLOW_AMBIENT);   // 発光風の明るさ
+        if (g_pBarrelEdgeModel)     ModelDrawToon(g_pBarrelEdgeModel,     barrelWorld);
+        if (g_pLeftBarrelEdgeModel) ModelDrawToon(g_pLeftBarrelEdgeModel, leftBarrelWorld);
+        Light_SetAmbient(prevAmbient);         // 元に戻す
+    }
+
     //--------------------------------------------------------------------------
     // スラスターパーティクル
     //--------------------------------------------------------------------------
@@ -1525,6 +1729,10 @@ void Player_Draw() // プレイヤー描画（無敵点滅の考慮、モデル�
     {
         g_PlayerSmokeEmitter->Draw();
     }
+
+    // 近接の刃先トレイル（加算ブレンド。不透明描画の後）
+    g_MeleeTrailR.Draw();
+    g_MeleeTrailL.Draw();
 
     //--------------------------------------------------------------------------
     // エッジを重ねる
@@ -1764,17 +1972,26 @@ bool Player_TakeDamage(int damage) // ダメージ処理（無敵中は無効、
     if (g_InvincibleTimer > 0.0 || !g_PlayerEnable)
         return false;
 
-    // 両腕シールド → ダメージ無効（-100%）
+    // シールド展開中：ダメージを一部 EN（ビームエネルギー）に肩代わりさせる。
+    //   片手：HP 50% / EN 50%    両手：HP 25% / EN 75%
+    //   EN が足りない分は HP に回す（無効化はしない）。
     const bool rightIsShield = (g_RightWeaponIdx == WEAPON_SHIELD);
     const bool leftIsShield  = (g_LeftWeaponIdx == WEAPON_SHIELD);
-    if (rightIsShield && leftIsShield && Shield_IsActive())
-        return false;
-
-    // シールドガード中はダメージ軽減（最低 1 ダメージは通す）
-    if (Shield_IsActive())
+    if (Shield_IsActive() && (rightIsShield || leftIsShield))
     {
-        damage = static_cast<int>(damage * (1.0f - Shield_GetDamageReduction()));
-        if (damage < 1) damage = 1;
+        const bool  dual   = rightIsShield && leftIsShield;
+        const float enFrac = dual ? 0.75f : 0.50f;      // EN が肩代わりする割合
+
+        int enPortion = static_cast<int>(damage * enFrac);
+        int hpPortion = damage - enPortion;
+
+        // EN で肩代わりできる分だけ EN を消費、足りない分は HP へ
+        const int en      = static_cast<int>(Player_GetBeamEnergy());
+        const int covered = (enPortion < en) ? enPortion : en;
+        if (covered > 0) Player_AddBeamEnergy(-static_cast<float>(covered));
+        hpPortion += (enPortion - covered);
+
+        damage = hpPortion;
         Shield_NotifyHit();
     }
 
@@ -1787,6 +2004,12 @@ bool Player_TakeDamage(int damage) // ダメージ処理（無敵中は無効、
     {
         g_PlayerHP = 0;
         Player_SetEnable(false);
+    }
+
+    // 被弾カメラシェイク（ダメージ量で強さをスケール：0.15〜0.5）
+    {
+        const float mag = 0.15f + std::min(damage / 2000.0f, 1.0f) * 0.35f;
+        Player_Camera_AddShake(mag, 0.25f);
     }
 
     return true;
@@ -1830,6 +2053,8 @@ bool Player_IsDashing() // ダッシュ中かどうかを返す（trueでダッ�
 bool Player_IsShieldDashing()
 {
     if (g_DashTimer <= 0.0f) return false;
+    // 盾を「展開中」のときだけダッシュ接触ダメージを出す（装備だけでは出さない）
+    if (!Shield_IsActive()) return false;
     return (g_RightWeaponIdx == WEAPON_SHIELD) || (g_LeftWeaponIdx == WEAPON_SHIELD);
 }
 
@@ -1917,11 +2142,16 @@ void Player_SetNormalWeaponIndex(int idx)
     // バレル系ならモデルをロード、シールドならバレルを解放
     ModelRelease(g_pBarrelModel);
     g_pBarrelModel = nullptr;
+    ModelRelease(g_pBarrelEdgeModel);
+    g_pBarrelEdgeModel = nullptr;
 
     if (idx != WEAPON_SHIELD)
     {
         g_NormalWeaponIdx = idx;  // 武器クラスのインデックスも更新
         g_pBarrelModel = ModelLoad(k_WeaponDefs[idx].modelPath, k_WeaponDefs[idx].scale);
+        // 近接は発光パーツ（BladeEdge）も同スケールでロード（重ね描画用）
+        if (idx == WEAPON_MELEE)
+            g_pBarrelEdgeModel = ModelLoad(MELEE_EDGE_MODEL_PATH, k_WeaponDefs[idx].scale);
     }
     // SHIELD の場合は g_pShieldModel（常時ロード済み）を右腕にも使う
 }
@@ -1934,6 +2164,7 @@ void Player_SetLeftWeaponIndex(int idx)
 
     // 既存の左腕リソースを解放
     ModelRelease(g_pLeftBarrelModel); g_pLeftBarrelModel = nullptr;
+    ModelRelease(g_pLeftBarrelEdgeModel); g_pLeftBarrelEdgeModel = nullptr;
     if (g_pLeftWeapon) { g_pLeftWeapon->Finalize(); delete g_pLeftWeapon; g_pLeftWeapon = nullptr; }
 
     if (idx != WEAPON_SHIELD)
@@ -1942,6 +2173,9 @@ void Player_SetLeftWeaponIndex(int idx)
         g_pLeftBarrelModel = ModelLoad(k_WeaponDefs[idx].modelPath, k_WeaponDefs[idx].scale);
         g_pLeftWeapon      = CreateWeaponByID(idx);
         if (g_pLeftWeapon) g_pLeftWeapon->Initialize();
+        // 近接は発光パーツ（BladeEdge）も重ね描画用にロード
+        if (idx == WEAPON_MELEE)
+            g_pLeftBarrelEdgeModel = ModelLoad(MELEE_EDGE_MODEL_PATH, k_WeaponDefs[idx].scale);
     }
     // SHIELD の場合は g_pShieldModel（常時ロード済み）をそのまま使う
 }

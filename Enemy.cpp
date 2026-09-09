@@ -58,7 +58,7 @@ void Enemy_LoadSE()
 
     if (g_enemy_bulletHitSE < 0)
     {
-        g_enemy_bulletHitSE = LoadAudioWithVolume("resource/sound/dageki5.wav", 0.8f); // 非ボス被弾音が小さかったため増量
+        g_enemy_bulletHitSE = LoadAudioWithVolume("resource/sound/dageki1.wav", 0.8f); // 非ボス被弾音が小さかったため増量
         SetAudioAttenuationEnabled(g_enemy_bulletHitSE, true);
     }
 
@@ -265,6 +265,29 @@ void Enemy::Update(double elapsed_time)
     // 　プレイヤー衝突（ダメージ＋ノックバック）
     ResolvePlayerCollision(&pos, &vel);
 
+    // ノックバック（速度ベース・減衰・壁で停止。AI速度やクランプと独立）
+    {
+        const float kbLen = sqrtf(m_KnockbackVel.x * m_KnockbackVel.x
+                                + m_KnockbackVel.z * m_KnockbackVel.z);
+        if (kbLen > 0.05f)
+        {
+            XMFLOAT3 p;
+            XMStoreFloat3(&p, pos);
+            MoveHorizWithWallClamp(p, m_KnockbackVel.x / kbLen, m_KnockbackVel.z / kbLen, kbLen * dt);
+            pos = XMVectorSetX(pos, p.x);
+            pos = XMVectorSetZ(pos, p.z);
+
+            constexpr float KB_DECAY = 8.0f;   // 減衰（大きいほど早く止まる）
+            const float damp = std::max(0.0f, 1.0f - KB_DECAY * dt);
+            m_KnockbackVel.x *= damp;
+            m_KnockbackVel.z *= damp;
+        }
+        else
+        {
+            m_KnockbackVel = { 0.0f, 0.0f, 0.0f };
+        }
+    }
+
     // 位置・速度を保存
     XMStoreFloat3(&m_Position, pos);
     XMStoreFloat3(&m_Velocity, vel);
@@ -415,6 +438,58 @@ void Enemy::Damage(int value)
     m_Hp -= actual;
     if (m_Hp < 0) m_Hp = 0;
     Score_AddDamageDealt(actual);
+}
+
+//==============================================================================
+// ノックバック：center から自分へ向かう水平方向へ「速度」を与える。
+// 実際の移動は Update 側で m_KnockbackVel を減衰させながら位置へ反映する
+// （接触時のプレイヤーノックバックと同じく速度ベース → 瞬間移動にならない）。
+//==============================================================================
+void Enemy::ApplyKnockback(const DirectX::XMFLOAT3& center, float strength)
+{
+    float dx = m_Position.x - center.x;
+    float dz = m_Position.z - center.z;
+    float len = sqrtf(dx * dx + dz * dz);
+    if (len < 0.0001f) { dx = 0.0f; dz = 1.0f; len = 1.0f; } // 真上下重なり時は前方へ
+    m_KnockbackVel.x = (dx / len) * strength;
+    m_KnockbackVel.z = (dz / len) * strength;
+    m_KnockbackVel.y = 0.0f;
+}
+
+//==============================================================================
+// 水平方向へ dist 移動。壁（円 r）に当たったら法線方向へ押し出して止める。
+//==============================================================================
+void Enemy::MoveHorizWithWallClamp(DirectX::XMFLOAT3& p, float nx, float nz, float dist)
+{
+    constexpr float r = ENEMY_HALF_WIDTH_X;   // 敵と同じ円半径
+    constexpr int   STEPS = 4;
+    const float step = dist / STEPS;
+    const int   wallCount = Map_GetWallColliderCount();
+
+    for (int s = 0; s < STEPS; ++s)
+    {
+        float tx = p.x + nx * step;
+        float tz = p.z + nz * step;
+        for (int i = 0; i < wallCount; ++i)
+        {
+            const AABB& a = *Map_GetWallCollider(i);
+            const float cx = std::clamp(tx, a.min.x, a.max.x);
+            const float cz = std::clamp(tz, a.min.z, a.max.z);
+            const float ex = tx - cx;
+            const float ez = tz - cz;
+            const float d2 = ex * ex + ez * ez;
+            if (d2 >= r * r) continue;
+            if (d2 > 1e-8f)
+            {
+                const float d = sqrtf(d2);
+                const float push = r - d;
+                tx += (ex / d) * push;
+                tz += (ez / d) * push;
+            }
+        }
+        p.x = tx;
+        p.z = tz;
+    }
 }
 
 //==============================================================================
