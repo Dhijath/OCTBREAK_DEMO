@@ -39,6 +39,7 @@
 #include "Pause.h"
 #include "BossIntro.h"
 #include "StageSelect.h"
+#include "Tutorial.h"
 #include "WaveManager.h"
 #include "WeaponDef.h"
 #include "Shop.h"
@@ -77,6 +78,10 @@ static bool g_PendingDungeonRegenerate = false;
 static bool g_InBossRoom = false;
 // ポーズ中フラグ（フェードなし即時停止）
 static bool g_IsPaused = false;
+
+// アセンブリ（WeaponSelect）をキャンセルした時の戻り先。
+// PreGame の「ASSEMBLY」から入った時は PreGame、アドベンチャー選択から入った時は StageSelect。
+static GameState g_WeaponSelectBack = GameState::PreGame;
 
 
 // PlayerDeath 演出
@@ -169,6 +174,7 @@ void GameManager_Finalize()
     PreGame_Finalize();
     AssemblyScreen_Finalize();
     ScoreCheck_Finalize();
+    Tutorial_Finalize();
     Option_Finalize();
     Game_Finalize();
     Game_FinalizeD3D();             // D3Dリソースをアプリ終了時に解放
@@ -237,9 +243,10 @@ void GameManager_Update(double elapsed_time)
             const StageSelectResult r = StageSelect_GetResult();
             if (r == StageSelectResult::Adventure)
             {
+                // アドベンチャーはアセンブリ（武器選択）を経由してから開始する
                 StageSelect_Finalize();
-                SaveData_Save();
-                BeginTransition(GameState::Playing, BGM_GAME, BGM_VOL_GAME);
+                g_WeaponSelectBack = GameState::StageSelect;  // キャンセルでステージ選択へ戻る
+                BeginTransition(GameState::WeaponSelect, BGM_ASSEMBLY);
             }
             else if (r == StageSelectResult::Survival)
             {
@@ -265,8 +272,8 @@ void GameManager_Update(double elapsed_time)
             {
                 SwitchInstant(GameState::StageSelect);
             }
-            else if (pr == PreGameResult::Assembly)
-                BeginTransition(GameState::WeaponSelect, BGM_ASSEMBLY);
+            else if (pr == PreGameResult::Tutorial)
+                BeginTransition(GameState::Tutorial, BGM_TITLE);
             else if (pr == PreGameResult::ScoreCheck)
                 BeginTransition(GameState::ScoreCheck, BGM_SCOREBOARD);
             else if (pr == PreGameResult::Back)
@@ -282,7 +289,7 @@ void GameManager_Update(double elapsed_time)
             if (AssemblyScreen_Update(elapsed_time))
             {
                 if (AssemblyScreen_WasCancelled())
-                    BeginTransition(GameState::PreGame, BGM_TITLE);
+                    BeginTransition(g_WeaponSelectBack, BGM_TITLE);  // 入ってきた画面へ戻る
                 else
                 {
                     SaveData_Save();   // 確定したアセンブリを保存
@@ -300,6 +307,20 @@ void GameManager_Update(double elapsed_time)
             ScoreCheck_Update(elapsed_time);
             if (ScoreCheck_IsEnd())
                 BeginTransition(GameState::PreGame, BGM_TITLE);
+        }
+        break;
+    }
+
+    case GameState::Tutorial:
+    {
+        if (!g_IsTransitioning)
+        {
+            Tutorial_Update(elapsed_time);
+            if (Tutorial_IsEnd())
+            {
+                Tutorial_Finalize();
+                SwitchInstant(GameState::PreGame);  // 同一背景・BGMなのでフェードなし
+            }
         }
         break;
     }
@@ -617,6 +638,10 @@ void GameManager_Update(double elapsed_time)
         {
             PreGame_Initialize();
         }
+        else if (g_GameState == GameState::StageSelect)
+        {
+            StageSelect_Initialize();   // アセンブリのキャンセルでフェード遷移してくる場合に対応
+        }
         else if (g_GameState == GameState::WeaponSelect)
         {
             AssemblyScreen_Initialize();
@@ -624,6 +649,10 @@ void GameManager_Update(double elapsed_time)
         else if (g_GameState == GameState::ScoreCheck)
         {
             ScoreCheck_Initialize();
+        }
+        else if (g_GameState == GameState::Tutorial)
+        {
+            Tutorial_Initialize();
         }
         else if (g_GameState == GameState::Playing)
         {
@@ -692,6 +721,7 @@ void GameManager_Draw()
     case GameState::PreGame:      PreGame_Draw();        break;
     case GameState::WeaponSelect: AssemblyScreen_Draw(); break;
     case GameState::ScoreCheck:   ScoreCheck_Draw();     break;
+    case GameState::Tutorial:     Tutorial_Draw();       break;
     case GameState::Playing:
         Game_Draw();
         if (g_IsPaused)
@@ -727,8 +757,8 @@ void GameManager_Draw()
     {
     case GameState::WeaponSelect:
         InputHint_Draw(
-            "{W}{S} Move    {ENTER} Set / Ready    {TAB} Jump    {ESC} Back",
-            "{DPAD_UP}{DPAD_DN} Move    {A} Set / Ready    {LB}{RB} Jump    {B} Back");
+            "{W}{S} Move    {ENTER} Set / Ready    {TAB} Switch    {ESC} Back",
+            "{DPAD_UP}{DPAD_DN} Move    {A} Set / Ready    {LB}{RB} Switch    {B} Back");
         break;
     case GameState::Title:
     {
@@ -747,8 +777,8 @@ void GameManager_Draw()
     case GameState::Playing:
         if (g_IsPaused)
             InputHint_Draw(
-                "{ENTER} Select    {ESC} Back",
-                "{A} Select    {B} Back");
+                "{UP}{DOWN} Move    {ENTER} Select    {ESC} Back",
+                "{DPAD_UP}{DPAD_DN} Move    {A} Select    {B} Back");
         else
             InputHint_Draw(
                 "{W}{K_A}{S}{K_D} Move    {SPACE} Jump    {SHIFT} Dash    {MOUSE_MOVE} Aim    {MOUSE_R} R-ARM    {MOUSE_L} L-ARM    {ESC} Pause",
@@ -757,8 +787,8 @@ void GameManager_Draw()
     case GameState::Survival:
         if (g_IsPaused)
             InputHint_Draw(
-                "{ENTER} Select    {ESC} Back",
-                "{A} Select    {B} Back");
+                "{UP}{DOWN} Move    {ENTER} Select    {ESC} Back",
+                "{DPAD_UP}{DPAD_DN} Move    {A} Select    {B} Back");
         else if (!Shop_IsOpen())   // ショップ表示中は Shop_DrawUI が自前のヒントを描く
             InputHint_Draw(
                 "{W}{K_A}{S}{K_D} Move    {SPACE} Jump    {SHIFT} Dash    {MOUSE_MOVE} Aim    {MOUSE_R} R-ARM    {MOUSE_L} L-ARM    {ESC} Pause",
@@ -766,7 +796,7 @@ void GameManager_Draw()
         break;
     case GameState::Option:
         InputHint_Draw(
-            "{UP}{DOWN} Move    {LEFT}{RIGHT} Change    {ENTER} Back",
+            "{UP}{DOWN} Move    {LEFT}{RIGHT} Change    {ESC} Back",
             "{DPAD_UP}{DPAD_DN} Move    {DPAD_LR} Change    {B} Back");
         break;
     case GameState::Result:

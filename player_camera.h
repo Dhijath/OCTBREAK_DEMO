@@ -71,6 +71,9 @@ void  Player_Camera_SetMouseInvertY(bool invert);
 float Player_Camera_GetPadSensitivity();             // ゲームパッド感度（右スティック倍率）
 void  Player_Camera_SetPadSensitivity(float sens);
 
+// カメラシェイク（被弾時など）。magnitude=揺れ幅（ワールド単位）, duration=継続秒
+void  Player_Camera_AddShake(float magnitude, float duration);
+
 bool Player_Camera_IsMouseLeftTrigger();
 bool Player_Camera_IsMouseLeftPressed();
 bool Player_Camera_IsMouseRightPressed();

@@ -261,9 +261,11 @@ private:
 //==============================================================================
 struct ExplosionEvent
 {
-    DirectX::XMFLOAT3 center;  // 爆発中心座標
-    float              radius;  // 爆発半径
-    int                damage;  // 爆発ダメージ
+    DirectX::XMFLOAT3 center;       // 爆発中心座標
+    float              radius;       // 爆発半径
+    int                damage;       // 爆発ダメージ
+    float              knockback = 0.0f; // ノックバック距離（0=なし。近接ヒットで使用）
+    float              vScale    = 1.0f; // 縦(Y)距離の倍率（<1で縦に広い判定。近接の上下拡大用）
 };
 
 //==============================================================================
@@ -468,6 +470,12 @@ public:
     void ClearPendingExplosions();
 
     //==========================================================================
+    // 爆発イベントをキューに追加
+    // ・弾を介さない範囲ダメージ（近接武器など）を外部から登録するための公開窓口
+    //==========================================================================
+    void AddExplosion(const DirectX::XMFLOAT3& pos, float radius, int damage, float knockback = 0.0f, float vScale = 1.0f);
+
+    //==========================================================================
     // 弾削除
     //
     // ■引数
@@ -567,11 +575,6 @@ private:
     static constexpr int MAX_EXPLOSIONS = 32;
     ExplosionEvent       m_pendingExplosions[MAX_EXPLOSIONS]{};
     int                  m_explosionCount{ 0 };
-
-    //==========================================================================
-    // 爆発イベントをキューに追加（BulletManager 内部から呼ぶ）
-    //==========================================================================
-    void AddExplosion(const DirectX::XMFLOAT3& pos, float radius, int damage);
 
     //==========================================================================
     // 通常弾の描画（モデル）
@@ -767,5 +770,19 @@ ExplosionEvent Bullet_GetPendingExplosion(int i);
 // 未処理の爆発イベントをすべてクリア（Enemy_Update() の末尾で呼ぶ）
 //==============================================================================
 void Bullet_ClearPendingExplosions();
+
+//==============================================================================
+// 爆発エリアダメージを手動で登録する（弾を介さない範囲ダメージ）
+//
+// ■役割
+// ・ミサイル以外（近接武器など）から前方範囲ダメージを発生させるための窓口
+// ・game.cpp の既存の爆発消費ループがダメージ・撃破処理を行う
+//
+// ■引数
+// ・center : 範囲の中心座標
+// ・radius : 範囲半径
+// ・damage : ダメージ量
+//==============================================================================
+void Bullet_AddExplosion(const DirectX::XMFLOAT3& center, float radius, int damage, float knockback = 0.0f, float vScale = 1.0f);
 
 #endif // BULLET_H

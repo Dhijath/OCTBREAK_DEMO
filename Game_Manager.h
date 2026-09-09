@@ -19,6 +19,7 @@ enum class GameState
     PreGame,      // 中間メニュー（アセンブリ / スコア確認）
     WeaponSelect, // 武器選択画面（アセンブリ）
     ScoreCheck,   // スコア確認画面
+    Tutorial,     // チュートリアル（画像スライドショー）
     Playing,      // ゲーム中（Adventure）
     Survival,     // ゲーム中（Survival）
     PlayerDeath,  // 死亡演出（爆発→GAME OVER表示）→ Result へ

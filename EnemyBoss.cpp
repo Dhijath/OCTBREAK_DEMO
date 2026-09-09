@@ -23,6 +23,22 @@
 
 using namespace DirectX;
 
+namespace
+{
+    // ボス射撃音の距離減衰：この距離以上で無音になる
+    constexpr float BOSS_SHOT_ATTEN_MAX_DIST = 45.0f;
+
+    // 音源（マズル）位置からプレイヤー（リスナー）までの距離
+    float CalcDistToPlayer(const XMFLOAT3& pos)
+    {
+        const XMFLOAT3 p = Player_GetPosition();
+        const float dx = pos.x - p.x;
+        const float dy = pos.y - p.y;
+        const float dz = pos.z - p.z;
+        return sqrtf(dx * dx + dy * dy + dz * dz);
+    }
+}
+
 //==============================================================================
 // 初期化
 //
@@ -47,8 +63,9 @@ void EnemyBoss::Initialize(const XMFLOAT3& position)
     for (int i = 0; i < BARREL_COUNT; ++i)
         m_pBarrel[i] = ModelLoad("resource/Models/Barrel.fbx", BOSS_SIZE * 0.5f);
 
-    // ショットガンSEをロード
+    // ショットガンSEをロード（発射位置に応じて距離減衰させる）
     m_shootSE = LoadAudioWithVolume("resource/sound/shotgun.wav", 0.5f);
+    SetAudioAttenuationEnabled(m_shootSE, true);
     m_shootTimer = 0.0f;
     m_BarrelRotX = 0.0f;
 
@@ -692,7 +709,8 @@ void EnemyBoss::Shoot()
         EnemyBullet_Create(muzzlePos, vel, SHOOT_DAMAGE, BOSS_BULLET_SPEED);
     }
 
-    // ショットガンSE再生
+    // ショットガンSE再生（全門発射のためボス本体位置を音源にして距離減衰）
+    UpdateAudioAttenuation(m_shootSE, CalcDistToPlayer(m_Position), BOSS_SHOT_ATTEN_MAX_DIST);
     PlayAudio(m_shootSE, false);
 }
 
@@ -730,6 +748,7 @@ void EnemyBoss::FireSingleBarrel(int index)
     // リコイルキック（描画は次のフレームから後退→復帰する）
     m_barrelRecoil[index] = RECOIL_KICK;
 
+    UpdateAudioAttenuation(m_shootSE, CalcDistToPlayer(muzzlePos), BOSS_SHOT_ATTEN_MAX_DIST);
     PlayAudio(m_shootSE, false);
 }
 
@@ -774,5 +793,6 @@ void EnemyBoss::SpreadShoot()
     }
 
     m_barrelRecoil[0] = RECOIL_KICK;   // 散弾を撃った前面バレルもリコイル
+    UpdateAudioAttenuation(m_shootSE, CalcDistToPlayer(muzzlePos), BOSS_SHOT_ATTEN_MAX_DIST);
     PlayAudio(m_shootSE, false);
 }

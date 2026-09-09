@@ -21,7 +21,7 @@ using namespace DirectX;
 // 定数
 //------------------------------------------------------------------------------
 static constexpr int   ITEM_COUNT = 3;
-static const wchar_t*  ITEM_LABELS[ITEM_COUNT] = { L"GAME MODE", L"ASSEMBLY", L"SCOREBOARD" };
+static const wchar_t*  ITEM_LABELS[ITEM_COUNT] = { L"GAME MODE", L"TUTORIAL", L"SCOREBOARD" };
 
 //------------------------------------------------------------------------------
 // 状態
@@ -82,7 +82,7 @@ void PreGame_Update(double elapsed_time)
     {
         PlayAudio(g_SeSelect, false);
         if      (g_Selected == 0) g_Result = PreGameResult::QuickStart;
-        else if (g_Selected == 1) g_Result = PreGameResult::Assembly;
+        else if (g_Selected == 1) g_Result = PreGameResult::Tutorial;
         else                      g_Result = PreGameResult::ScoreCheck;
     }
 
@@ -181,8 +181,8 @@ void PreGame_Draw()
     // フッター（InputHint バー）
     Direct3D_BindMainRenderTarget();
     static const wchar_t* itemDesc[ITEM_COUNT] = {
-        L"ダンジョン最奥にいるボスの討伐が目的です",
-        L"武器の組み合わせを変更します",
+        L"ゲームモードを選べます。",
+        L"遊び方をスライドショーで確認します",
         L"過去のスコアと順位を確認します",
     };
     InputHint_Draw(

@@ -226,7 +226,7 @@ static float s_HpDisplayed = -1.0f;  // 表示用HP（実HPに向けて毎フレ
 // 武器ミニプレビュー用
 //==============================================================================
 static MODEL* s_pWeaponPreviewModels[WEAPON_COUNT] = {};  // 各武器のプレビューモデル
-static float  s_WeaponPreviewAngle = 0.0f;                // 回転角（ラジアン）
+static MODEL* s_pMeleeEdgePreview = nullptr;              // 近接の発光パーツ（Blade に重ねる）
 
 //==============================================================================
 // HUDデザイン切り替えフラグ
@@ -453,6 +453,9 @@ void HUD_Initialize()
         if (s_pWeaponPreviewModels[i]) { ModelRelease(s_pWeaponPreviewModels[i]); s_pWeaponPreviewModels[i] = nullptr; }
         s_pWeaponPreviewModels[i] = ModelLoad(k_WeaponDefs[i].modelPath, k_WeaponDefs[i].scale);
     }
+    // 近接の発光パーツ（BladeEdge）を Blade と同スケールでロード（重ね描画用）
+    if (s_pMeleeEdgePreview) { ModelRelease(s_pMeleeEdgePreview); s_pMeleeEdgePreview = nullptr; }
+    s_pMeleeEdgePreview = ModelLoad("resource/Models/BladeEdge.fbx", k_WeaponDefs[WEAPON_MELEE].scale);
 }
 
 //==============================================================================
@@ -497,6 +500,8 @@ void HUD_Finalize()
         ModelRelease(s_pWeaponPreviewModels[i]);
         s_pWeaponPreviewModels[i] = nullptr;
     }
+    ModelRelease(s_pMeleeEdgePreview);
+    s_pMeleeEdgePreview = nullptr;
 }
 
 //==============================================================================
@@ -646,7 +651,7 @@ static void HUD_DrawLegacy()
 }
 
 //==============================================================================
-// 新HUD ― ACシリーズ風レイアウト
+// 新HUD ― 情報パネル型レイアウト
 //
 //  ┌─────────────────────────────┐
 //  │[左上] APパネル(HP数値+バー)      [右] 武器パネル │
@@ -851,8 +856,14 @@ static void HUD_DrawNew()
         const XMVECTOR target = XMVectorZero();
         const XMVECTOR upV    = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
 
-        // ゆっくり Y 軸回転
-        const XMMATRIX world = XMMatrixRotationY(s_WeaponPreviewAngle);
+        // 角度固定（回転させない）。銃口側をカメラへ→さらに左へ約40°傾けた向き。
+        constexpr float PREVIEW_FIXED_DEG = 250.0f;  // 210 + 40
+        // 見切れ対策：カメラを引かず、銃（盾・ブレード以外）だけ画面右へ寄せる。
+        constexpr float GUN_SHIFT = 0.12f;           // 画面右への移動量（カメラ右方向）
+        // カメラ右方向（画面の右）＝ up × 視線方向
+        const XMVECTOR camRight = XMVector3Normalize(
+            XMVector3Cross(upV, XMVectorNegate(eyeV)));
+        // world は武器種ごとにループ内で計算する
 
         // ゲームシーンが書いた深度値をクリア（モデルが地形に埋まるのを防ぐ）
         Direct3D_ClearDepth();
@@ -892,7 +903,20 @@ static void HUD_DrawNew()
             vp.MaxDepth = 1.0f;
             Direct3D_GetContext()->RSSetViewports(1, &vp);
 
+            // 盾以外（銃・ブレード）を画面右へずらして見切れを防ぐ
+            const bool isShield = (wIdx == WEAPON_SHIELD);
+            XMMATRIX world = XMMatrixRotationY(XMConvertToRadians(PREVIEW_FIXED_DEG));
+            if (!isShield)
+            {
+                XMFLOAT3 shift;
+                XMStoreFloat3(&shift, camRight * GUN_SHIFT);
+                world = world * XMMatrixTranslation(shift.x, shift.y, shift.z);
+            }
+
             ModelDrawToon(mdl, world);
+            // 近接は発光パーツ（BladeEdge）も同じ行列で重ねて全部描く
+            if (wIdx == WEAPON_MELEE && s_pMeleeEdgePreview)
+                ModelDrawToon(s_pMeleeEdgePreview, world);
         }
 
         // フルビューポートを復元
@@ -1234,8 +1258,7 @@ void HUD_Update(double elapsed_time)
         if (s_ModeTimer < 0.0) s_ModeTimer = 0.0;
     }
 
-    // 武器ミニプレビュー回転角を更新
-    s_WeaponPreviewAngle += static_cast<float>(elapsed_time * 1.2);
+    // 武器ミニプレビューは角度固定（回転更新なし）
 
     // HP カウントダウンアニメーション
     // HP が減ったときだけ数字をゆっくりカウントダウン、回復は即時反映

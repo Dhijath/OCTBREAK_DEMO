@@ -168,8 +168,8 @@ void StageSelect_Draw()
     // フッター
     Direct3D_BindMainRenderTarget();
     static const wchar_t* itemDesc[ITEM_COUNT] = {
-        L"ダンジョンを探索し、最奥のボスを討伐してクリアを目指します",
-        L"屋外アリーナで10ウェーブを生き残ります（現在実装中）",
+        L"ダンジョンを探索し、最奥のボス討伐を目指します",
+        L"屋外アリーナで5ウェーブ間、生き残りを目指します",
     };
     InputHint_Draw(
         "{UP}{DOWN} Move    {ENTER} Select    {ESC} Back",

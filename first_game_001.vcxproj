@@ -175,6 +175,7 @@
     <ClCompile Include="ScoreCheck.cpp" />
     <ClCompile Include="Shop.cpp" />
     <ClCompile Include="StageSelect.cpp" />
+    <ClCompile Include="Tutorial.cpp" />
     <ClCompile Include="WaveManager.cpp" />
     <ClCompile Include="shield.cpp" />
     <ClCompile Include="Skybox.cpp" />
@@ -274,6 +275,7 @@
     <ClInclude Include="ScoreCheck.h" />
     <ClInclude Include="Shop.h" />
     <ClInclude Include="StageSelect.h" />
+    <ClInclude Include="Tutorial.h" />
     <ClInclude Include="WaveManager.h" />
     <ClInclude Include="shield.h" />
     <ClInclude Include="Skybox.h" />

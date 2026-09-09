@@ -15,6 +15,7 @@
 ==============================================================================*/
 
 #include <windows.h>
+#include <cmath>
 #include "bullet.h"
 #include "Audio.h"
 #include "Trail.h"
@@ -28,8 +29,25 @@
 #include "particle_thruster.h"
 #include "light.h"
 #include "player_camera.h"
+#include "player.h"
 
 using namespace DirectX;
+
+namespace
+{
+    // 爆発音の距離減衰：この距離以上で無音になる（爆発は射程が長いので敵ヒット音より広め）
+    constexpr float EXPLOSION_ATTEN_MAX_DIST = 50.0f;
+
+    // 音源位置からプレイヤー（リスナー）までの距離
+    float CalcDistToPlayer(const XMFLOAT3& pos)
+    {
+        const XMFLOAT3 p = Player_GetPosition();
+        const float dx = pos.x - p.x;
+        const float dy = pos.y - p.y;
+        const float dz = pos.z - p.z;
+        return sqrtf(dx * dx + dy * dy + dz * dz);
+    }
+}
 
 //==============================================================================
 // Bullet（通常弾）実装
@@ -532,6 +550,10 @@ void BulletManager::Initialize()
     m_beamTexID = Texture_Load(L"Resource/Texture/effect000.jpg");
     m_explosionSE      = LoadAudioWithVolume("resource/sound/cannon2.wav", 0.4f);  // 通常ミサイル爆発も大砲2
     m_explosionSEMulti = LoadAudioWithVolume("resource/sound/cannon2.wav", 0.4f);  // マルチミサイル用（大砲2）
+
+    // 爆発音は発生位置に応じて距離減衰させる
+    SetAudioAttenuationEnabled(m_explosionSE, true);
+    SetAudioAttenuationEnabled(m_explosionSEMulti, true);
 }
 
 //==============================================================================
@@ -602,12 +624,15 @@ void BulletManager::Update(double elapsed_time)
             else if (type == BulletType::Missile)
             {
                 // ミサイル：爆発登録 + 火花エフェクト
-                // マルチミサイルは大きい粒・低速の専用エフェクトにする
+                // 爆発火花は当たり判定の半径に合わせたコンパクトなエフェクトにする
                 auto* m = static_cast<MissileBullet*>(m_bullets[i]);
                 AddExplosion(m->GetPrevPosition(), m->GetExplosionRadius(), m->GetDamage());
-                PlayAudio(m->IsBezier() ? m_explosionSEMulti : m_explosionSE, false);
-                if (m->IsBezier()) SparkEffect_CreateMulti(m->GetPrevPosition(), 1.0f);
-                else               SparkEffect_Create(m->GetPrevPosition(), 3.0f);
+                {
+                    const int seIdx = m->IsBezier() ? m_explosionSEMulti : m_explosionSE;
+                    UpdateAudioAttenuation(seIdx, CalcDistToPlayer(m->GetPrevPosition()), EXPLOSION_ATTEN_MAX_DIST);
+                    PlayAudio(seIdx, false);
+                }
+                SparkEffect_CreateMulti(m->GetPrevPosition(), m->GetExplosionRadius() * 0.4f);
             }
             // BulletType::Beam はCheckWallCollision()内でエフェクト生成済み
 
@@ -756,9 +781,12 @@ void BulletManager::Destroy(int index)
     {
         auto* m = static_cast<MissileBullet*>(m_bullets[index]);
         AddExplosion(m->GetPrevPosition(), m->GetExplosionRadius(), m->GetDamage());
-        PlayAudio(m->IsBezier() ? m_explosionSEMulti : m_explosionSE, false);
-        if (m->IsBezier()) SparkEffect_CreateMulti(m->GetPrevPosition(), 1.0f);
-        else               SparkEffect_Create(m->GetPrevPosition(), 3.0f);
+        {
+            const int seIdx = m->IsBezier() ? m_explosionSEMulti : m_explosionSE;
+            UpdateAudioAttenuation(seIdx, CalcDistToPlayer(m->GetPrevPosition()), EXPLOSION_ATTEN_MAX_DIST);
+            PlayAudio(seIdx, false);
+        }
+        SparkEffect_CreateMulti(m->GetPrevPosition(), m->GetExplosionRadius() * 0.4f);
     }
     else
     {
@@ -983,10 +1011,10 @@ void BulletManager::CreateMissileBezier(const XMFLOAT3& p0, const XMFLOAT3& p1,
 //==============================================================================
 // 爆発イベントをキューに追加
 //==============================================================================
-void BulletManager::AddExplosion(const XMFLOAT3& pos, float radius, int damage)
+void BulletManager::AddExplosion(const XMFLOAT3& pos, float radius, int damage, float knockback, float vScale)
 {
     if (m_explosionCount >= MAX_EXPLOSIONS) return;
-    m_pendingExplosions[m_explosionCount++] = { pos, radius, damage };
+    m_pendingExplosions[m_explosionCount++] = { pos, radius, damage, knockback, vScale };
     // 爆発SEは呼び出し側で鳴らす（通常ミサイル / マルチミサイルで音を分けるため）
 }
 
@@ -1044,3 +1072,9 @@ void Bullet_ClearPendingExplosions()
 {
     GetManager().ClearPendingExplosions();
 }
+
+void Bullet_AddExplosion(const XMFLOAT3& center, float radius, int damage, float knockback, float vScale)
+{
+    GetManager().AddExplosion(center, radius, damage, knockback, vScale);
+}
+
