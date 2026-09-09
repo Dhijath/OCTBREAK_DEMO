@@ -48,6 +48,9 @@ using namespace DirectX;
 #include "ItemManager.h"
 #include "EnemyBullet.h"
 #include "EnemyManager.h"
+#include "EnemyAI.h"
+#include "EnemyParts.h"
+#include "EnemyDex.h"
 #include "DamagePopup.h"
 #include "BossIntro.h"
 #include "BossDefeat.h"
@@ -128,6 +131,117 @@ namespace
     static bool   g_IsBossRoom    = false;
     static bool   g_IsSurvival    = false;  // サバイバルモード中フラグ
     static int    g_TexLockon     = -1;
+    static EnemyMix g_EnemyMix    = EnemyMix::Balanced;  // 敵編成（ミッションごとに設定）
+    static float    g_EnemyHpScale = 1.0f;               // 通常エネミーの耐久倍率（ミッションごとに設定）
+    static EnemyType g_BossType   = EnemyType::Boss;     // ボス部屋で出すボスの種類（ミッションごとに設定）
+    static int      g_KillCount   = 0;                   // 撃破数（クリア画面の集計用）
+
+    // 更新中に出された出現要求（ボスの召喚など）
+    struct SpawnRequest { XMFLOAT3 pos; int type; };
+    static std::vector<SpawnRequest> g_SpawnRequests;
+}
+
+// ボス（撃破演出・ボス戦の対象）になる種別か
+static bool IsBossType(EnemyType type)
+{
+    return type == EnemyType::Boss || type >= EnemyType::BossArgus;
+}
+
+// このフレームで倒れたエネミーの数（エネミー図鑑に種別ごとの撃破を記録する）
+static int CountDeadEnemies()
+{
+    int dead = 0;
+    for (int i = 0; i < g_EnemyManager.GetCount(); ++i)
+    {
+        const Enemy& e = g_EnemyManager.GetEnemy(i);
+        if (e.IsAlive()) continue;
+        ++dead;
+        EnemyDex_RecordKill(e.GetTypeId());
+    }
+    return dead;
+}
+
+void Game_SpawnEnemy(const XMFLOAT3& pos, int type);
+
+static void FlushSpawnRequests()
+{
+    if (g_SpawnRequests.empty()) return;
+    std::vector<SpawnRequest> pending;
+    pending.swap(g_SpawnRequests);
+    for (const SpawnRequest& r : pending)
+        Game_SpawnEnemy(r.pos, r.type);
+}
+
+// 通常エネミーの耐久をミッションの倍率に合わせる（ボスは対象外）
+static void ApplyEnemyHpScale(int index)
+{
+    if (g_EnemyHpScale == 1.0f) return;
+    Enemy& e = g_EnemyManager.GetEnemy(index);
+    const int maxHp = static_cast<int>(e.GetMaxHP() * g_EnemyHpScale);
+    e.SetHP(maxHp, maxHp);
+}
+
+// i 番目のスポーン位置に出す敵の種別。
+// ブロックステージが部隊として種別を指定していればそれを、なければ編成の比率で決める
+static EnemyType PickEnemyType(int i);
+static EnemyType SpawnTypeAt(int i)
+{
+    const int designated = BlockStage_IsActive() ? BlockStage_GetEnemyType(i) : -1;
+    return (designated >= 0) ? static_cast<EnemyType>(designated) : PickEnemyType(i);
+}
+
+// スポーン順番（i）から敵種別を割り振る。編成ごとに比率を変える。
+static EnemyType PickEnemyTypeFor(EnemyMix mix, int i);
+static EnemyType PickEnemyType(int i)
+{
+    return PickEnemyTypeFor(g_EnemyMix, i);
+}
+
+// 増援など、任意の編成で種別を決めたいとき用（Game_Manager から呼ぶ）
+int Game_GetEnemyTypeForMix(EnemyMix mix, int index)
+{
+    return static_cast<int>(PickEnemyTypeFor(mix, index));
+}
+
+static EnemyType PickEnemyTypeFor(EnemyMix mix, int i)
+{
+    switch (mix)
+    {
+    case EnemyMix::Swarm:   // 高機動型主体（自爆型・突撃型・翼型を混ぜる。残りSpeed）
+        if (i % 8 == 1) return EnemyType::Wing;
+        if (i % 7 == 3) return EnemyType::Bomber;
+        if (i % 5 == 2) return EnemyType::Gunner;
+        if (i % 6 == 0) return EnemyType::Sniper;
+        if (i % 3 == 0) return EnemyType::Normal;
+        return EnemyType::Speed;
+
+    case EnemyMix::Heavy:   // 重装型主体（砲撃型・回転砲型・脚型を混ぜる。2体に1体Tank、残りNormal）
+        if (i % 7 == 3) return EnemyType::Artillery;
+        if (i % 9 == 5) return EnemyType::Gatling;
+        if (i % 11 == 7) return EnemyType::Walker;
+        if (i % 2 == 0) return EnemyType::Tank;
+        if (i % 3 == 0) return EnemyType::Sniper;
+        return EnemyType::Normal;
+
+    case EnemyMix::Sniper:  // 狙撃型主体（砲撃型・幻影型を混ぜる。2体に1体Sniper、残りSpeed）
+        if (i % 6 == 3) return EnemyType::Artillery;
+        if (i % 7 == 5) return EnemyType::Phantom;
+        if (i % 9 == 1) return EnemyType::Halo;
+        if (i % 2 == 0) return EnemyType::Sniper;
+        if (i % 5 == 0) return EnemyType::Tank;
+        return EnemyType::Speed;
+
+    default:                // 混成（突撃型・幻影型・自爆型を少し混ぜる）
+        if (i % 7 == 4)  return EnemyType::Gunner;
+        if (i % 11 == 6) return EnemyType::Phantom;
+        if (i % 13 == 9) return EnemyType::Bomber;
+        if (i % 10 == 3) return EnemyType::Orbiter;
+        if (i % 17 == 8) return EnemyType::Walker;
+        if (i % 5 == 0) return EnemyType::Tank;
+        if (i % 3 == 0) return EnemyType::Sniper;
+        if (i % 2 == 0) return EnemyType::Speed;
+        return EnemyType::Normal;
+    }
 }
 
 // ボス消滅コールバック（BossDefeat演出のHOLD終了時に呼ばれる）
@@ -190,23 +304,20 @@ void Game_Initialize()
     // エネミー初期化（マネージャ初期化）
     g_pBossEnemy = nullptr;
     g_BossDefeated = false;
+    g_KillCount = 0;
+    g_SpawnRequests.clear();
     g_EnemyManager.Initialize();
     const auto& spawns = Map_GetEnemySpawnPositions();
     for (int i = 0; i < static_cast<int>(spawns.size()); ++i)
     {
-        // スポーン順番で種別を割り振る（3体に1体Sniper、5体に1体Tank、残りSpeed/Normal）
-        EnemyType type = EnemyType::Normal;
-        if (i % 5 == 0) type = EnemyType::Tank;
-        else if (i % 3 == 0) type = EnemyType::Sniper;
-        else if (i % 2 == 0) type = EnemyType::Speed;
-
-        g_EnemyManager.Spawn(spawns[i], type);
+        // スポーン順番で種別を割り振る（比率は敵編成 g_EnemyMix による）
+        ApplyEnemyHpScale(g_EnemyManager.Spawn(spawns[i], PickEnemyType(i)));
     }
 
     // ボス部屋フェーズのときのみボスをスポーン
     if (g_IsBossRoom)
     {
-        const int bossIdx = g_EnemyManager.Spawn(Map_GetBossSpawnPosition(), EnemyType::Boss);
+        const int bossIdx = g_EnemyManager.Spawn(Map_GetBossSpawnPosition(), g_BossType);
         g_pBossEnemy = &g_EnemyManager.GetEnemy(bossIdx);
     }
 
@@ -241,25 +352,63 @@ void Game_RespawnEnemies()
 {
     g_pBossEnemy = nullptr;
     g_BossDefeated = false;
+    g_SpawnRequests.clear();   // 前のステージで出された召喚要求を持ち越さない
     g_EnemyManager.Initialize();
 
     const auto& spawns = Map_GetEnemySpawnPositions();
     for (int i = 0; i < static_cast<int>(spawns.size()); ++i)
     {
-        EnemyType type = EnemyType::Normal;
-        if (i % 5 == 0) type = EnemyType::Tank;
-        else if (i % 3 == 0) type = EnemyType::Sniper;
-        else if (i % 2 == 0) type = EnemyType::Speed;
-
-        g_EnemyManager.Spawn(spawns[i], type);
+        ApplyEnemyHpScale(g_EnemyManager.Spawn(spawns[i], SpawnTypeAt(i)));
     }
 
     // ボス部屋フェーズのときのみボスをスポーン
     if (g_IsBossRoom)
     {
-        const int bossIdx = g_EnemyManager.Spawn(Map_GetBossSpawnPosition(), EnemyType::Boss);
+        const int bossIdx = g_EnemyManager.Spawn(Map_GetBossSpawnPosition(), g_BossType);
         g_pBossEnemy = &g_EnemyManager.GetEnemy(bossIdx);
     }
+}
+
+//==============================================================================
+// ボスの種類設定
+//==============================================================================
+void Game_SetBossType(int type)
+{
+    g_BossType = IsBossType(static_cast<EnemyType>(type)) ? static_cast<EnemyType>(type) : EnemyType::Boss;
+}
+
+//==============================================================================
+// ボスの状態（HUD のボス体力表示用）
+//==============================================================================
+bool Game_GetBossStatus(int* outHp, int* outMaxHp, const wchar_t** outName)
+{
+    if (!g_IsBossRoom || !g_pBossEnemy || g_BossDefeated) return false;
+    if (outHp)    *outHp    = std::max(0, g_pBossEnemy->GetHP());
+    if (outMaxHp) *outMaxHp = g_pBossEnemy->GetMaxHP();
+    if (outName)  *outName  = g_pBossEnemy->GetDisplayName();
+    return true;
+}
+
+//==============================================================================
+// 撃破数
+//==============================================================================
+int  Game_GetKillCount()   { return g_KillCount; }
+void Game_ResetKillCount() { g_KillCount = 0; }
+
+//==============================================================================
+// 出現要求（エネミーの更新中から呼んでよい。次の更新の後に出現する）
+//==============================================================================
+void Game_RequestEnemySpawn(const XMFLOAT3& pos, int type)
+{
+    g_SpawnRequests.push_back({ pos, type });
+}
+
+//==============================================================================
+// 通常エネミーの耐久倍率設定
+//==============================================================================
+void Game_SetEnemyHpScale(float scale)
+{
+    g_EnemyHpScale = std::max(0.1f, scale);
 }
 
 //==============================================================================
@@ -291,6 +440,17 @@ void Game_SetBossRoomMode(bool isBossRoom)
 }
 
 //==============================================================================
+// 敵編成設定
+//
+// ■役割
+// ・以降の Game_Initialize / Game_RespawnEnemies で使う敵種別の比率を切り替える
+//==============================================================================
+void Game_SetEnemyMix(EnemyMix mix)
+{
+    g_EnemyMix = mix;
+}
+
+//==============================================================================
 // ボスの向き（正面ベクトル）を直接セット
 // BossIntro_Start から呼ばれ、演出開始時にボスをプレイヤー方向へ向ける
 //==============================================================================
@@ -309,6 +469,13 @@ int Game_GetAliveEnemyCount()
     return g_EnemyManager.GetCount();
 }
 
+bool Game_GetEnemyPosition(int index, XMFLOAT3* outPos)
+{
+    if (!outPos || index < 0 || index >= g_EnemyManager.GetCount()) return false;
+    *outPos = g_EnemyManager.GetPositionAt(index);
+    return true;
+}
+
 bool Game_IsSurvivalMode()
 {
     return g_IsSurvival;
@@ -321,7 +488,9 @@ void Game_SetSurvivalMode(bool val)
 
 void Game_SpawnEnemy(const XMFLOAT3& pos, int type)
 {
-    g_EnemyManager.Spawn(pos, static_cast<EnemyType>(type));
+    const int index = g_EnemyManager.Spawn(pos, static_cast<EnemyType>(type));
+    if (!IsBossType(static_cast<EnemyType>(type)))
+        ApplyEnemyHpScale(index);
 }
 
 void Game_ClearEnemies()
@@ -523,16 +692,25 @@ void Game_Update(double elapsed_time)
     if (!g_BossDefeated && g_pBossEnemy && g_pBossEnemy->IsDead())
     {
         g_BossDefeated = true;
+        EnemyDex_RecordKill(g_pBossEnemy->GetTypeId());   // ボスは撃破演出の後に消えるのでここで記録する
         const XMFLOAT3 bossPos = g_pBossEnemy->GetPosition();
         g_pBossEnemy = nullptr;
         BossDefeat_Start(bossPos, OnBossVanish);
     }
 
     // 追尾エネミー更新
+    EnemyAI_UpdateAlert(static_cast<float>(elapsed_time));
     g_EnemyManager.Update(elapsed_time);
 
+    // 更新中にエネミー（ボスの召喚など）が出した出現要求をここでまとめて処理する
+    //（更新ループの途中で配列に追加すると走査中の要素が壊れるため）
+    FlushSpawnRequests();
+
     if (!BossDefeat_IsPlaying())
+    {
+        g_KillCount += CountDeadEnemies();
         g_EnemyManager.RemoveDead();
+    }
 
     // ミサイル爆発エリアダメージ（BulletManager に蓄積された爆発を消費）
     {
@@ -888,6 +1066,7 @@ void Game_Finalize()
 
     // エネミー
     g_EnemyManager.Finalize();
+    EnemyParts_Release();   // 共有パーツモデル（エネミーを解放した後に）
 
     // エフェクト／弾
     SparkEffect_Finalize();

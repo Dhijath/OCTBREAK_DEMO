@@ -67,3 +67,8 @@ void ModelDraw(MODEL* model, const DirectX::XMMATRIX& mtxWorld);
 AABB ModelGetAABB(MODEL* model, const DirectX::XMFLOAT3& position);
 
 void ModelDrawWithoutBegin(MODEL* model, const DirectX::XMMATRIX& mtxWorld);
+
+// メッシュ単位の描画（マテリアルごとにまとめられたメッシュ。パーツを個別に動かすとき用）
+int  ModelGetMeshCount(MODEL* model);
+void ModelDrawMesh(MODEL* model, int meshIndex, const DirectX::XMMATRIX& mtxWorld);
+int  ModelFindMesh(MODEL* model, const char* materialName);   // マテリアル名で検索（無ければ -1）

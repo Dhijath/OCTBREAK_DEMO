@@ -179,6 +179,27 @@ void Cube_Draw(int texID, const XMMATRIX mtxW)
     g_pContext->DrawIndexed(36, 0, 0);
 }
 
+// キューブ1個分を単色で描画（color がテクスチャに乗算される。白テクスチャと組み合わせて使う）
+void Cube_DrawColor(int texID, const XMMATRIX& mtxW, const XMFLOAT4& color)
+{
+    Shader3d_Begin();
+    Shader3d_SetColor(color);
+    Set_Texture(texID);
+
+    UINT stride = sizeof(Vertex3D);
+    UINT offset = 0;
+    g_pContext->IASetVertexBuffers(0, 1, &g_pVertexBuffer, &stride, &offset);
+    g_pContext->IASetIndexBuffer(g_pIndexBuffer, DXGI_FORMAT_R16_UINT, 0);
+
+    Shader3d_SetWorldMatrix(mtxW);
+
+    g_pContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    g_pContext->DrawIndexed(36, 0, 0);
+
+    // 色を既定値へ戻す（後続の描画が白を前提にしているため）
+    Shader3d_SetColor({ 1.0f, 1.0f, 1.0f, 1.0f });
+}
+
 // 中心 position、サイズ 1x1x1 の AABB を作成
 AABB Cube_CreateAABB(const DirectX::XMFLOAT3& position)
 {

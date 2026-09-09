@@ -68,6 +68,10 @@ private:
 
     float  m_ShieldRotY  = 0.0f;     // 盾のY回転（将来拡張用）
     float  m_BarrelRotX  = 0.0f;     // 砲身のX回転（将来拡張用）
+    // パーツのアニメーション（Update で進め、Draw で使う）
+    float  m_AnimTime    = 0.0f;     // 経過時間（個体ごとに位相をずらす）
+    float  m_BodyBob     = 0.0f;     // 歩くときの本体の上下（m）
+    float  m_ShieldBob   = 0.0f;     // 盾の浮遊（m）
 
     //==========================================================================
     // 盾への弾当たり判定

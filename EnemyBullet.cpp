@@ -26,7 +26,7 @@ using namespace DirectX;
 //==============================================================================
 // 定数
 //==============================================================================
-static constexpr int    MAX_ENEMY_BULLET = 128;   // 弾の最大発射数
+static constexpr int    MAX_ENEMY_BULLET = 512;   // 弾の最大発射数（追加ボスの弾幕に合わせて 128 から増量）
 static constexpr float  BULLET_SPEED = 8.0f;  // 移動速度（m/s）
 static constexpr double BULLET_LIFE_TIME = 3.0;   // 寿命（秒）
 static constexpr float  BULLET_SIZE = 0.05f; // モデルスケール

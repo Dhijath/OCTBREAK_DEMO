@@ -119,6 +119,13 @@ void EnemyBoss::Update(double elapsed_time)
 
     float dt = static_cast<float>(elapsed_time > 1.0 / 30.0 ? 1.0 / 30.0 : elapsed_time);
 
+    // 浮遊：ゆっくり上下する。激昂中は小刻みに震え、突進の溜め中は沈み込む
+    m_AnimTime += dt;
+    //（地面にめり込まないよう、持ち上げる方向だけに動かす）
+    m_IdleBob = 0.07f + sinf(m_AnimTime * 1.8f) * 0.07f;
+    if (m_Enraged)                                m_IdleBob += 0.02f + sinf(m_AnimTime * 37.0f) * 0.018f;
+    if (m_bossPhase == BossPhase::CHARGE_WINDUP)  m_IdleBob = 0.0f;
+
     //==========================================================================
     // INTRO 中：バレルアニメタイマーのみ更新。AI・移動・射撃・ロックオン全スキップ。
     // m_Front は BossIntro_Start() で設定済みの方向を維持する。
@@ -170,6 +177,12 @@ void EnemyBoss::Update(double elapsed_time)
 
     // 死亡後は以降の処理をスキップ
     if (!m_IsAlive) return;
+
+    //==========================================================================
+    // このフレームの判断材料（視線判定は重いので1フレームに1回だけ行う）
+    //==========================================================================
+    m_HasLos  = MapPatrolAI_HasLineOfSight(m_Position, Player_GetPosition());
+    m_Enraged = (GetHP() * 2 <= GetMaxHP());   // 体力50%以下で激昂（突進・射撃の間隔が短くなる）
 
     //==========================================================================
     // ソフト斥力（NORMAL 時のみ）
@@ -235,8 +248,7 @@ void EnemyBoss::Update(double elapsed_time)
         float horizDist = sqrtf(dx * dx + dz * dz);
 
         // 感知判定：視野距離(XZ平面)かつ視線が通っている
-        const bool isDetected = (horizDist <= SIGHT_DIST)
-                             && MapPatrolAI_HasLineOfSight(m_Position, playerPos);
+        const bool isDetected = (horizDist <= SIGHT_DIST) && m_HasLos;
 
         if (m_bossPhase == BossPhase::CHARGING && (m_chargeDir.x != 0.0f || m_chargeDir.z != 0.0f))
         {
@@ -271,7 +283,7 @@ void EnemyBoss::Update(double elapsed_time)
         // プレイヤーに「射撃→即突進」の連続を押し付けない。
         bool canCharge = m_chargeCooldown <= 0.0f
                       && m_lastShotTimer  >= SHOOT_CHARGE_GAP
-                      && MapPatrolAI_HasLineOfSight(m_Position, Player_GetPosition());
+                      && m_HasLos;
 
         if (canCharge)
         {
@@ -288,10 +300,13 @@ void EnemyBoss::Update(double elapsed_time)
         m_chargeTimer += dt;
 
         // 毎フレーム突進方向をプレイヤー方向に更新（狙いを定める）
+        // プレイヤーの移動先を少しだけ先読みして、横移動だけでは避けにくくする
         {
             const XMFLOAT3& playerPos = Player_GetPosition();
-            float dx  = playerPos.x - m_Position.x;
-            float dz  = playerPos.z - m_Position.z;
+            const XMFLOAT3* pv = Player_GetVelocityPtr();
+            constexpr float LEAD_TIME = 0.25f;
+            float dx  = playerPos.x + (pv ? pv->x * LEAD_TIME : 0.0f) - m_Position.x;
+            float dz  = playerPos.z + (pv ? pv->z * LEAD_TIME : 0.0f) - m_Position.z;
             float len = sqrtf(dx * dx + dz * dz);
             if (len > 0.001f)
                 m_chargeDir = { dx / len, 0.0f, dz / len };
@@ -300,8 +315,9 @@ void EnemyBoss::Update(double elapsed_time)
         // 溜め完了 → 突進へ移行
         if (m_chargeTimer >= CHARGE_WINDUP_TIME)
         {
-            m_bossPhase   = BossPhase::CHARGING;
-            m_chargeTimer = 0.0f;
+            m_bossPhase     = BossPhase::CHARGING;
+            m_chargeTimer   = 0.0f;
+            m_chargePrevPos = m_Position;
         }
         break;
     }
@@ -333,12 +349,20 @@ void EnemyBoss::Update(double elapsed_time)
             }
         }
 
+        // 壁に止められた（予定の 30% も進めなかった）ら突進を打ち切る。
+        // 以前は時間いっぱい壁に押し付け続け、壁に刺さって見えることがあった
+        const float dxMove = m_Position.x - m_chargePrevPos.x;
+        const float dzMove = m_Position.z - m_chargePrevPos.z;
+        const bool  blocked = m_chargeTimer > 0.05f
+                           && (dxMove * dxMove + dzMove * dzMove) < (CHARGE_SPEED * dt * 0.3f) * (CHARGE_SPEED * dt * 0.3f);
+        m_chargePrevPos = m_Position;
+
         // 突進時間終了 → クールダウンへ移行
-        if (m_chargeTimer >= CHARGE_MOVE_TIME)
+        if (m_chargeTimer >= CHARGE_MOVE_TIME || blocked)
         {
             m_bossPhase      = BossPhase::COOLDOWN;
             m_chargeTimer    = 0.0f;
-            m_chargeCooldown = CHARGE_INTERVAL;
+            m_chargeCooldown = CHARGE_INTERVAL * (m_Enraged ? 0.6f : 1.0f);
         }
         break;
     }
@@ -393,9 +417,9 @@ void EnemyBoss::Update(double elapsed_time)
         if (m_shootTimer >= m_nextShootInterval && m_burstRemaining == 0)
         {
             m_shootTimer        = 0.0f;
-            m_nextShootInterval = 0.7f + (rand() % 90) * 0.01f;
+            m_nextShootInterval = (0.7f + (rand() % 90) * 0.01f) * (m_Enraged ? 0.65f : 1.0f);
 
-            if (MapPatrolAI_HasLineOfSight(m_Position, Player_GetPosition()))
+            if (m_HasLos)
             {
                 m_shotCount++;
                 if (m_shotCount % 3 == 0)
@@ -445,7 +469,7 @@ void EnemyBoss::Draw()
 
     XMMATRIX trans = XMMatrixTranslation(
         m_Position.x,
-        m_Position.y - bodyLocal.min.y,
+        m_Position.y - bodyLocal.min.y + m_IdleBob,
         m_Position.z
     );
 
@@ -526,7 +550,7 @@ XMMATRIX EnemyBoss::GetBarrelWorldMatrix(int faceIndex)
     XMVECTOR worldCenter = XMVectorAdd(
         rotCenter,
         XMVectorSet(m_Position.x,
-                    m_Position.y - bodyLocal.min.y,
+                    m_Position.y - bodyLocal.min.y + m_IdleBob,   // 本体の浮遊に合わせる
                     m_Position.z, 0.0f));
     XMFLOAT3 wc;
     XMStoreFloat3(&wc, worldCenter);
@@ -727,8 +751,16 @@ void EnemyBoss::FireSingleBarrel(int index)
     if (index < 0 || index >= BARREL_COUNT) return;
     if (!m_pBarrel[index]) return;
 
+    // 予測射撃：弾が届くまでのプレイヤーの移動を 70% だけ先読みする（完全に読むと避けようがないため）
     XMFLOAT3 playerPos = Player_GetPosition();
     XMFLOAT3 target = { playerPos.x, playerPos.y + 0.3f, playerPos.z };
+    if (const XMFLOAT3* pv = Player_GetVelocityPtr())
+    {
+        const float dx = target.x - m_Position.x, dz = target.z - m_Position.z;
+        const float t  = sqrtf(dx * dx + dz * dz) / BOSS_BULLET_SPEED;
+        target.x += pv->x * t * 0.7f;
+        target.z += pv->z * t * 0.7f;
+    }
 
     const AABB barrelLocal = ModelGetAABB(m_pBarrel[index], { 0.0f, 0.0f, 0.0f });
     XMMATRIX  barrelWorld = GetBarrelWorldMatrix(index);

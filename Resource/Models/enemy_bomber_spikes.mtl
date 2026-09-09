@@ -1,0 +1,8 @@
+newmtl spike
+Ka 0 0 0
+Kd 0.250 0.250 0.280
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+

@@ -1,0 +1,8 @@
+newmtl cannon
+Ka 0 0 0
+Kd 0.120 0.120 0.140
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+

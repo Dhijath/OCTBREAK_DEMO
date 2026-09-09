@@ -11,6 +11,7 @@
 #include <DirectXMath.h>
 #include "texture.h"
 #include "model.h"
+#include <cstring>
 #include <string>
 
 #include <assert.h>
@@ -578,4 +579,73 @@ void ModelDrawWithoutBegin(MODEL* model, const DirectX::XMMATRIX& mtxWorld)
         UINT indexCount = mesh->mNumFaces * 3;
         Direct3D_GetContext()->DrawIndexed(indexCount, 0, 0);
     }
+}
+
+//----------------------------------------------
+// メッシュ数（マテリアルごとにまとめられた後の数）
+//----------------------------------------------
+int ModelGetMeshCount(MODEL* model)
+{
+    if (model == nullptr || model->AiScene == nullptr) return 0;
+    return static_cast<int>(model->AiScene->mNumMeshes);
+}
+
+//----------------------------------------------
+// 1つのメッシュだけを描画する（パーツごとに動かすエネミー用。目のまばたきなど）
+//   meshIndex : 0 〜 ModelGetMeshCount()-1。範囲外なら何もしない
+//----------------------------------------------
+void ModelDrawMesh(MODEL* model, int meshIndex, const DirectX::XMMATRIX& mtxWorld)
+{
+    if (model == nullptr || model->AiScene == nullptr) return;
+    if (meshIndex < 0 || meshIndex >= static_cast<int>(model->AiScene->mNumMeshes)) return;
+
+    aiMesh* mesh = model->AiScene->mMeshes[meshIndex];
+    if (mesh->mNumFaces == 0) return;
+    if (!model->VertexBuffer[meshIndex] || !model->IndexBuffer[meshIndex]) return;
+
+    Shader3d_Begin();
+    Direct3D_GetContext()->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    Shader3d_SetWorldMatrix(mtxWorld);
+
+    // テクスチャ（無ければ白）
+    aiMaterial* aimaterial = model->AiScene->mMaterials[mesh->mMaterialIndex];
+    aiString texName;
+    aimaterial->GetTexture(aiTextureType_DIFFUSE, 0, &texName);
+    bool textureSet = false;
+    if (texName.length != 0)
+    {
+        auto it = model->Texture.find(texName.C_Str());
+        if (it != model->Texture.end() && it->second)
+        {
+            ID3D11ShaderResourceView* srv = it->second;
+            Direct3D_GetContext()->PSSetShaderResources(0, 1, &srv);
+            textureSet = true;
+        }
+    }
+    if (!textureSet) Set_Texture(g_TextureWhite);
+
+    aiColor3D diffuse;
+    aimaterial->Get(AI_MATKEY_COLOR_DIFFUSE, diffuse);
+    Shader3d_SetColor(XMFLOAT4(diffuse.r, diffuse.g, diffuse.b, 1.0f));
+
+    UINT stride = sizeof(Vertex3D);
+    UINT offset = 0;
+    Direct3D_GetContext()->IASetVertexBuffers(0, 1, &model->VertexBuffer[meshIndex], &stride, &offset);
+    Direct3D_GetContext()->IASetIndexBuffer(model->IndexBuffer[meshIndex], DXGI_FORMAT_R32_UINT, 0);
+    Direct3D_GetContext()->DrawIndexed(mesh->mNumFaces * 3, 0, 0);
+}
+
+//----------------------------------------------
+// マテリアル名からメッシュ番号を探す（見つからなければ -1）
+//----------------------------------------------
+int ModelFindMesh(MODEL* model, const char* materialName)
+{
+    if (model == nullptr || model->AiScene == nullptr || materialName == nullptr) return -1;
+    for (unsigned int m = 0; m < model->AiScene->mNumMeshes; ++m)
+    {
+        aiString name;
+        model->AiScene->mMaterials[model->AiScene->mMeshes[m]->mMaterialIndex]->Get(AI_MATKEY_NAME, name);
+        if (strcmp(name.C_Str(), materialName) == 0) return static_cast<int>(m);
+    }
+    return -1;
 }

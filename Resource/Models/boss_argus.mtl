@@ -1,0 +1,24 @@
+newmtl eye
+Ka 0 0 0
+Kd 0.200 0.900 1.000
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+
+newmtl fin
+Ka 0 0 0
+Kd 0.180 0.180 0.200
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+
+newmtl shell
+Ka 0 0 0
+Kd 0.300 0.120 0.160
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+

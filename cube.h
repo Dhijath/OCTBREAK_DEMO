@@ -29,6 +29,9 @@ void Cube_Finalize(void);
 // 指定テクスチャ＆ワールド行列でキューブを1つ描画
 void Cube_Draw(int texID, const DirectX::XMMATRIX mtxW);
 
+// 指定色（テクスチャに乗算）＆ワールド行列でキューブを1つ描画
+void Cube_DrawColor(int texID, const DirectX::XMMATRIX& mtxW, const DirectX::XMFLOAT4& color);
+
 // 中心 position を持つ 1x1x1 の AABB を生成（ローカル基準）
 AABB Cube_CreateAABB(const DirectX::XMFLOAT3& position);
 

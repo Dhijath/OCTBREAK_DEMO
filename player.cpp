@@ -35,6 +35,10 @@
 #include "ModelToon.h"
 #include "Shadow_Map.h"
 #include "Trail.h"
+#include "PlayerWeaponEx.h"
+#include "MechParts.h"
+#include <algorithm>
+#include <cfloat>
 using namespace DirectX;
 
 namespace
@@ -95,7 +99,10 @@ namespace
     //--------------------------------------------------------------------------
     // HP / 無敵
     //--------------------------------------------------------------------------
-    constexpr int PLAYER_MAX_HP = 8000;
+    constexpr int PLAYER_MAX_HP = PLAYER_BASE_HP;   // 機体構成の補正前の AP（MechParts.h）
+int   g_PlayerMaxHP     = PLAYER_MAX_HP;       // 機体構成の補正後の最大 AP（Player_Initialize で決める）
+float g_FrameSpeedMul  = 1.0f;                // 機体構成の速度倍率
+float g_FrameAttackMul = 1.0f;                // 機体構成の攻撃力倍率
     int g_PlayerHP = PLAYER_MAX_HP;      // 現在HP
     double g_InvincibleTimer = 0.0;
     constexpr double INVINCIBLE_DURATION = 1.3; // 無敵時間（秒）
@@ -149,6 +156,11 @@ namespace
         case WEAPON_MULTIMISSILE: return new WeaponMultiMissile();
         case WEAPON_TRIPLEGUN:    return new WeaponTripleGun();
         case WEAPON_MELEE:        return new WeaponMelee();
+        case WEAPON_RAILGUN:      return new WeaponRailgun();
+        case WEAPON_GATLING:      return new WeaponGatling();
+        case WEAPON_GRENADE:      return new WeaponGrenade();
+        case WEAPON_BURSTRIFLE:   return new WeaponBurstRifle();
+        case WEAPON_SPREADLASER:  return new WeaponSpreadLaser();
         default:                  return nullptr;
         }
     }
@@ -182,7 +194,11 @@ namespace
     XMFLOAT3 g_ThrusterOffsetLocal = { 0.0f, 0.30f, -0.25f };
 
     // モデル描画の Y オフセット（Initialize と Draw で共用）
-    constexpr float PLAYER_HEIGHT_OFFSET = 0.15f;
+    // ボディを足元（g_PlayerPosition.y）からどれだけ持ち上げて描くか。
+    // ボディの下にスラスター（脚部）が吊り下がるため、スラスターの底面が
+    // ちょうど地面に接する高さを Player_Initialize でモデルの寸法から計算する。
+    //（固定値 0.15 のころはスラスターが約 10cm 地面にめり込んでいた）
+    float PLAYER_HEIGHT_OFFSET = 0.15f;
 
 
     float g_ThrusterLocalYaw = XMConvertToRadians(180.0f); // FBXデフォルト向き補正
@@ -202,6 +218,27 @@ namespace
         return rotFix * rotY * rotYawFix;
     }
 
+    //--------------------------------------------------------------------------
+    // 機体パーツの取り付け点（MechParts の値 × MECH_PART_SCALE。Player_Initialize で決める）
+    //   パーツの積み上げはモデルの外形ではなく取り付け点で行う（ヒレ等で頭がずれないように）
+    //--------------------------------------------------------------------------
+    XMFLOAT3 g_MountBodyHead = { 0.0f,  0.38f * 0.3f, 0.0f };   // 胴体：頭を載せる点
+    XMFLOAT3 g_MountBodyLegs = { 0.0f, -0.37f * 0.3f, 0.0f };   // 胴体：脚部を付ける点
+    XMFLOAT3 g_MountHeadNeck = { 0.0f, -0.30f * 0.3f, 0.0f };   // 頭：首
+    XMFLOAT3 g_MountLegsTop  = { 0.0f,  0.15f * 0.3f, 0.0f };   // 脚部：上面
+
+    //--------------------------------------------------------------------------
+    // 胴体の「枠」：XZ はモデルの外形、Y は 脚部の取り付け点（下）〜頭の取り付け点（上）。
+    // 武器・盾・近接・頭・脚部の位置はこの枠を基準にする（以前のモデル AABB の代わり）
+    //--------------------------------------------------------------------------
+    static AABB Player_GetBodyFrameBox(const XMFLOAT3& bodyWorldPos)
+    {
+        AABB box = ModelGetAABB(g_pPlayerModel, bodyWorldPos);
+        box.min.y = bodyWorldPos.y + g_MountBodyLegs.y;
+        box.max.y = bodyWorldPos.y + g_MountBodyHead.y;
+        return box;
+    }
+
     static XMMATRIX Player_GetThrusterWorldMatrix()
     {
         XMMATRIX bodyRot = Player_GetBodyRotationMatrix();
@@ -213,7 +250,7 @@ namespace
             g_PlayerPosition.z
         };
 
-        const AABB bodyAABB = ModelGetAABB(g_pPlayerModel, bodyWorldPos);
+        const AABB bodyAABB = Player_GetBodyFrameBox(bodyWorldPos);
         const AABB thrusterLocal = ModelGetAABB(g_pThrusterModel, { 0.0f, 0.0f, 0.0f });
 
         // スラスターのローカル中心を計算
@@ -232,7 +269,7 @@ namespace
 
         XMMATRIX thrusterTrans = XMMatrixTranslation(
             g_PlayerPosition.x + XMVectorGetX(playerFront) * THRUSTER_FORWARD_OFFSET,
-            bodyAABB.min.y - thrusterLocal.max.y - 0.01f,
+            bodyAABB.min.y - g_MountLegsTop.y - 0.01f,   // 胴体の脚の取り付け点に脚部の上面を合わせる
             g_PlayerPosition.z + XMVectorGetZ(playerFront) * THRUSTER_FORWARD_OFFSET
         );
 
@@ -272,7 +309,7 @@ namespace
             g_PlayerPosition.y + PLAYER_HEIGHT_OFFSET,
             g_PlayerPosition.z
         };
-        const AABB bodyAABB = ModelGetAABB(g_pPlayerModel, bodyWorldPos);
+        const AABB bodyAABB = Player_GetBodyFrameBox(bodyWorldPos);
 
         // バレル原点位置（ボディ底面・右側）
         XMFLOAT3 barrelOriginPos = {
@@ -437,7 +474,7 @@ namespace
             g_PlayerPosition.y + PLAYER_HEIGHT_OFFSET,
             g_PlayerPosition.z
         };
-        const AABB bodyAABB = ModelGetAABB(g_pPlayerModel, bodyWorldPos);
+        const AABB bodyAABB = Player_GetBodyFrameBox(bodyWorldPos);
 
         XMFLOAT3 barrelOriginPos = {
             g_PlayerPosition.x + XMVectorGetX(playerRight) * BARREL_SIDE_X
@@ -588,7 +625,7 @@ namespace
             g_PlayerPosition.y + PLAYER_HEIGHT_OFFSET,
             g_PlayerPosition.z
         };
-        const AABB bodyAABB = ModelGetAABB(g_pPlayerModel, bodyWorldPos);
+        const AABB bodyAABB = Player_GetBodyFrameBox(bodyWorldPos);
 
         const XMFLOAT3 shieldOriginPos = {
             g_PlayerPosition.x + XMVectorGetX(playerRight) * SHIELD_SIDE_X
@@ -668,7 +705,7 @@ namespace
 
         const XMFLOAT3 bodyWorldPos = {
             g_PlayerPosition.x, g_PlayerPosition.y + PLAYER_HEIGHT_OFFSET, g_PlayerPosition.z };
-        const AABB bodyAABB = ModelGetAABB(g_pPlayerModel, bodyWorldPos);
+        const AABB bodyAABB = Player_GetBodyFrameBox(bodyWorldPos);
 
         const XMFLOAT3 shieldOriginPos = {
             g_PlayerPosition.x + XMVectorGetX(playerRight) * SHIELD_SIDE_X
@@ -723,13 +760,16 @@ namespace
             g_PlayerPosition.z
         };
 
-        const AABB bodyAABB = ModelGetAABB(g_pPlayerModel, bodyWorldPos);
-        const AABB headLocal = ModelGetAABB(g_pHeadModel, { 0.0f, 0.0f, 0.0f });
+        const AABB bodyAABB = Player_GetBodyFrameBox(bodyWorldPos);
 
+        // 頭の首を胴体の頭の取り付け点に重ねる（前後左右のずれは胴体の向きで回す）
+        XMFLOAT3 off;
+        XMStoreFloat3(&off, XMVector3TransformNormal(
+            XMVectorSet(g_MountBodyHead.x - g_MountHeadNeck.x, 0.0f, g_MountBodyHead.z - g_MountHeadNeck.z, 0.0f), bodyRot));
         XMMATRIX headTrans = XMMatrixTranslation(
-            g_PlayerPosition.x,
-            bodyAABB.max.y - headLocal.min.y,
-            g_PlayerPosition.z
+            g_PlayerPosition.x + off.x,
+            bodyAABB.max.y - g_MountHeadNeck.y,
+            g_PlayerPosition.z + off.z
         );
 
         return bodyRot * headTrans;
@@ -837,7 +877,14 @@ void Player_Initialize(const DirectX::XMFLOAT3& position, const DirectX::XMFLOAT
     g_PlayerSpeedMultiplier = 2.0f;
 
 
-    g_PlayerHP = PLAYER_MAX_HP;
+    // 機体構成（頭・胴体・脚部・内部パーツ）の性能を反映する
+    {
+        const MechStats st = MechParts_CalcStats();
+        g_PlayerMaxHP     = static_cast<int>(PLAYER_MAX_HP * st.hpMul);
+        g_FrameSpeedMul   = st.speedMul;
+        g_FrameAttackMul  = st.attackMul;
+    }
+    g_PlayerHP = g_PlayerMaxHP;
     g_InvincibleTimer = 0.0;
 
     Mouse_SetMode(MOUSE_POSITION_MODE_RELATIVE);
@@ -848,12 +895,31 @@ void Player_Initialize(const DirectX::XMFLOAT3& position, const DirectX::XMFLOAT
     g_PlayerWhightTexID = Texture_Load(L"resource/texture/Player_white.png");
     g_PlayerMarkerTexID = Texture_Load(L"resource/texture/Player_white.png");
     // プレイヤーモデルを body.fbx で構成する
-    g_pPlayerModel = ModelLoad("resource/Models/body.fbx", 0.3f);
-    g_pThrusterModel = ModelLoad("resource/Models/Thruster.fbx", 0.3f);
+    g_pPlayerModel = ModelLoad(MechParts_GetFrame(FRAME_BODY, MechParts_GetFrameSel(FRAME_BODY)).model, 0.3f);
+    g_pThrusterModel = ModelLoad(MechParts_GetFrame(FRAME_LEGS, MechParts_GetFrameSel(FRAME_LEGS)).model, 0.3f);
+
+    // 脚部（スラスター）の底面が地面に接するようにボディの描画高さを決める
+    //   スラスター原点 = ボディ底面 - スラスター上端 - 0.01（Player_GetThrusterWorldMatrix と同じ）
+    //   スラスター底面 = スラスター原点 + スラスター下端 = 0 になる高さ
+    // 取り付け点（頭・胴体・脚部の積み上げの基準。MechParts.h を参照）
+    {
+        auto toF3 = [](const MechMount& m) { return XMFLOAT3{ m.x, m.y, m.z }; };
+        const int body = MechParts_GetFrameSel(FRAME_BODY);
+        g_MountBodyHead = toF3(MechParts_Mount(FRAME_BODY, body, false));
+        g_MountBodyLegs = toF3(MechParts_Mount(FRAME_BODY, body, true));
+        g_MountHeadNeck = toF3(MechParts_Mount(FRAME_HEAD, MechParts_GetFrameSel(FRAME_HEAD)));
+        g_MountLegsTop  = toF3(MechParts_Mount(FRAME_LEGS, MechParts_GetFrameSel(FRAME_LEGS)));
+    }
+    if (g_pPlayerModel && g_pThrusterModel)
+    {
+        // 脚部の底が地面に接する高さ：胴体の脚の取り付け点 → 脚部の上面 → 脚部の底
+        const AABB thruster = ModelGetAABB(g_pThrusterModel, { 0.0f, 0.0f, 0.0f });
+        PLAYER_HEIGHT_OFFSET = -g_MountBodyLegs.y + (g_MountLegsTop.y - thruster.min.y) + 0.01f;
+    }
     g_pBarrelModel = ModelLoad(k_WeaponDefs[g_NormalWeaponIdx].modelPath, k_WeaponDefs[g_NormalWeaponIdx].scale);
     if (g_NormalWeaponIdx == WEAPON_MELEE)  // 近接なら発光パーツも
         g_pBarrelEdgeModel = ModelLoad(MELEE_EDGE_MODEL_PATH, k_WeaponDefs[g_NormalWeaponIdx].scale);
-    g_pHeadModel   = ModelLoad("resource/Models/Head.fbx", 0.3f);
+    g_pHeadModel   = ModelLoad(MechParts_GetFrame(FRAME_HEAD, MechParts_GetFrameSel(FRAME_HEAD)).model, 0.3f);
     g_pShieldModel = ModelLoad(k_WeaponDefs[WEAPON_SHIELD].modelPath, k_WeaponDefs[WEAPON_SHIELD].scale);
 
     // 左腕武器（バレル系ならモデルとインスタンスをロード）
@@ -865,8 +931,9 @@ void Player_Initialize(const DirectX::XMFLOAT3& position, const DirectX::XMFLOAT
     // body は PLAYER_HEIGHT_OFFSET 上に描画、head は body 頂面に積まれる
     {
         const XMFLOAT3 bodyOrigin = { 0.0f, PLAYER_HEIGHT_OFFSET, 0.0f };
-        const AABB bodyAABB  = ModelGetAABB(g_pPlayerModel, bodyOrigin);
-        const AABB headLocal = ModelGetAABB(g_pHeadModel,   { 0.0f, 0.0f, 0.0f });
+        const AABB bodyAABB  = Player_GetBodyFrameBox(bodyOrigin);
+        AABB headLocal = ModelGetAABB(g_pHeadModel, { 0.0f, 0.0f, 0.0f });
+        headLocal.min.y = g_MountHeadNeck.y;   // 頭は首（取り付け点）で胴体に載る
         // head の Y 原点 = bodyAABB.max.y - headLocal.min.y
         // head の世界頂点 = headOriginY + headLocal.max.y
         const float headOriginY = bodyAABB.max.y - headLocal.min.y;
@@ -899,8 +966,8 @@ void Player_Initialize(const DirectX::XMFLOAT3& position, const DirectX::XMFLOAT
         // スラスター原点 = PLAYER_HEIGHT_OFFSET + bodyLocal.min.y - thrusterLocal.max.y - 0.01f
         // スラスター中心 = 原点 + (max.y + min.y) / 2
         const float thrusterOriginY = PLAYER_HEIGHT_OFFSET
-            + bodyLocal.min.y
-            - thrusterLocal.max.y
+            + g_MountBodyLegs.y   // 胴体の脚の取り付け点
+            - g_MountLegsTop.y    // 脚部の上面
             - 0.01f;
         const float thrusterCenterY = thrusterOriginY
             + (thrusterLocal.max.y + thrusterLocal.min.y) * 0.5f;
@@ -930,6 +997,11 @@ void Player_Initialize(const DirectX::XMFLOAT3& position, const DirectX::XMFLOAT
     g_NormalWeapons[WEAPON_MULTIMISSILE] = new WeaponMultiMissile();
     g_NormalWeapons[WEAPON_TRIPLEGUN]    = new WeaponTripleGun();
     g_NormalWeapons[WEAPON_MELEE]        = new WeaponMelee();
+    g_NormalWeapons[WEAPON_RAILGUN]      = new WeaponRailgun();
+    g_NormalWeapons[WEAPON_GATLING]      = new WeaponGatling();
+    g_NormalWeapons[WEAPON_GRENADE]      = new WeaponGrenade();
+    g_NormalWeapons[WEAPON_BURSTRIFLE]   = new WeaponBurstRifle();
+    g_NormalWeapons[WEAPON_SPREADLASER]  = new WeaponSpreadLaser();
     for (int i = 0; i < WEAPON_COUNT; ++i)
         if (g_NormalWeapons[i]) g_NormalWeapons[i]->Initialize();
 
@@ -1139,6 +1211,15 @@ void Player_Update(double elapsed_time)
 
         const float velY = XMVectorGetY(velocity);
 
+        // 重なっている床のうち「足元から段差の高さ（STEP_UP）以内」で最も高いものに乗る。
+        //（以前は最初に見つかった床で打ち切っていたため、階段では低い段が選ばれて
+        //  次の段に足がめり込んだまま引っかかることがあった）
+        // 足より大きく上にある床は横から入り込んだだけなので乗らない（壁が押し戻す）
+        constexpr float STEP_UP = 0.45f;
+        const float feetRef = std::max(XMVectorGetY(position), tempPos.y);   // 落下中は移動前の足の高さ
+        float landY    = -FLT_MAX;
+        float ceilingY =  FLT_MAX;
+
         for (int i = 0; i < Map_GetObjectsCount(); i++)
         {
             const MapObject* mo = Map_GetObject(i);
@@ -1147,24 +1228,35 @@ void Player_Update(double elapsed_time)
             const bool isFloor   = (mo->KindId == 0 || mo->KindId == 1); // KIND_GROUND / KIND_FLOOR
             const bool isCeiling = (mo->KindId == 4);                    // KIND_CEILING
             if (!isFloor && !isCeiling) continue;
+            if (!Collision_IsOverLapAABB(playerAABB, mo->Aabb)) continue;
 
-            if (Collision_IsOverLapAABB(playerAABB, mo->Aabb))
+            // 上昇中でも、足が床の底より上にあるなら「下から突き上げた」のではなく
+            // 「縁から乗り込んだ」状態なので着地として扱う。
+            //（ブロックステージで、上昇しながら屋上の縁に乗るときに下へ弾かれるのを防ぐ）
+            const bool hitFromBelow = (velY > 0.0f && tempPos.y < mo->Aabb.min.y);
+
+            if (isCeiling || hitFromBelow)
             {
-                if (isCeiling || velY > 0.0f)
-                {
-                    // 天井オブジェクト、または床の底に上昇中に当たった
-                    posY = XMVectorSetY(posY, mo->Aabb.min.y - s_PlayerTopOffset);
-                    velocity = XMVectorSetY(velocity, 0.0f);
-                }
-                else
-                {
-                    // 床に着地
-                    posY = XMVectorSetY(posY, mo->Aabb.max.y);
-                    velocity *= XMVECTOR{ 1.0f, 0.0f, 1.0f, 1.0f };
-                    g_IsJump = false;
-                }
-                break;
+                ceilingY = std::min(ceilingY, mo->Aabb.min.y);
             }
+            else if (mo->Aabb.max.y <= feetRef + STEP_UP)
+            {
+                landY = std::max(landY, mo->Aabb.max.y);
+            }
+        }
+
+        if (landY > -FLT_MAX)
+        {
+            // 床に着地（段差はここで上る）
+            posY = XMVectorSetY(posY, landY);
+            velocity *= XMVECTOR{ 1.0f, 0.0f, 1.0f, 1.0f };
+            g_IsJump = false;
+        }
+        else if (ceilingY < FLT_MAX)
+        {
+            // 天井オブジェクト、または床の底に上昇中に当たった
+            posY = XMVectorSetY(posY, ceilingY - s_PlayerTopOffset);
+            velocity = XMVectorSetY(velocity, 0.0f);
         }
 
         position = XMVectorSetY(position, XMVectorGetY(posY));
@@ -1206,7 +1298,7 @@ void Player_Update(double elapsed_time)
     if (XMVectorGetX(XMVector3LengthSq(moveDir)) > 0.0f)
     {
         moveDir = XMVector3Normalize(moveDir);
-        velocity += moveDir * static_cast<float>(2000.0 / 90.0 * elapsed_time) * g_PlayerSpeedMultiplier;
+        velocity += moveDir * static_cast<float>(2000.0 / 90.0 * elapsed_time) * g_PlayerSpeedMultiplier * g_FrameSpeedMul;
     }
 
     //--------------------------------------------------------------------------
@@ -1442,7 +1534,7 @@ void Player_Update(double elapsed_time)
         if (g_RightWeaponIdx != WEAPON_SHIELD && g_NormalWeapons[g_NormalWeaponIdx])
         {
             // 実際に発射できたフレームだけリコイルをキックする
-            if (g_NormalWeapons[g_NormalWeaponIdx]->TryFire(muzzlePos, aimDir, g_PlayerDamageMultiplier))
+            if (g_NormalWeapons[g_NormalWeaponIdx]->TryFire(muzzlePos, aimDir, g_PlayerDamageMultiplier * g_FrameAttackMul))
                 g_RightBarrelRecoil = RECOIL_KICK;
         }
     }
@@ -1461,7 +1553,7 @@ void Player_Update(double elapsed_time)
         XMStoreFloat3(&leftAimDir,
             XMVector3Normalize(XMVector3TransformNormal(XMVectorSet(0.0f, 0.0f, -1.0f, 0.0f), leftWorld)));
 
-        if (g_pLeftWeapon->TryFire(leftMuzzlePos, leftAimDir, g_PlayerDamageMultiplier))
+        if (g_pLeftWeapon->TryFire(leftMuzzlePos, leftAimDir, g_PlayerDamageMultiplier * g_FrameAttackMul))
             g_LeftBarrelRecoil = RECOIL_KICK;
     }
 
@@ -1480,7 +1572,7 @@ void Player_Update(double elapsed_time)
         XMStoreFloat3(&beamDir, XMVector3Normalize(
             XMVectorSet(camFrontBeam.x, 0.0f, camFrontBeam.z, 0.0f)));
 
-        g_pBeamWeapon->TryFire(beamOrigin, beamDir, g_PlayerDamageMultiplier);
+        g_pBeamWeapon->TryFire(beamOrigin, beamDir, g_PlayerDamageMultiplier * g_FrameAttackMul);
     }
 
     //--------------------------------------------------------------------------
@@ -1575,7 +1667,7 @@ void Player_Update(double elapsed_time)
     //--------------------------------------------------------------------------
     if (g_PlayerSmokeEmitter)
     {
-        const bool hpLow = (g_PlayerHP <= (PLAYER_MAX_HP * 4) / 10);
+        const bool hpLow = (g_PlayerHP <= (g_PlayerMaxHP * 4) / 10);
         XMVECTOR smokePos = XMLoadFloat3(&g_PlayerPosition)
                           + XMVectorSet(0.0f, PLAYER_HEIGHT_OFFSET, 0.0f, 0.0f);
         g_PlayerSmokeEmitter->SetPosition(smokePos);
@@ -2022,19 +2114,19 @@ int Player_GetHP() // 現在HPを返す
 
 int Player_GetMaxHP() // 最大HPを返す
 {
-    return PLAYER_MAX_HP;
+    return g_PlayerMaxHP;
 }
 
 void Player_Heal(int amount) // HP回復（最大HPでクランプ）。amount=回復量
 {
     g_PlayerHP += amount;
-    if (g_PlayerHP > PLAYER_MAX_HP)
-        g_PlayerHP = PLAYER_MAX_HP;
+    if (g_PlayerHP > g_PlayerMaxHP)
+        g_PlayerHP = g_PlayerMaxHP;
 }
 
 void Player_ResetHP() // HPと無敵時間を初期状態に戻す
 {
-    g_PlayerHP = PLAYER_MAX_HP;
+    g_PlayerHP = g_PlayerMaxHP;
     g_InvincibleTimer = 0.0;
 }
 

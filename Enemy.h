@@ -10,6 +10,7 @@
 #define ENEMY_H
 
 #include <DirectXMath.h>
+#include <cmath>
 #include "collision.h"
 #include "collision_obb.h"
 
@@ -175,6 +176,7 @@ public:
     // 討伐スコアを返す（サブクラスでオーバーライド）
     //==========================================================================
     virtual int  GetKillScore()  const { return 2000; }
+    virtual const wchar_t* GetDisplayName() const { return L"HOSTILE"; }   // HUD 表示名（ボスの体力表示など）
     virtual bool IsDropItem()    const { return true; }  // アイテムをドロップするか
     virtual bool IsDeferDeath()  const { return false; } // 死亡フラグを遅延させるか
     virtual bool IsArmored()     const { return false; } // 装甲持ち：弾直撃で10%カット＋ヒット音は従来のまま（ボス用）
@@ -191,7 +193,60 @@ public:
     //==========================================================================
     virtual void DrawShadow();
 
+    //==========================================================================
+    // 壁・他のエネミーとの衝突に使う半径（モデルの横幅から算出。許容範囲つき）
+    //==========================================================================
+    float GetCollisionRadius() const;
+
+    // ボス（他のエネミーに押されない・大きく押し返す）か
+    virtual bool IsBoss() const { return IsDeferDeath(); }
+
+    // 生成時の種別（EnemyType の値。EnemyManager::Spawn が設定する。-1 = 不明）
+    void SetTypeId(int id) { m_TypeId = id; }
+    int  GetTypeId() const { return m_TypeId; }
+
+    // 体の上端（m_Position.y からの高さ）。高さを考慮した壁判定に使う
+    float GetBodyTop() const { return m_obbBottomY + m_obbHalfHeight; }
+
+    // 水平方向に押し出す（エネミー同士の押し合い用。壁は越えない）
+    void Nudge(float dx, float dz)
+    {
+        const float len = sqrtf(dx * dx + dz * dz);
+        if (len < 1e-5f) return;
+        MoveHorizWithWallClamp(m_Position, dx / len, dz / len, len);
+    }
+
 protected:
+    // 地面から浮かせて描く量（浮遊する機種がオーバーライドする）
+    virtual float GetHoverHeight() const { return 0.0f; }
+    //==========================================================================
+    // 見た目のアニメーション（球体型エネミー共通）
+    //   Update の最後で UpdateAnim(dt) を呼び、Draw で下の関数を使う
+    //==========================================================================
+    void  UpdateAnim(float dt);
+    // まばたき中の目の縦の倍率（1 = 開いている）。squint を掛けて「目を細める」表現にも使う
+    float BlinkScale() const;
+    // 本体中心まわりの傾き（進む方向へ前傾・旋回で横に傾く）と弾み。
+    // 向きの回転の後、位置の移動の前に掛ける。leanMax / bankMax はラジアン、hop は弾む高さ（m）
+    DirectX::XMMATRIX BallMotion(float leanMax, float bankMax, float hop) const;
+    // 目のメッシュだけ縦に縮めて描く（eyeY = モデル空間での目の中心の高さ）
+    void  DrawEyeModel(MODEL* model, int eyeMesh, float eyeY, const DirectX::XMMATRIX& world, float eyeScaleY) const;
+
+    float m_AnimTime   = 0.0f;   // アニメーションの経過時間
+    float m_BlinkTimer = 0.0f;   // まばたきのタイマー
+    float m_BlinkNext  = 2.5f;   // 次のまばたきまで（秒）
+    float m_Lean01     = 0.0f;   // 前傾の度合い（0〜1。速さから）
+    float m_Bank01     = 0.0f;   // 横の傾き（-1〜1。旋回の速さから）
+    float m_PrevYaw    = 0.0f;
+    float m_Recoil     = 0.0f;   // 射撃の反動（1 → 0 へ戻る）
+
+    // 高さを考慮した壁判定：壁 AABB がこのエネミーの体の高さと重なるか。
+    // 足元より下の壁（下の階の手すり等）や頭上の壁（上の階の床板）は無視する
+    bool WallOverlapsBody(const AABB& wall, float posY) const
+    {
+        return wall.max.y >= posY + 0.1f && wall.min.y <= posY + GetBodyTop();
+    }
+
     //==========================================================================
     // 任意の位置からエネミー用OBBを作成
     //
@@ -278,6 +333,7 @@ protected:
     int  m_MaxHp = 0;                  // 最大HP
 
     bool m_IsAlive = false;            // 生存フラグ
+    int  m_TypeId = -1;                // 生成時の種別（EnemyType の値）
     mutable bool m_IsGround = false;   // 接地フラグ
     bool m_WasChasing = false;         // 前フレームの追跡フラグ
 
@@ -298,6 +354,7 @@ protected:
     float m_SpeedCap = MAX_SPEED;
 
     float m_lockOnCenterOffset = 0.4f; // ロックオンYオフセット（モデル読込後に自動設定）
+    float m_DrawOffsetY = ENEMY_HEIGHT; // 描画の持ち上げ量（モデル底面を足元に合わせる。モデル読込後に自動設定）
 
     // モデルAABBから算出した衝突OBB半径（ComputeLockOnOffsetFromModel で設定）
     float m_obbHalfWidth  = ENEMY_HALF_WIDTH_X; // X/Z 半径

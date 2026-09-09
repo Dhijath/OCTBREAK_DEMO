@@ -18,7 +18,8 @@ enum class GameState
     StageSelect,  // ステージ選択（Adventure / Survival）
     PreGame,      // 中間メニュー（アセンブリ / スコア確認）
     WeaponSelect, // 武器選択画面（アセンブリ）
-    ScoreCheck,   // スコア確認画面
+    MissionSelect,// ミッション選択（アドベンチャーのアセンブリ確定後）
+    EnemyDex,     // エネミー図鑑（旧スコア確認画面）
     Tutorial,     // チュートリアル（画像スライドショー）
     Playing,      // ゲーム中（Adventure）
     Survival,     // ゲーム中（Survival）

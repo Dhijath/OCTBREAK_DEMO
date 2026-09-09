@@ -20,6 +20,11 @@ enum WeaponID
     WEAPON_MULTIMISSILE,   // マルチミサイル（ベジェ曲線で拡散する誘導ミサイル）
     WEAPON_TRIPLEGUN,      // トリプルマシンガン（横3連バレル・1発の威力40%減）
     WEAPON_MELEE,          // 近接（白兵）：前方を薙ぎ払い範囲ダメージ・弾なし
+    WEAPON_RAILGUN,        // レールキャノン：溜めずに撃てる高威力の貫通ビーム（連射は遅い）
+    WEAPON_GATLING,        // ガトリング：超高速連射・わずかに拡散
+    WEAPON_GRENADE,        // グレネード：放物線を描いて飛ぶ爆発弾
+    WEAPON_BURSTRIFLE,     // バーストライフル：3点バースト
+    WEAPON_SPREADLASER,    // スプレッドレーザー：5方向へ扇状にビーム
     WEAPON_COUNT
 };
 

@@ -1,0 +1,24 @@
+newmtl eye
+Ka 0 0 0
+Kd 0.400 1.000 0.500
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+
+newmtl head
+Ka 0 0 0
+Kd 0.400 0.550 0.450
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+
+newmtl neck
+Ka 0 0 0
+Kd 0.150 0.160 0.170
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+

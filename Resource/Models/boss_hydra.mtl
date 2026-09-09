@@ -1,0 +1,16 @@
+newmtl body
+Ka 0 0 0
+Kd 0.200 0.350 0.300
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+
+newmtl neck
+Ka 0 0 0
+Kd 0.150 0.160 0.170
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+

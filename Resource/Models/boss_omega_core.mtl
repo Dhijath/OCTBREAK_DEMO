@@ -1,0 +1,8 @@
+newmtl core
+Ka 0 0 0
+Kd 1.000 0.420 0.120
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+

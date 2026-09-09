@@ -9,6 +9,7 @@
 #include "map.h"
 #include "cube.h"
 #include "MapPatrolAI.h"
+#include "BlockStage.h"
 #include <vector>
 #include <random>
 #include <DirectXMath.h>
@@ -23,6 +24,8 @@ void Map_GenerateOutdoor(std::uint32_t seed)
 
     const float FLOOR_Y = Map_Internal_GetFloorY();
     const float WALL_H  = Map_Internal_GetWallH();
+
+    BlockStage_Deactivate();   // タイル式マップに戻すので、描画の委譲を解除する
 
     // 屋外アリーナは天井なし（ダンジョンに戻るときは Game_Initialize が true に戻す）
     Map_SetCeilingVisible(false);

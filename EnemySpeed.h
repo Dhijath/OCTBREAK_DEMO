@@ -54,6 +54,10 @@ public:
     // 討伐スコア
     //==========================================================================
     int GetKillScore() const override { return 1500; }
+
+protected:
+    // 小型の浮遊機なので少しだけ地面から浮かせて描く
+    float GetHoverHeight() const override { return 0.12f; }
 };
 
 #endif // ENEMY_SPEED_H

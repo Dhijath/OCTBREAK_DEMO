@@ -1,0 +1,24 @@
+newmtl black
+Ka 0 0 0
+Kd 0.000 0.000 0.000
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+
+newmtl hblue
+Ka 0 0 0
+Kd 0.000 0.000 0.800
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+
+newmtl tgray
+Ka 0 0 0
+Kd 0.400 0.400 0.400
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+

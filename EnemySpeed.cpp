@@ -85,6 +85,7 @@ void EnemySpeed::Update(double elapsed_time)
 
     if (m_ContactDamageCooldown > 0.0f) m_ContactDamageCooldown -= dt;
     ResolveBulletHits();
+    UpdateAnim(dt);   // 見た目のアニメーション
 
     if (IsDead() && IsAlive())
     {
@@ -121,9 +122,20 @@ void EnemySpeed::Draw()
     XMMATRIX trans =
         XMMatrixTranslation(
             m_Position.x,
-            m_Position.y + ENEMY_HEIGHT * 1.0f,
+            m_Position.y + m_DrawOffsetY,
             m_Position.z);
 
-    ModelDraw(m_pModel, rot * trans);
+    //--------------------------------------------------------------------------
+    // アニメーション（翼のある高機動型らしく）
+    //   旋回で翼ごと大きく傾き（バンク）、速いほど前のめりになる。
+    //   浮いているので上下にゆっくり揺れ、速いときは小刻みに震える
+    //   ※翼・ブースター・目は同じマテリアルで1つのメッシュなので、本体ごと動かす
+    //--------------------------------------------------------------------------
+    const float hoverBob = 0.03f + sinf(m_AnimTime * 4.0f) * 0.03f;   // 0〜0.06（下へは沈まない）
+    const float buzz     = sinf(m_AnimTime * 47.0f) * 0.012f * m_Lean01;
+    const XMMATRIX world = rot *
+        BallMotion(XMConvertToRadians(18.0f), XMConvertToRadians(35.0f), 0.0f) *
+        XMMatrixTranslation(0.0f, hoverBob + buzz + 0.012f, 0.0f) * trans;
+    ModelDraw(m_pModel, world);
     Light_SetAmbient({ 1.0, 1.0, 1.0 });
 }

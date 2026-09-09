@@ -21,6 +21,7 @@
 #include "ItemManager.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include "ModelToon.h"
 
 using namespace DirectX;
@@ -42,6 +43,7 @@ void EnemyTank::Initialize(const XMFLOAT3& position)
 
     // タンク用モデルをロードする
     m_pModel  = ModelLoad("resource/Models/enemy_tank.fbx", ENEMY_SIZE * 2.5f);
+    m_AnimTime = static_cast<float>(rand() % 1000) * 0.01f;   // アニメーションの位相を個体ごとにずらす
     m_pShield = ModelLoad("resource/Models/Shield.fbx",     ENEMY_SIZE * 2.5f);
     m_pBarrel = ModelLoad("resource/Models/Barrel.fbx",     ENEMY_SIZE * 1.0f);
     ComputeLockOnOffsetFromModel();
@@ -90,6 +92,32 @@ void EnemyTank::Update(double elapsed_time)
     XMStoreFloat3(&m_Position, pos);
     XMStoreFloat3(&m_Velocity, vel);
 
+    //--------------------------------------------------------------------------
+    // パーツのアニメーション
+    //   本体 : 移動の速さに応じて小刻みに上下する
+    //   盾   : ゆっくり浮き沈みしながら左右に揺れる（追跡中は正面に構えて揺れが小さい）
+    //   砲身 : 待機中は上下に首を振り、追跡中はプレイヤーへ向けて仰角を合わせる
+    //--------------------------------------------------------------------------
+    {
+        m_AnimTime += dt;
+        const float speed = sqrtf(m_Velocity.x * m_Velocity.x + m_Velocity.z * m_Velocity.z);
+        const float walk  = std::min(1.0f, speed / (CHASE_SPD * 0.8f));
+        m_BodyBob   = fabsf(sinf(m_AnimTime * 7.0f)) * 0.035f * walk;
+        const float sway = m_WasChasing ? 3.0f : 9.0f;
+        m_ShieldRotY = sinf(m_AnimTime * 1.6f) * sway;
+        m_ShieldBob  = sinf(m_AnimTime * 2.3f) * 0.035f;
+
+        float barrelTarget = sinf(m_AnimTime * 0.9f) * 8.0f;
+        if (m_WasChasing)
+        {
+            const XMFLOAT3 p = Player_GetPosition();
+            const float dx = p.x - m_Position.x, dz = p.z - m_Position.z;
+            const float pitch = atan2f(p.y - m_Position.y, std::max(0.5f, sqrtf(dx * dx + dz * dz)));
+            barrelTarget = std::clamp(-XMConvertToDegrees(pitch), -25.0f, 15.0f);
+        }
+        m_BarrelRotX += (barrelTarget - m_BarrelRotX) * std::min(1.0f, 4.0f * dt);
+    }
+
     if (m_ContactDamageCooldown > 0.0f) m_ContactDamageCooldown -= dt;
     CheckShieldBulletHits(); // 盾判定（盾で消費した弾は本体に当たらない）
     ResolveBulletHits();
@@ -129,7 +157,7 @@ void EnemyTank::Draw()
     XMMATRIX trans =
         XMMatrixTranslation(
             m_Position.x,
-            m_Position.y + ENEMY_HEIGHT * 1.0f,
+            m_Position.y + m_DrawOffsetY + m_BodyBob,
             m_Position.z);
 
     ModelDrawToon(m_pModel, rot * trans);
@@ -144,7 +172,7 @@ void EnemyTank::Draw()
         // m_Front（実際の向きベクトル）を直接使ってオフセットを計算
         XMMATRIX shieldTrans = XMMatrixTranslation(
             m_Position.x + m_Front.x * SHIELD_DIST,
-            m_Position.y + ENEMY_HEIGHT,
+            m_Position.y + m_DrawOffsetY + m_ShieldBob,
             m_Position.z + m_Front.z * SHIELD_DIST);
 
         ModelDrawToon(m_pShield, shieldRot * shieldTrans);
@@ -159,7 +187,7 @@ void EnemyTank::Draw()
             XMMatrixRotationY(XMConvertToRadians(-90.0f));
 
         // タンク本体の頂点 Y（ワールド空間）
-        const XMFLOAT3 bodyOrigin = { m_Position.x, m_Position.y + ENEMY_HEIGHT, m_Position.z };
+        const XMFLOAT3 bodyOrigin = { m_Position.x, m_Position.y + m_DrawOffsetY, m_Position.z };
         const AABB bodyAABB  = ModelGetAABB(m_pModel,  bodyOrigin);
 
         // バレルの Y 中心（モデル空間）
@@ -169,7 +197,7 @@ void EnemyTank::Draw()
         constexpr float BARREL_DIST = -0.1f;  // 後ろ寄りに調整
         XMMATRIX barrelTrans = XMMatrixTranslation(
             m_Position.x + m_Front.x * BARREL_DIST,
-            bodyAABB.max.y - barrelCenterY,    // 本体頂点にバレル中心を合わせる
+            bodyAABB.max.y - barrelCenterY + m_BodyBob,    // 本体頂点にバレル中心を合わせる（本体と一緒に揺れる）
             m_Position.z + m_Front.z * BARREL_DIST);
 
         ModelDraw(m_pBarrel, barrelRot * barrelTrans);
@@ -188,7 +216,7 @@ void EnemyTank::CheckShieldBulletHits()
     // 盾のワールド AABB を計算する
     const XMFLOAT3 shieldPos = {
         m_Position.x + m_Front.x * SHIELD_DIST,
-        m_Position.y + ENEMY_HEIGHT,
+        m_Position.y + m_DrawOffsetY,
         m_Position.z + m_Front.z * SHIELD_DIST
     };
     const AABB shieldAABB = ModelGetAABB(m_pShield, shieldPos);

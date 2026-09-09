@@ -132,13 +132,28 @@ void Enemy::ComputeLockOnOffsetFromModel()
         (aabb.max.x - aabb.min.x) * 0.5f,
         (aabb.max.z - aabb.min.z) * 0.5f);
 
-    // ロックオンY（Draw の ENEMY_HEIGHT オフセット分を足す）
-    m_lockOnCenterOffset = ENEMY_HEIGHT + localCenterY;
+    // 描画の持ち上げ量：モデルの底面が足元（m_Position.y）に来るようにする。
+    //（以前は全種類共通の ENEMY_HEIGHT=0.3 で、重装型は約30cmめり込み、
+    //  小型の機種は5〜12cm浮いていた）。浮遊する機種は GetHoverHeight で上乗せする
+    m_DrawOffsetY = -localMinY + GetHoverHeight();
+
+    // ロックオンY（描画の持ち上げ量＋モデル中心）
+    m_lockOnCenterOffset = m_DrawOffsetY + localCenterY;
 
     // 衝突OBBをモデルAABBに合わせる
     m_obbHalfWidth  = halfW;
     m_obbHalfHeight = halfH;
-    m_obbBottomY    = ENEMY_HEIGHT + localCenterY; // m_Position.y からOBB中心まで
+    m_obbBottomY    = m_DrawOffsetY + localCenterY; // m_Position.y からOBB中心まで
+}
+
+//==============================================================================
+// 壁との衝突に使う半径
+// ・モデルの横幅に合わせつつ、狭い通路で詰まらないよう 75% に抑える（めり込みの許容範囲）
+// ・下限は従来の 0.25m、上限は 1.0m
+//==============================================================================
+float Enemy::GetCollisionRadius() const
+{
+    return std::clamp(m_obbHalfWidth * 0.75f, ENEMY_HALF_WIDTH_X, 1.0f);
 }
 
 //==============================================================================
@@ -299,6 +314,8 @@ void Enemy::Update(double elapsed_time)
     // 弾ヒット処理
     ResolveBulletHits();
 
+    UpdateAnim(dt);   // 見た目のアニメーション（まばたき・前傾・旋回の傾き）
+
     // 死亡判定（スコア・アイテムは各サブクラスまたはここで一括処理）
     if (IsDead() && IsAlive())
     {
@@ -342,10 +359,36 @@ void Enemy::Draw()
     XMMATRIX trans =
         XMMatrixTranslation(
             m_Position.x,
-            m_Position.y + ENEMY_HEIGHT * 1.0f,
+            m_Position.y + m_DrawOffsetY,
             m_Position.z);
 
-    ModelDraw(m_pModel, rot * trans);
+    //--------------------------------------------------------------------------
+    // アニメーション
+    //   移動 : 進む方向へ前傾し、小さく弾む。まばたきする
+    //   溜め : 縦につぶれて目を細める（体当たりの予兆）
+    //   突進 : 前後に伸びる
+    //   ※本体は球体なので中心まわりに回しても地面にめり込まない。
+    //     つぶすときは上下を縮めるので底面は浮く方向にしか動かない
+    //--------------------------------------------------------------------------
+    float squashY = 1.0f, squashXZ = 1.0f, eye = BlinkScale();
+    if (m_IsAttacking)
+    {
+        if (m_AttackTimer < ATTACK_WINDUP)
+        {
+            const float k = m_AttackTimer / ATTACK_WINDUP;
+            squashY = 1.0f - 0.14f * k; squashXZ = 1.0f + 0.08f * k; eye = std::min(eye, 0.45f);
+        }
+        else
+        {
+            squashY = 0.94f; squashXZ = 1.04f; eye = std::min(eye, 0.6f);
+        }
+    }
+    const float radius = m_obbHalfHeight;   // 球体の半径（モデルのAABBから）
+    const XMMATRIX world =
+        XMMatrixScaling(squashXZ, squashY, squashXZ) * rot *
+        BallMotion(XMConvertToRadians(14.0f), XMConvertToRadians(10.0f), radius * 0.15f) *
+        XMMatrixTranslation(0.0f, -radius * (1.0f - squashY), 0.0f) * trans;   // つぶれても底面は足元のまま
+    DrawEyeModel(m_pModel, 1, radius * 0.18f, world, eye);
 }
 
 //==============================================================================
@@ -363,7 +406,7 @@ void Enemy::DrawShadow()
     XMMATRIX trans =
         XMMatrixTranslation(
             m_Position.x,
-            m_Position.y + ENEMY_HEIGHT * 1.0f,
+            m_Position.y + m_DrawOffsetY,
             m_Position.z);
 
     ShadowMap::DrawModel(m_pModel, rot * trans);
@@ -398,7 +441,7 @@ AABB Enemy::GetAABB() const
         },
         {
             m_Position.x + ENEMY_HALF_WIDTH_X,
-            m_Position.y + ENEMY_HEIGHT,
+            m_Position.y + m_DrawOffsetY,
             m_Position.z + ENEMY_HALF_WIDTH_Z
         }
     };
@@ -461,7 +504,7 @@ void Enemy::ApplyKnockback(const DirectX::XMFLOAT3& center, float strength)
 //==============================================================================
 void Enemy::MoveHorizWithWallClamp(DirectX::XMFLOAT3& p, float nx, float nz, float dist)
 {
-    constexpr float r = ENEMY_HALF_WIDTH_X;   // 敵と同じ円半径
+    const float r = GetCollisionRadius();     // 壁判定と同じ円半径
     constexpr int   STEPS = 4;
     const float step = dist / STEPS;
     const int   wallCount = Map_GetWallColliderCount();
@@ -473,6 +516,7 @@ void Enemy::MoveHorizWithWallClamp(DirectX::XMFLOAT3& p, float nx, float nz, flo
         for (int i = 0; i < wallCount; ++i)
         {
             const AABB& a = *Map_GetWallCollider(i);
+            if (!WallOverlapsBody(a, p.y)) continue;   // 体の高さと重ならない壁は無視
             const float cx = std::clamp(tx, a.min.x, a.max.x);
             const float cz = std::clamp(tz, a.min.z, a.max.z);
             const float ex = tx - cx;
@@ -557,7 +601,7 @@ void Enemy::ResolveWallCollisionAtPosition(XMVECTOR* ioPos, XMVECTOR* ioVel, XMF
     // OBB は m_Front で回転するため角が斜め方向に伸び、斜め向き時にケツが壁に刺さる。
     // 円なら向き不依存 → コーナー引っかかりが発生しない。
     constexpr float TELEPORT_THRESHOLD = 0.3f;
-    constexpr float r = ENEMY_HALF_WIDTH_X; // 円半径（= 0.25f）
+    const float r = GetCollisionRadius(); // 円半径（モデルの横幅に合わせる。最小 0.25）
 
     const int wallCount = Map_GetWallColliderCount();
     for (int i = 0; i < wallCount; ++i)
@@ -565,6 +609,13 @@ void Enemy::ResolveWallCollisionAtPosition(XMVECTOR* ioPos, XMVECTOR* ioVel, XMF
         const AABB& a = *Map_GetWallCollider(i);   // 壁のみの高速リストを走査
         XMFLOAT3 pos;
         XMStoreFloat3(&pos, *ioPos);
+
+        // 体の高さと重ならない壁（下の階の手すり・上の階の床板など）は無視する
+        if (!WallOverlapsBody(a, pos.y)) continue;
+
+        // 粗い判定：円が AABB の外接範囲に入っていなければ詳しく調べない
+        if (pos.x < a.min.x - r || pos.x > a.max.x + r ||
+            pos.z < a.min.z - r || pos.z > a.max.z + r) continue;
 
         // 壁 AABB に対するエネミー中心の最近接点を求める
         const float clampedX = std::clamp(pos.x, a.min.x, a.max.x);
@@ -670,6 +721,12 @@ void Enemy::ResolveFloorCollision(XMVECTOR* ioPos, XMVECTOR* ioVel)
     float supportY = 0.0f;
     bool foundFloor = false;
 
+    // 足元の基準：移動前と移動後の高い方（高速で落下しても床をすり抜けないように）
+    // この高さから STEP_UP 以内の床だけを支持面にする。
+    // → 頭上の床（上の階）に吸い上げられず、低い段差（階段）は登れる
+    constexpr float STEP_UP = 0.4f;
+    const float refY = std::max(XMVectorGetY(*ioPos), m_Position.y);
+
     const int floorCount = Map_GetFloorColliderCount();
     for (int i = 0; i < floorCount; ++i)
     {
@@ -683,10 +740,7 @@ void Enemy::ResolveFloorCollision(XMVECTOR* ioPos, XMVECTOR* ioVel)
 
         if (!overlapX || !overlapZ) continue;
 
-        const float eps = 0.02f;
-        float enemyBottom = XMVectorGetY(*ioPos);
-
-        if (enemyBottom <= floor.max.y + eps)
+        if (floor.max.y <= refY + STEP_UP)
         {
             if (!foundFloor || floor.max.y > supportY)
             {
@@ -860,4 +914,73 @@ void Enemy::ResolveBulletHits()
             break;
         }
     }
+}
+
+//==============================================================================
+// 見た目のアニメーション（球体型エネミー共通）
+//==============================================================================
+void Enemy::UpdateAnim(float dt)
+{
+    m_AnimTime += dt;
+
+    // 前傾：水平の速さに比例（なめらかに追従）
+    const float speed = sqrtf(m_Velocity.x * m_Velocity.x + m_Velocity.z * m_Velocity.z);
+    const float leanTarget = std::min(1.0f, speed / 6.0f);
+    m_Lean01 += (leanTarget - m_Lean01) * std::min(1.0f, 6.0f * dt);
+
+    // 横の傾き：向きの変わる速さ（右旋回で右へ傾く）
+    const float yaw = atan2f(m_Front.x, m_Front.z);
+    float dyaw = yaw - m_PrevYaw;
+    while (dyaw >  XM_PI) dyaw -= XM_2PI;
+    while (dyaw < -XM_PI) dyaw += XM_2PI;
+    m_PrevYaw = yaw;
+    const float bankTarget = (dt > 0.0f) ? std::clamp(dyaw / dt / 4.0f, -1.0f, 1.0f) : 0.0f;
+    m_Bank01 += (bankTarget - m_Bank01) * std::min(1.0f, 5.0f * dt);
+
+    // まばたき：2〜5 秒おきに 0.14 秒
+    m_BlinkTimer += dt;
+    if (m_BlinkTimer > m_BlinkNext + 0.14f)
+    {
+        m_BlinkTimer = 0.0f;
+        m_BlinkNext  = 2.0f + static_cast<float>(rand() % 300) * 0.01f;
+    }
+
+    m_Recoil = std::max(0.0f, m_Recoil - dt * 4.0f);
+}
+
+float Enemy::BlinkScale() const
+{
+    if (m_BlinkTimer <= m_BlinkNext) return 1.0f;
+    const float t = std::min(1.0f, (m_BlinkTimer - m_BlinkNext) / 0.14f);
+    return 1.0f - 0.88f * sinf(t * XM_PI);
+}
+
+XMMATRIX Enemy::BallMotion(float leanMax, float bankMax, float hop) const
+{
+    XMVECTOR front = XMVectorSet(m_Front.x, 0.0f, m_Front.z, 0.0f);
+    if (XMVectorGetX(XMVector3LengthSq(front)) < 1e-6f) front = XMVectorSet(0, 0, 1, 0);
+    front = XMVector3Normalize(front);
+    const XMVECTOR right = XMVector3Normalize(XMVector3Cross(XMVectorSet(0, 1, 0, 0), front));
+
+    // 歩くと小さく弾む（持ち上げる向きだけ。地面にめり込まない）
+    const float h = fabsf(sinf(m_AnimTime * 9.0f)) * hop * m_Lean01;
+    return XMMatrixRotationAxis(right, leanMax * m_Lean01) *
+           XMMatrixRotationAxis(front, -bankMax * m_Bank01) *
+           XMMatrixTranslation(0.0f, h, 0.0f);
+}
+
+void Enemy::DrawEyeModel(MODEL* model, int eyeMesh, float eyeY, const XMMATRIX& world, float eyeScaleY) const
+{
+    if (!model) return;
+    const int count = ModelGetMeshCount(model);
+    if (eyeMesh < 0 || eyeMesh >= count || eyeScaleY >= 0.999f)
+    {
+        ModelDraw(model, world);
+        return;
+    }
+    const XMMATRIX eyeWorld =
+        XMMatrixTranslation(0.0f, -eyeY, 0.0f) * XMMatrixScaling(1.0f, eyeScaleY, 1.0f) *
+        XMMatrixTranslation(0.0f, eyeY, 0.0f) * world;
+    for (int i = 0; i < count; ++i)
+        ModelDrawMesh(model, i, (i == eyeMesh) ? eyeWorld : world);
 }

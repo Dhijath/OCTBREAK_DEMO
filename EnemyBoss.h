@@ -95,6 +95,7 @@ public:
     // 討伐スコア
     //==========================================================================
     int  GetKillScore() const override { return 10000; }
+    const wchar_t* GetDisplayName() const override { return L"BEHEMOTH"; }
     bool IsDropItem()   const override { return false; }
     bool IsDeferDeath() const override { return true; }
     bool IsArmored()    const override { return true; }  // 弾直撃で10%カット＋ヒット音は従来のまま
@@ -133,6 +134,15 @@ private:
 
     // アクション調停
     float m_lastShotTimer = 0.0f; // 最後に射撃してから経過した時間（突進抑制用）
+
+    // AI の判断材料（毎フレーム Update の先頭で更新）
+    bool  m_HasLos  = false;      // プレイヤーへの視線が通っているか（1フレーム1回だけ判定）
+    bool  m_Enraged = false;      // 体力50%以下の激昂状態
+    DirectX::XMFLOAT3 m_chargePrevPos = {};   // 突進中の前フレーム位置（壁で止まったかの判定用）
+
+    // 本体の浮遊アニメーション（本体とバレル4門が一緒に上下する。激昂中は小刻みに震える）
+    float m_AnimTime = 0.0f;
+    float m_IdleBob  = 0.0f;
 
     //==========================================================================
     // バレルのワールド行列取得

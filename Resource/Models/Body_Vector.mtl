@@ -1,0 +1,40 @@
+newmtl blue
+Ka 0 0 0
+Kd 0.000 0.000 0.750
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+
+newmtl dark
+Ka 0 0 0
+Kd 0.110 0.110 0.110
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+
+newmtl gray
+Ka 0 0 0
+Kd 0.250 0.250 0.250
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+
+newmtl light
+Ka 0 0 0
+Kd 0.560 0.560 0.560
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+
+newmtl navy
+Ka 0 0 0
+Kd 0.000 0.000 0.200
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+

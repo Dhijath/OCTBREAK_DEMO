@@ -1,0 +1,24 @@
+newmtl armor
+Ka 0 0 0
+Kd 0.320 0.420 0.500
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+
+newmtl gun
+Ka 0 0 0
+Kd 0.100 0.100 0.120
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+
+newmtl visor
+Ka 0 0 0
+Kd 0.200 0.900 1.000
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+

@@ -30,7 +30,8 @@
 #include "Result.h"
 #include "AssemblyScreen.h"
 #include "PreGame.h"
-#include "ScoreCheck.h"
+#include "EnemyDex.h"
+#include "EnemyParts.h"
 #include "Enemy.h"
 #include "map.h"
 #include <cstdint>
@@ -39,6 +40,13 @@
 #include "Pause.h"
 #include "BossIntro.h"
 #include "StageSelect.h"
+#include "MissionSelect.h"
+#include "MissionDef.h"
+#include "MissionHud.h"
+#include "MissionReport.h"
+#include "BlockStage.h"
+#include "SciFiUI.h"
+#include "EnemyAI.h"
 #include "Tutorial.h"
 #include "WaveManager.h"
 #include "WeaponDef.h"
@@ -53,6 +61,8 @@
 #include "Score.h"
 #include <DirectXMath.h>
 #include <cstdlib>
+#include <cmath>
+#include <cwchar>
 using namespace DirectX;
 
 // 現在/次の状態
@@ -76,9 +86,25 @@ static double g_RoomTimer = 0.0;
 static bool g_PendingDungeonRegenerate = false;
 // ボス部屋フェーズ中フラグ（2回ゴール到達後に true になる）
 static bool g_InBossRoom = false;
+// ブロックステージのミッションで進行中のフェーズ（MissionDef::phases の添字）
+static int g_PhaseIndex = 0;
+// フェーズ開始からの経過時間（制限時間・増援の時刻に使う。ボス演出中は止める）
+static double g_PhaseTimer = 0.0;
+// 次に出す増援（MissionPhase::waves の添字）
+static int g_NextWave = 0;
+// 増援警告の残り表示時間と、その増援の数
+static double g_WarningTimer = 0.0;
+static int    g_WarningCount = 0;
+// 増援の通し番号（出現位置・種別のばらつきに使う）
+static int g_ReinforceSerial = 0;
+// 時間切れで作戦失敗した（Result へのフェード中に「MISSION FAILED」を出す）
+static bool g_MissionFailed = false;
 // ポーズ中フラグ（フェードなし即時停止）
 static bool g_IsPaused = false;
-
+// 作戦開始からの経過時間（ポーズ中は止める。結果画面の集計用）
+static double g_MissionTime = 0.0;
+// 直近の作戦結果（クリア / リザルト画面が表示する）
+static MissionReport g_Report;
 // ゲーム（Playing/Survival）を初期化済みか。
 // これが true の状態で再度ゲームを開始する前に Game_Finalize() を呼び、
 // 前回ゲームの SE などのリソースを解放する（SEスロット枯渇で音が消えるバグ対策）。
@@ -140,6 +166,7 @@ static void SwitchInstant(GameState next)
     if      (next == GameState::PreGame)      PreGame_Initialize();
     else if (next == GameState::Title)        Title_Initialize();
     else if (next == GameState::StageSelect)  StageSelect_Initialize();
+    else if (next == GameState::MissionSelect) MissionSelect_Initialize();
 }
 
 static void BeginTransition(GameState next, const char* nextBgmPath, float bgmVolume = BGM_VOL)
@@ -150,6 +177,271 @@ static void BeginTransition(GameState next, const char* nextBgmPath, float bgmVo
     Fade_Start(1.0, /*out=*/true, { 1,1,1 });     // 白フェードアウト開始
     StartBgmLoop(nextBgmPath, bgmVolume);          // 次シーンBGMへ差し替え
     Player_OnPause();                              // ループSE（ブースト等）を停止
+}
+
+//------------------------------------------------------------------------------
+// 内部: 評価ランク（S〜D。失敗は E）
+//   成功で 40 点、残り時間で最大 30 点、被ダメージの少なさで最大 30 点
+//------------------------------------------------------------------------------
+static wchar_t CalcRank(bool success, bool survival, float time, float timeLimit, int damageTaken)
+{
+    if (!success) return L'E';
+
+    const float damageScore = std::clamp(1.0f - damageTaken / 12000.0f, 0.0f, 1.0f);
+    float pts = 40.0f;
+    if (survival)
+    {
+        pts += 60.0f * damageScore;
+    }
+    else
+    {
+        // 制限時間の 1/3 で抜ければ満点。制限のない作戦は 15 分を基準にする
+        const float timeScore = (timeLimit > 0.0f)
+            ? std::clamp(1.5f * (1.0f - time / timeLimit), 0.0f, 1.0f)
+            : std::clamp(1.0f - time / 900.0f, 0.0f, 1.0f);
+        pts += 30.0f * timeScore + 30.0f * damageScore;
+    }
+
+    if (pts >= 85.0f) return L'S';
+    if (pts >= 72.0f) return L'A';
+    if (pts >= 58.0f) return L'B';
+    if (pts >= 45.0f) return L'C';
+    return L'D';
+}
+
+//------------------------------------------------------------------------------
+// 内部: 作戦結果をまとめる（クリア / リザルト画面へ移る直前に呼ぶ）
+//------------------------------------------------------------------------------
+static void BuildReport(bool success, bool survival, const wchar_t* failReason)
+{
+    MissionReport r;
+    r.survival    = survival;
+    r.success     = success;
+    r.failReason  = success ? L"" : failReason;
+    r.time        = static_cast<float>(g_MissionTime);
+    r.kills       = Game_GetKillCount();
+    r.damageDealt = Score_GetDamageDealt();
+    r.damageTaken = Score_GetDamageTaken();
+    r.score       = static_cast<int>(Score_GetScore());
+
+    float timeLimit = 0.0f;
+    if (survival)
+    {
+        r.code  = L"SURVIVAL";
+        r.title = L"殲滅戦";
+        r.area  = L"OUTDOOR ARENA";
+    }
+    else
+    {
+        const MissionDef& def = Mission_GetCurrentDef();
+        r.code   = def.code;
+        r.title  = def.title;
+        r.area   = def.area;
+        r.reward = success ? def.reward : 0;
+        r.phaseCount = Mission_GetStageCount(def);
+        if (def.legacy)
+            r.phaseReached = success ? r.phaseCount
+                                     : std::min(r.phaseCount, Map_GetGoalReachCount() + 1 + (g_InBossRoom ? 1 : 0));
+        else
+            r.phaseReached = g_PhaseIndex + 1;
+
+        if (!def.legacy)
+            for (int i = 0; i < def.phaseCount; ++i) timeLimit += def.phases[i].timeLimit;
+    }
+
+    r.rank   = CalcRank(success, survival, r.time, timeLimit, r.damageTaken);
+    g_Report = r;
+
+    SaveData_SaveDex();   // この作戦の撃破をエネミー図鑑に残す
+}
+
+const MissionReport& MissionReport_Get()
+{
+    return g_Report;
+}
+
+//------------------------------------------------------------------------------
+// 内部: プレイ中の進行状態を初期状態へ戻す（新しいゲームの開始時・選択画面へ戻るとき）
+//------------------------------------------------------------------------------
+static void ResetPlayState()
+{
+    Map_ResetGoalReachCount();
+    g_InBossRoom = false;
+    g_PendingDungeonRegenerate = false;
+    Game_SetBossRoomMode(false);
+    Game_SetSurvivalMode(false);
+    Game_SetBossType(0);
+}
+
+//------------------------------------------------------------------------------
+// 内部: ミッション成功（報酬加算 → クリア済み保存 → スコア記録 → クリア画面へ）
+//------------------------------------------------------------------------------
+static void CompleteMission()
+{
+    PlayAudio(g_PlayerclearSE);
+    Score_Addscore(Mission_GetCurrentDef().reward);   // 成功報酬
+    Mission_SetCleared(Mission_GetCurrent(), true);
+    SaveData_SaveMissions();
+    Score_AddRecord(Score_GetScore(),
+        AssemblyScreen_GetRightWeapon(),
+        AssemblyScreen_GetLeftWeapon());
+    SaveData_SaveScores();
+    BuildReport(true, false, L"");
+    BeginTransition(GameState::Clear, BGM_RESULT);
+}
+
+//------------------------------------------------------------------------------
+// 内部: マップを差し替えた後の共通処理
+//   床の再登録 → プレイヤーをスポーン位置へ → 敵の再配置 → 残弾・エフェクトの掃除
+//------------------------------------------------------------------------------
+static void PlacePlayerAndResetField()
+{
+    Map_RegisterFloors();
+    Player_SetPosition(Map_GetSpawnPosition(), true);
+    Player_SetFront({ 0.0f, 0.0f, 1.0f });
+    Game_RespawnEnemies();
+    Bullet_ClearAll();             // ルーム遷移時に残弾・エフェクト・パーティクルをクリア
+    EnemyBullet_ClearAll();
+    BulletHitEffect_ClearAll();
+    SparkEffect_ClearAll();
+    Effect_ClearAll();
+    Player_ClearParticles();
+    ItemManager_ClearAll();        // ドロップアイテムをクリア
+    Player_Camera_Update(0.0);     // 新スポーン位置にカメラを即更新（BossIntro の g_PreIntroEye を正しく取るため）
+}
+
+//------------------------------------------------------------------------------
+// 内部: ブロックステージのミッションで、指定フェーズのステージを読み込む
+//   ボス戦フェーズならボスを出現させ、登場演出を開始する
+//------------------------------------------------------------------------------
+static void LoadMissionPhase(int phase)
+{
+    const MissionPhase& ph = Mission_GetCurrentDef().phases[phase];
+    const bool isBoss = (ph.objective == MissionObjective::DestroyBoss);
+
+    g_PhaseIndex = phase;
+    g_InBossRoom = isBoss;
+    Game_SetBossRoomMode(isBoss);       // Game_RespawnEnemies がボスを出すかどうか
+    Game_SetEnemyMix(ph.enemyMix);
+    Game_SetBossType(ph.bossType);      // 0 = 従来のボス
+
+    BlockStage_Build(ph.stage, Map_GenerateRandomSeed(), ph.enemyCount, !ph.noSquads);
+    PlacePlayerAndResetField();
+
+    g_GoalCooldown = 1.0;               // 読み込み直後の誤判定を防ぐ
+    g_RoomTimer    = 0.0;
+
+    g_PhaseTimer   = 0.0;
+    g_NextWave     = 0;
+    g_WarningTimer = 0.0;
+
+    if (isBoss)
+        BossIntro_Start(Map_GetBossSpawnPosition());
+}
+
+//------------------------------------------------------------------------------
+// 内部: このフェーズにまだ出していない増援が残っているか
+//------------------------------------------------------------------------------
+static bool HasPendingWave(const MissionPhase& ph)
+{
+    return g_NextWave < MISSION_WAVE_MAX && ph.waves[g_NextWave].time > 0.0f;
+}
+
+//------------------------------------------------------------------------------
+// 内部: 増援を降下させる（プレイヤーから離れた降下地点のまわりに出現）
+//------------------------------------------------------------------------------
+static void SpawnReinforcements(const ReinforceWave& wave)
+{
+    const XMFLOAT3 playerPos = Player_GetPosition();
+    const std::uint32_t random = static_cast<std::uint32_t>(rand()) * 2654435761u
+                               + static_cast<std::uint32_t>(g_ReinforceSerial) * 977u;
+
+    int spawned = 0;
+    for (int i = 0; i < wave.count; ++i)
+    {
+        XMFLOAT3 pos;
+        if (!BlockStage_PickReinforcePoint(playerPos, random, i, &pos)) break;
+
+        Game_SpawnEnemy(pos, Game_GetEnemyTypeForMix(wave.mix, g_ReinforceSerial + i));
+        SparkEffect_Create({ pos.x, pos.y + 0.8f, pos.z }, 1.5f);   // 降下の閃光
+        ++spawned;
+    }
+
+    g_ReinforceSerial += wave.count;
+    g_WarningTimer = 3.5;
+    g_WarningCount = spawned;
+}
+
+//------------------------------------------------------------------------------
+// 内部: 作戦失敗（時間切れ）。スコアを記録して Result へ
+//------------------------------------------------------------------------------
+static void FailMission()
+{
+    g_MissionFailed = true;
+    Player_OnPause();
+    Score_AddRecord(Score_GetScore(),
+        AssemblyScreen_GetRightWeapon(),
+        AssemblyScreen_GetLeftWeapon());
+    SaveData_SaveScores();
+    BuildReport(false, false, L"TIME OVER ― 作戦時間を超過");
+    BeginTransition(GameState::Result, BGM_RESULT);
+}
+
+//------------------------------------------------------------------------------
+// 内部: 難易度の倍率を既定値に戻す（デフォルト以外のモードへ入るとき）
+//------------------------------------------------------------------------------
+static void ResetDifficulty()
+{
+    Game_SetEnemyHpScale(1.0f);
+    EnemyAI_SetSightMultiplier(1.0f);
+}
+
+//------------------------------------------------------------------------------
+// 内部: プレイ中に表示する作戦情報（ブロックステージのミッションのみ）
+//------------------------------------------------------------------------------
+static void DrawMissionObjective()
+{
+    const MissionDef& mission = Mission_GetCurrentDef();
+    if (mission.legacy) return;
+    if (!g_MissionFailed && (BossIntro_IsPlaying() || BossDefeat_IsPlaying())) return;
+
+    const MissionPhase& ph = mission.phases[g_PhaseIndex];
+
+    MissionHudState s;
+    s.phase          = g_PhaseIndex + 1;
+    s.phaseCount     = mission.phaseCount;
+    s.timeLeft       = (ph.timeLimit > 0.0f) ? static_cast<float>(ph.timeLimit - g_PhaseTimer) : -1.0f;
+    s.warning        = static_cast<float>(g_WarningTimer);
+    s.reinforceCount = g_WarningCount;
+    s.bossPhase      = (ph.objective == MissionObjective::DestroyBoss);
+    s.failed         = g_MissionFailed;
+
+    wchar_t detail[64] = L"";
+    switch (ph.objective)
+    {
+    case MissionObjective::ReachGoal:
+    {
+        const XMFLOAT3 p = Player_GetPosition();
+        const XMFLOAT3 g = Map_GetGoalPosition();
+        const float dist = sqrtf((g.x - p.x) * (g.x - p.x) + (g.z - p.z) * (g.z - p.z));
+        s.objective = L"目標地点へ到達せよ";
+        swprintf_s(detail, L"DIST %4dm", static_cast<int>(dist));
+        break;
+    }
+    case MissionObjective::Annihilate:
+        s.objective = L"敵部隊を全滅させろ";
+        swprintf_s(detail, HasPendingWave(ph) ? L"HOSTILE %2d +REINF" : L"HOSTILE %2d",
+                   Game_GetAliveEnemyCount());
+        break;
+
+    case MissionObjective::DestroyBoss:
+        s.objective = L"大型兵器を撃破せよ";
+        swprintf_s(detail, L"HOSTILE %2d", Game_GetAliveEnemyCount());
+        break;
+    }
+    s.detail = detail;
+
+    MissionHud_Draw(s);
 }
 
 //------------------------------------------------------------------------------
@@ -168,6 +460,7 @@ void GameManager_Initialize()
     g_PlayerclearSE = LoadAudioWithVolume("resource/sound/clear.wav", 0.5f);
     g_IsPaused = false;
     Pause_Initialize();
+    MissionHud_Initialize();
 }
 
 //------------------------------------------------------------------------------
@@ -178,7 +471,12 @@ void GameManager_Finalize()
     Title_Finalize();
     PreGame_Finalize();
     AssemblyScreen_Finalize();
-    ScoreCheck_Finalize();
+    MissionSelect_Finalize();
+    MissionHud_Finalize();
+    BlockStage_Finalize();
+    SciFiUI::Finalize();
+    EnemyDex_Finalize();
+    EnemyParts_Release();   // 図鑑・エネミーが共有するパーツモデル
     Tutorial_Finalize();
     Option_Finalize();
     if (g_GameInitialized) { Game_Finalize(); g_GameInitialized = false; }
@@ -279,8 +577,8 @@ void GameManager_Update(double elapsed_time)
             }
             else if (pr == PreGameResult::Tutorial)
                 BeginTransition(GameState::Tutorial, BGM_TITLE);
-            else if (pr == PreGameResult::ScoreCheck)
-                BeginTransition(GameState::ScoreCheck, BGM_SCOREBOARD);
+            else if (pr == PreGameResult::EnemyDex)
+                BeginTransition(GameState::EnemyDex, BGM_SCOREBOARD);
             else if (pr == PreGameResult::Back)
                 SwitchInstant(GameState::Title);  // 同一背景・BGMなのでフェードなし
         }
@@ -298,19 +596,47 @@ void GameManager_Update(double elapsed_time)
                 else
                 {
                     SaveData_Save();   // 確定したアセンブリを保存
-                    BeginTransition(GameState::Playing, BGM_GAME, BGM_VOL_GAME);
+                    // 続けて出撃ミッションを選ぶ（BGMはアセンブリのまま継続するのでフェードなし）
+                    SwitchInstant(GameState::MissionSelect);
                 }
             }
         }
         break;
     }
 
-    case GameState::ScoreCheck:
+    case GameState::MissionSelect:
     {
         if (!g_IsTransitioning)
         {
-            ScoreCheck_Update(elapsed_time);
-            if (ScoreCheck_IsEnd())
+            MissionSelect_Update(elapsed_time);
+            const MissionSelectResult mr = MissionSelect_GetResult();
+            if (mr == MissionSelectResult::Sortie)
+            {
+                SaveData_SaveMissions();   // 選んだミッションを次回の初期カーソルとして保存
+
+                // 最初のフェーズがボス戦のミッションは、最初からボス戦BGMで始める
+                const MissionDef& mission = Mission_GetCurrentDef();
+                const bool bossFirst = !mission.legacy
+                    && mission.phases[0].objective == MissionObjective::DestroyBoss;
+                if (bossFirst) BeginTransition(GameState::Playing, BGM_BOSS, BGM_VOL);
+                else           BeginTransition(GameState::Playing, BGM_GAME, BGM_VOL_GAME);
+            }
+            else if (mr == MissionSelectResult::Back)
+            {
+                // アセンブリへ戻る。AssemblyScreen は確定時の状態（READY にフォーカス）を
+                // 保持しているので、Initialize し直さずそのまま再開する。
+                g_GameState = GameState::WeaponSelect;
+            }
+        }
+        break;
+    }
+
+    case GameState::EnemyDex:
+    {
+        if (!g_IsTransitioning)
+        {
+            EnemyDex_Update(elapsed_time);
+            if (EnemyDex_IsEnd())
                 BeginTransition(GameState::PreGame, BGM_TITLE);
         }
         break;
@@ -332,6 +658,7 @@ void GameManager_Update(double elapsed_time)
 
     case GameState::Playing:
     {
+        MissionHud_Update(elapsed_time);   // 作戦表示の点滅など（暗転中も動かす）
         if (g_IsTransitioning) break;
 
         //----------------------------------------------------------
@@ -372,6 +699,7 @@ void GameManager_Update(double elapsed_time)
         // 通常更新
         //----------------------------------------------------------
         Game_Update(elapsed_time);
+        g_MissionTime += elapsed_time;
 
         if (g_GoalCooldown > 0.0)
         {
@@ -385,6 +713,7 @@ void GameManager_Update(double elapsed_time)
         // → 即 Result に飛ばさず、PlayerDeath 演出ステートへ移行
         if (!Player_IsEnable() && !BossIntro_IsPlaying() && !BossDefeat_IsPlaying())
         {
+            g_Report.survival  = false;
             g_GameState        = GameState::PlayerDeath;
             g_DeathTimer       = 0.0;
             g_DeathExplodeNext = 0.0;
@@ -393,8 +722,73 @@ void GameManager_Update(double elapsed_time)
             break;
         }
 
+        const MissionDef& mission = Mission_GetCurrentDef();
+
+        // ブロックステージのミッション：増援と制限時間（ボスの演出中は時間を止める）
+        if (!mission.legacy && !BossIntro_IsPlaying() && !BossDefeat_IsPlaying())
+        {
+            const MissionPhase& ph = mission.phases[g_PhaseIndex];
+            g_PhaseTimer += elapsed_time;
+            if (g_WarningTimer > 0.0) g_WarningTimer -= elapsed_time;
+
+            // 増援：予定時刻になったら降下。敵を全滅させた場合は前倒しで降下する
+            if (HasPendingWave(ph))
+            {
+                const ReinforceWave& wave = ph.waves[g_NextWave];
+                if (g_PhaseTimer >= wave.time || Game_GetAliveEnemyCount() == 0)
+                {
+                    SpawnReinforcements(wave);
+                    ++g_NextWave;
+                }
+            }
+
+            // 時間切れ：作戦失敗
+            if (ph.timeLimit > 0.0f && g_PhaseTimer >= ph.timeLimit)
+            {
+                FailMission();
+                break;
+            }
+        }
+
+        // ブロックステージのミッション：フェーズの達成条件を判定する
+        //（ボス撃破フェーズは、下の「ボスを倒したらクリア」の判定に任せる）
+        if (!mission.legacy && !g_InBossRoom && g_GoalCooldown <= 0.0)
+        {
+            const MissionPhase&    ph        = mission.phases[g_PhaseIndex];
+            const MissionObjective objective = ph.objective;
+            const bool achieved =
+                (objective == MissionObjective::ReachGoal  && Map_IsPlayerReachedGoal()) ||
+                (objective == MissionObjective::Annihilate && Game_GetAliveEnemyCount() == 0
+                                                           && !HasPendingWave(ph));
+
+            if (achieved)
+            {
+                // タイムボーナス（デフォルトのゴール到達時と同じ計算）
+                const int timeBonus = std::max(0, 20000 - static_cast<int>(g_RoomTimer * 100.0));
+                Score_Addscore(timeBonus);
+                g_RoomTimer = 0.0;
+
+                if (g_PhaseIndex + 1 >= mission.phaseCount)
+                {
+                    CompleteMission();   // 最終フェーズ達成：作戦成功
+                    break;
+                }
+
+                // 次のフェーズへ（暗転中にステージを読み込む）
+                ++g_PhaseIndex;
+                if (mission.phases[g_PhaseIndex].objective == MissionObjective::DestroyBoss)
+                    StartBgmLoop(BGM_BOSS);   // ボス戦BGMへ切り替え
+                g_PendingDungeonRegenerate = true;
+                g_IsTransitioning = true;
+                Fade_Start(0.5, true, { 0.0f, 0.0f, 0.0f });
+                PlayAudio(g_PlayerWarpSE);
+                break;
+            }
+        }
+
         // ゴール到達判定（ボス部屋フェーズ中・クールダウン中・演出中はスキップ）
-        if (!g_InBossRoom && g_GoalCooldown <= 0.0
+        // ※デフォルト（自動生成ダンジョン）のミッションのみ
+        if (mission.legacy && !g_InBossRoom && g_GoalCooldown <= 0.0
             && !BossIntro_IsPlaying()
             && Map_IsPlayerReachedGoal())
         {
@@ -406,9 +800,16 @@ void GameManager_Update(double elapsed_time)
 
             Map_AddGoalReachCount();
 
+            // ボスのいないミッションは、規定階層を突破した時点で作戦成功
+            if (Map_IsClearConditionMet() && !mission.hasBoss)
+            {
+                CompleteMission();
+                break;
+            }
+
             if (Map_IsClearConditionMet())
             {
-                // 2回到達：ボス部屋フェーズへ移行
+                // 規定階層を突破：ボス部屋フェーズへ移行
                 g_InBossRoom = true;
                 StartBgmLoop(BGM_BOSS);   // ボス戦BGMへ切り替え
             }
@@ -422,12 +823,7 @@ void GameManager_Update(double elapsed_time)
         // ボス部屋フェーズ中にボスを倒したらクリア（演出終了後のみチェック）
         if (g_InBossRoom && !BossIntro_IsPlaying() && !BossDefeat_IsPlaying() && !Game_IsBossAlive())
         {
-            PlayAudio(g_PlayerclearSE);
-            Score_AddRecord(Score_GetScore(),
-                AssemblyScreen_GetRightWeapon(),
-                AssemblyScreen_GetLeftWeapon());
-            SaveData_SaveScores();
-            BeginTransition(GameState::Clear, BGM_RESULT);
+            CompleteMission();
         }
 
         break;
@@ -481,6 +877,7 @@ void GameManager_Update(double elapsed_time)
         {
             Game_Update(elapsed_time);
             WaveManager_Update(elapsed_time);
+            g_MissionTime += elapsed_time;
         }
 
         // プレイヤー死亡
@@ -488,6 +885,7 @@ void GameManager_Update(double elapsed_time)
         {
             Shop_Finalize();
             WaveManager_Finalize();
+            g_Report.survival  = true;   // 死亡演出のあとの集計でサバイバルとして扱う
             g_GameState        = GameState::PlayerDeath;
             g_DeathTimer       = 0.0;
             g_DeathExplodeNext = 0.0;
@@ -505,6 +903,7 @@ void GameManager_Update(double elapsed_time)
                 WeaponID::WEAPON_MACHINEGUN,
                 WeaponID::WEAPON_SHIELD);
             SaveData_SaveScores();
+            BuildReport(true, true, L"");
             BeginTransition(GameState::Clear, BGM_RESULT);
         }
 
@@ -546,6 +945,7 @@ void GameManager_Update(double elapsed_time)
                 AssemblyScreen_GetRightWeapon(),
                 AssemblyScreen_GetLeftWeapon());
             SaveData_SaveScores();
+            BuildReport(false, g_Report.survival, L"SIGNAL LOST ― 機体大破");
             BeginTransition(GameState::Result, BGM_RESULT);
         }
 
@@ -567,16 +967,17 @@ void GameManager_Update(double elapsed_time)
     }
 
     case GameState::Result:
-    {
-        if (!g_IsTransitioning && UI_IsConfirm())
-            BeginTransition(GameState::Title, BGM_TITLE);
-        break;
-    }
-
     case GameState::Clear:
     {
+        if (g_GameState == GameState::Result) Result_Update(elapsed_time);
+        else                                  Clear_Update(elapsed_time);
+
+        // 作戦の選択画面へ戻る（アドベンチャー → ミッション選択、サバイバル → モード選択）
         if (!g_IsTransitioning && UI_IsConfirm())
-            BeginTransition(GameState::Title, BGM_TITLE);
+        {
+            if (g_Report.survival) BeginTransition(GameState::StageSelect,   BGM_TITLE);
+            else                   BeginTransition(GameState::MissionSelect, BGM_ASSEMBLY);
+        }
         break;
     }
 
@@ -595,6 +996,15 @@ void GameManager_Update(double elapsed_time)
         {
             g_PendingDungeonRegenerate = false;
 
+            // ブロックステージのミッション：次のフェーズのステージを読み込む
+            if (!Mission_GetCurrentDef().legacy)
+            {
+                LoadMissionPhase(g_PhaseIndex);
+                Fade_StartIn(0.5, { 0.0f, 0.0f, 0.0f });
+                g_IsTransitioning = false;
+                return;
+            }
+
             if (g_InBossRoom)
             {
                 // ボス部屋フェーズ：単一アリーナを生成（ゴールなし・雑魚なし）
@@ -609,18 +1019,7 @@ void GameManager_Update(double elapsed_time)
                 Score_Addscore(5000);
             }
 
-            Map_RegisterFloors();
-            Player_SetPosition(Map_GetSpawnPosition(), true);
-            Player_SetFront({ 0.0f, 0.0f, 1.0f });
-            Game_RespawnEnemies();
-            Bullet_ClearAll();             // ルーム遷移時に残弾・エフェクト・パーティクルをクリア
-            EnemyBullet_ClearAll();
-            BulletHitEffect_ClearAll();
-            SparkEffect_ClearAll();
-            Effect_ClearAll();
-            Player_ClearParticles();
-            ItemManager_ClearAll();        // ドロップアイテムをクリア
-            Player_Camera_Update(0.0);     // 新スポーン位置にカメラを即更新（BossIntro の g_PreIntroEye を正しく取るため）
+            PlacePlayerAndResetField();
 
             g_GoalCooldown = 1.0;
 
@@ -645,15 +1044,21 @@ void GameManager_Update(double elapsed_time)
         }
         else if (g_GameState == GameState::StageSelect)
         {
-            StageSelect_Initialize();   // アセンブリのキャンセルでフェード遷移してくる場合に対応
+            StageSelect_Initialize();   // アセンブリのキャンセル・サバイバル終了でフェード遷移してくる
+            ResetPlayState();
+        }
+        else if (g_GameState == GameState::MissionSelect)
+        {
+            MissionSelect_Initialize(); // 作戦終了後にフェード遷移してくる
+            ResetPlayState();
         }
         else if (g_GameState == GameState::WeaponSelect)
         {
             AssemblyScreen_Initialize();
         }
-        else if (g_GameState == GameState::ScoreCheck)
+        else if (g_GameState == GameState::EnemyDex)
         {
-            ScoreCheck_Initialize();
+            EnemyDex_Initialize();
         }
         else if (g_GameState == GameState::Tutorial)
         {
@@ -662,6 +1067,28 @@ void GameManager_Update(double elapsed_time)
         else if (g_GameState == GameState::Playing)
         {
             if (g_GameInitialized) Game_Finalize();   // 前回ゲームのリソースを解放（SEリーク防止）
+
+            // 選択したミッションの内容を反映する。
+            // Game_Initialize 内の初期ダンジョン生成・敵スポーンに使われるため、必ず先に設定する。
+            const MissionDef& mission = Mission_GetCurrentDef();
+            ResetPlayState();           // 前回のゲーム（サバイバル含む）のフラグを持ち込まない
+            g_MissionTime     = 0.0;
+            g_Report          = MissionReport{};
+            g_PhaseIndex      = 0;
+            g_MissionFailed   = false;
+            g_ReinforceSerial = 0;
+            Game_SetEnemyHpScale(mission.enemyHpScale);
+            EnemyAI_SetSightMultiplier(mission.enemySight);
+            if (mission.legacy)
+            {
+                Map_SetStageConfig(mission.floorCount, mission.enemySpawnRate);
+                Game_SetEnemyMix(mission.enemyMix);
+            }
+            else
+            {
+                Map_SetStageConfig(2, 10);   // 下の Game_Initialize が作る仮のダンジョン用（既定値）
+            }
+
             Game_Initialize();
             g_GameInitialized = true;
             Score_Reset();
@@ -670,12 +1097,22 @@ void GameManager_Update(double elapsed_time)
                 static_cast<int>(AssemblyScreen_GetRightWeapon()));
             Player_SetLeftWeaponIndex(
                 static_cast<int>(AssemblyScreen_GetLeftWeapon()));
+
+            // ブロックステージのミッションは、初期化後にステージを差し替える
+            //（Game_Initialize が内部でダンジョンを生成するため。屋外アリーナと同じ手順）
+            if (!mission.legacy)
+                LoadMissionPhase(0);
         }
         else if (g_GameState == GameState::Survival)
         {
             // Game_Initialize は内部の Map_Initialize でダンジョンを生成するため、
             // 屋外アリーナは「初期化後」に生成して上書きする（逆順だと消される）
             if (g_GameInitialized) Game_Finalize();   // 前回ゲームのリソースを解放（SEリーク防止）
+            ResetDifficulty();                        // ミッションの難易度倍率を持ち込まない
+            ResetPlayState();
+            g_MissionTime = 0.0;
+            g_Report      = MissionReport{};
+            g_Report.survival = true;
             Game_Initialize();
             g_GameInitialized = true;
             Game_SetSurvivalMode(true);
@@ -729,12 +1166,15 @@ void GameManager_Draw()
     case GameState::StageSelect:  StageSelect_Draw();    break;
     case GameState::PreGame:      PreGame_Draw();        break;
     case GameState::WeaponSelect: AssemblyScreen_Draw(); break;
-    case GameState::ScoreCheck:   ScoreCheck_Draw();     break;
+    case GameState::MissionSelect: MissionSelect_Draw(); break;
+    case GameState::EnemyDex:     EnemyDex_Draw();       break;
     case GameState::Tutorial:     Tutorial_Draw();       break;
     case GameState::Playing:
         Game_Draw();
         if (g_IsPaused)
             Pause_Draw();
+        else
+            DrawMissionObjective();   // ブロックステージの作戦目標（上部中央）
         break;
     case GameState::Survival:
         Game_Draw();   // ショップの目印（Shop_DrawWorld）は Game_Draw 内の3Dパスで描画される
@@ -766,8 +1206,8 @@ void GameManager_Draw()
     {
     case GameState::WeaponSelect:
         InputHint_Draw(
-            "{W}{S} Move    {ENTER} Set / Ready    {TAB} Switch    {ESC} Back",
-            "{DPAD_UP}{DPAD_DN} Move    {A} Set / Ready    {LB}{RB} Switch    {B} Back");
+            "{W}{S} Move    {K_A}{K_D} Tab    {ENTER} Set / Ready    {TAB} Section    {ESC} Back",
+            "{DPAD_UP}{DPAD_DN} Move    {DPAD_LR} Tab    {A} Set / Ready    {LB}{RB} Section    {B} Back");
         break;
     case GameState::Title:
     {
@@ -803,6 +1243,11 @@ void GameManager_Draw()
                 "{W}{K_A}{S}{K_D} Move    {SPACE} Jump    {SHIFT} Dash    {MOUSE_MOVE} Aim    {MOUSE_R} R-ARM    {MOUSE_L} L-ARM    {ESC} Pause",
                 "{L_STICK} Move    {A} Jump    {B} Dash    {R_STICK} Aim    {RB} R-ARM    {LB} L-ARM    {X} Lock-On    {START} Pause");
         break;
+    case GameState::EnemyDex:
+        InputHint_Draw(
+            "{UP}{DOWN} Select    {LEFT}{RIGHT} Rotate    {ESC} Back",
+            "{DPAD_UP}{DPAD_DN} Select    {DPAD_LR} Rotate    {B} Back");
+        break;
     case GameState::Option:
         InputHint_Draw(
             "{UP}{DOWN} Move    {LEFT}{RIGHT} Change    {ESC} Back",
@@ -810,9 +1255,10 @@ void GameManager_Draw()
         break;
     case GameState::Result:
     case GameState::Clear:
-        InputHint_Draw(
-            "{ENTER} Back to Title",
-            "{A} Back to Title");
+        if (g_Report.survival)
+            InputHint_Draw("{ENTER} Mode Select", "{A} Mode Select");
+        else
+            InputHint_Draw("{ENTER} Mission Select", "{A} Mission Select");
         break;
     default:
         break;

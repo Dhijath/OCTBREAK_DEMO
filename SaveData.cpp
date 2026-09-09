@@ -9,7 +9,10 @@
 #include "game_window.h"
 #include "Score.h"
 #include "AssemblyScreen.h"
+#include "MissionDef.h"
 #include "Option.h"
+#include "EnemyDex.h"
+#include "MechParts.h"
 #include <windows.h>
 #include <cstdio>
 #include <cstring>
@@ -24,6 +27,8 @@ static const char* SEC_DISPLAY   = "Display";
 static const char* SEC_GRAPHICS  = "Graphics";
 static const char* SEC_RECORDS   = "Records";
 static const char* SEC_ASSEMBLY  = "Assembly";
+static const char* SEC_MISSION   = "Mission";
+static const char* SEC_DEX       = "EnemyDex";
 
 //------------------------------------------------------------------------------
 // 内部ヘルパー: float を文字列で書き込む
@@ -88,6 +93,14 @@ void SaveData_Load()
     char path[MAX_PATH];
     GetAbsPath(path, MAX_PATH);
 
+    // ── Enemy Dex（種別ごとの撃破数。キーは EnemyType の値）──
+    for (int i = 0; i < EnemyDex_TypeCount(); ++i)
+    {
+        char key[16];
+        snprintf(key, sizeof(key), "Kill%02d", i);
+        EnemyDex_SetKills(i, ReadInt(SEC_DEX, key, 0, path));
+    }
+
     // ── Audio ──────────────────────────────────────────────
     float volume = ReadFloat(SEC_AUDIO, "Volume", 0.8f, path);
     SetMasterVolume(volume);
@@ -110,7 +123,21 @@ void SaveData_Load()
     {
         int rw = ReadInt(SEC_ASSEMBLY, "LastRight", 0, path);
         int lw = ReadInt(SEC_ASSEMBLY, "LastLeft",  3, path);
+    MechParts_SetFrameSel(FRAME_HEAD, ReadInt(SEC_ASSEMBLY, "Head", 0, path));
+    MechParts_SetFrameSel(FRAME_BODY, ReadInt(SEC_ASSEMBLY, "Body", 0, path));
+    MechParts_SetFrameSel(FRAME_LEGS, ReadInt(SEC_ASSEMBLY, "Legs", 0, path));
+    MechParts_SetInternalSel(0, ReadInt(SEC_ASSEMBLY, "Internal1", 0, path));
+    MechParts_SetInternalSel(1, ReadInt(SEC_ASSEMBLY, "Internal2", 0, path));
         AssemblyScreen_SetDefaults(static_cast<WeaponID>(rw), static_cast<WeaponID>(lw));
+    }
+
+    // ── Mission ────────────────────────────────────────────
+    Mission_SetCurrent(ReadInt(SEC_MISSION, "Last", 0, path));
+    for (int i = 0; i < MISSION_COUNT; ++i)
+    {
+        char key[16];
+        snprintf(key, sizeof(key), "Cleared_%d", i);
+        Mission_SetCleared(i, ReadInt(SEC_MISSION, key, 0, path) != 0);
     }
 
     // ── Graphics ───────────────────────────────────────────
@@ -165,6 +192,12 @@ void SaveData_Save()
     // ── Assembly ───────────────────────────────────────────
     WriteInt(SEC_ASSEMBLY, "LastRight", (int)AssemblyScreen_GetRightWeapon(), path);
     WriteInt(SEC_ASSEMBLY, "LastLeft",  (int)AssemblyScreen_GetLeftWeapon(),  path);
+    // 機体パーツ（頭・胴体・脚部）と内部パーツ（2スロット）
+    WriteInt(SEC_ASSEMBLY, "Head",      MechParts_GetFrameSel(FRAME_HEAD), path);
+    WriteInt(SEC_ASSEMBLY, "Body",      MechParts_GetFrameSel(FRAME_BODY), path);
+    WriteInt(SEC_ASSEMBLY, "Legs",      MechParts_GetFrameSel(FRAME_LEGS), path);
+    WriteInt(SEC_ASSEMBLY, "Internal1", MechParts_GetInternalSel(0),       path);
+    WriteInt(SEC_ASSEMBLY, "Internal2", MechParts_GetInternalSel(1),       path);
 
     // ── Records ────────────────────────────────────────────
     int count = Score_GetRecordCount();
@@ -179,6 +212,21 @@ void SaveData_Save()
         WriteInt(SEC_RECORDS, keyScore, (int)recs[i].score,       path);
         WriteInt(SEC_RECORDS, keyRight, (int)recs[i].rightWeapon, path);
         WriteInt(SEC_RECORDS, keyLeft,  (int)recs[i].leftWeapon,  path);
+    }
+}
+
+void SaveData_SaveMissions()
+{
+    EnsureDir();
+    char path[MAX_PATH];
+    GetAbsPath(path, MAX_PATH);
+
+    WriteInt(SEC_MISSION, "Last", Mission_GetCurrent(), path);
+    for (int i = 0; i < MISSION_COUNT; ++i)
+    {
+        char key[16];
+        snprintf(key, sizeof(key), "Cleared_%d", i);
+        WriteInt(SEC_MISSION, key, Mission_IsCleared(i) ? 1 : 0, path);
     }
 }
 
@@ -200,5 +248,21 @@ void SaveData_SaveScores()
         WriteInt(SEC_RECORDS, keyScore, (int)recs[i].score,       path);
         WriteInt(SEC_RECORDS, keyRight, (int)recs[i].rightWeapon, path);
         WriteInt(SEC_RECORDS, keyLeft,  (int)recs[i].leftWeapon,  path);
+    }
+}
+
+//==============================================================================
+// エネミー図鑑の撃破数のみ書き込み
+//==============================================================================
+void SaveData_SaveDex()
+{
+    EnsureDir();
+    char path[MAX_PATH];
+    GetAbsPath(path, MAX_PATH);
+    for (int i = 0; i < EnemyDex_TypeCount(); ++i)
+    {
+        char key[16];
+        snprintf(key, sizeof(key), "Kill%02d", i);
+        WriteInt(SEC_DEX, key, EnemyDex_GetKills(i), path);
     }
 }

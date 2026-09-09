@@ -8,8 +8,7 @@
    背景＋タイトルロゴ＋メニュー（START / OPTION / EXIT）
    - W / S または 十字キー上下 で選択
    - Enter または Aボタン で決定
-   - 全ボタンに薄い白い縁（常時）
-   - 選択中ボタンは拡大＋上下ユラユラ＋発光パルスで強調
+   - 描画は SF調メニュー画面（SciFiMenu）に任せる
 ==============================================================================*/
 
 #include "Title.h"
@@ -19,6 +18,7 @@
 #include "direct3d.h"
 #include "audio.h"
 #include "text_logo.h"
+#include "SciFiMenu.h"
 #include <DirectXMath.h>
 #include <algorithm>
 #include <cmath>
@@ -120,98 +120,14 @@ void Title_Update(double elapsed_time)
 // -----------------------------------------------------------------------------
 void Title_Draw()
 {
-    Direct3D_SetDepthEnable(false); // タイトル(2D)中は深度を切る
-    Direct3D_SetBlendState(true);
-
-    const int sw = SPRITE_SCREEN_W;
-    const int sh = SPRITE_SCREEN_H;
-
-    // メニューレイアウト定数（テクスチャ不要でも白グロー計算に使う）
-    static constexpr float MENU_BOX_W = 260.0f; // ボタン枠推定幅（全項目共通）
-    static constexpr float MENU_BOX_H = 82.0f;  // ボタン枠推定高さ
-    const float baseX = (float)sw * 0.5f;
-    const float baseY = (float)sh * 0.55f;
-    const float gapY  = 100.0f;
-
-    // ──────────────────────────────────────────
-    // 1) スプライト描画（背景 + ボタン枠グロー）
-    // ──────────────────────────────────────────
-    Sprite_Begin();
-
-    // 背景（画面全体にフィット）
-    if (g_TitleBgTex >= 0)
+    // SF調メニュー画面（背景・ロゴ・メニュー）。入力ヒントバーは Game_Manager が描く
+    static const SciFiMenuItem items[MENU_COUNT] =
     {
-        const float tw = (float)Texture_Width(g_TitleBgTex);
-        const float th = (float)Texture_Height(g_TitleBgTex);
-        const float sx = (float)sw / std::max(1.0f, tw);
-        const float sy = (float)sh / std::max(1.0f, th);
-        Sprite_Draw(g_TitleBgTex, 0, 0, tw * sx, th * sy, XMFLOAT4(1, 1, 1, 1));
-    }
-
-    // ボタン枠：常時白縁 + 選択中パルスグロー（白テクスチャで描画）
-    if (g_WhiteTex >= 0)
-    {
-        for (int i = 0; i < MENU_COUNT; ++i)
-        {
-            const bool  sel   = (i == g_Selected);
-            const float scale = sel ? 1.1f : 1.0f;
-            const float bob   = sel ? std::sin(g_Time * 6.0f) * 5.0f : 0.0f;
-            const float bw    = MENU_BOX_W * scale;
-            const float bh    = MENU_BOX_H * scale;
-            const float bx    = baseX - bw * 0.5f;
-            const float by    = baseY + i * gapY - bh * 0.5f + bob;
-
-            // 常時：薄い白縁
-            Sprite_Draw(g_WhiteTex, bx - 5, by - 5, bw + 10, bh + 10,
-                        XMFLOAT4(1, 1, 1, 0.3f));
-
-            // 選択中：発光パルス
-            if (sel)
-            {
-                const float pulse = std::sin(g_Time * 8.0f) * 0.5f + 0.5f;
-                const float a     = 0.25f + 0.25f * pulse;
-                Sprite_Draw(g_WhiteTex, bx - 12, by - 12, bw + 24, bh + 24,
-                            XMFLOAT4(1, 1, 1, a));
-            }
-        }
-    }
-
-    // ──────────────────────────────────────────
-    // 2) TextLogo 描画（D2D でテキストをグラデーション塗り）
-    // ──────────────────────────────────────────
-
-    // タイトルロゴ
-    {
-        LogoStyle s;
-        s.fontSize     = 148.0f;
-        s.fontName     = L"Agency FB";
-        s.colorTop     = D2D1::ColorF(0.95f, 0.95f, 1.00f, 1.0f); // 白銀ハイライト
-        s.colorBottom  = D2D1::ColorF(0.35f, 0.35f, 0.40f, 1.0f); // クールグレー
-        s.outlineColor = D2D1::ColorF(0.06f, 0.06f, 0.08f, 1.0f); // チャコール
-        s.outlineWidth = 5.0f;
-        TextLogo_Draw(L"Oct Break", (float)sw * 0.5f, (float)sh * 0.20f, s);
-    }
-
-    // メニューボタン（START / OPTION / EXIT）
-    {
-        LogoStyle s;
-        s.fontSize     = 68.0f;
-        s.fontName     = L"Agency FB";
-        s.colorTop     = D2D1::ColorF(1.0f, 0.92f, 0.70f, 1.0f); // 薄いゴールド
-        s.colorBottom  = D2D1::ColorF(0.85f, 0.55f, 0.10f, 1.0f); // ゴールド
-        s.outlineColor = D2D1::ColorF(0.05f, 0.02f, 0.00f, 1.0f);
-        s.outlineWidth = 2.5f;
-
-        static const wchar_t* labels[MENU_COUNT] = { L"START", L"OPTION", L"EXIT" };
-        for (int i = 0; i < MENU_COUNT; ++i)
-        {
-            const bool  sel   = (i == g_Selected);
-            const float sc    = sel ? 1.1f : 1.0f;
-            const float bob   = sel ? std::sin(g_Time * 6.0f) * 5.0f : 0.0f;
-            const float cy    = baseY + i * gapY + bob;
-            TextLogo_Draw(labels[i], baseX, cy, s, sc);
-        }
-    }
+        { L"START",  L"出撃準備" },
+        { L"OPTION", L"システム設定" },
+        { L"EXIT",   L"終了" },
+    };
+    SciFiMenu_Draw(L"SYS://TITLE", items, MENU_COUNT, g_Selected, g_Time);
 }
 
 // -----------------------------------------------------------------------------

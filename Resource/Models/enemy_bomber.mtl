@@ -1,0 +1,16 @@
+newmtl core
+Ka 0 0 0
+Kd 1.000 0.550 0.100
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+
+newmtl shell
+Ka 0 0 0
+Kd 0.550 0.180 0.120
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+

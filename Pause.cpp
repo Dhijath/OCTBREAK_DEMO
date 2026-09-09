@@ -7,7 +7,7 @@
    ■メインメニュー（PauseState::Main）
      0: RESUME   – ゲーム再開
      1: OPTION   – オプションサブメニューへ
-     2: TITLE    – タイトルへ戻る
+     2: ABORT    – 作戦を中止してタイトルへ戻る
 
    ■オプションサブメニュー（PauseState::Option）
      0: VOLUME      – LEFT/RIGHT で 0.1 刻み
@@ -26,6 +26,7 @@
 #include "DirectWrite.h"
 #include "player_camera.h"
 #include "SaveData.h"
+#include "SciFiUI.h"
 #include <DirectXMath.h>
 #include <d2d1helper.h>
 #include <algorithm>
@@ -313,174 +314,156 @@ PauseResult Pause_Update()
 }
 
 //==============================================================================
-// 描画
+// 描画（SF調。SciFiUI で描く）
+//   メイン     : 画面中央の縦メニュー（RESUME / OPTION / ABORT）
+//   オプション : 4行の設定パネル（区切りゲージ＋値）
 //==============================================================================
 void Pause_Draw()
 {
-    if (g_TexWhite < 0) return;
+    using namespace SciFiUI;
 
     const float W = static_cast<float>(SPRITE_SCREEN_W);
     const float H = static_cast<float>(SPRITE_SCREEN_H);
 
-    Sprite_Begin();
+    BeginSprites();
 
-    //------------------------------------------------------------------
-    // 半透明ダークオーバーレイ
-    //------------------------------------------------------------------
-    Sprite_Draw(g_TexWhite, 0.0f, 0.0f, W, H, XMFLOAT4{ 0.0f, 0.0f, 0.0f, 0.55f });
-    Sprite_Begin();
+    // 暗幕＋走査線＋画面四隅の枠
+    // 暗幕＋走査線。見出し類は中央の列にまとめる（背後のHUDパネルと重ねない）
+    Fill(0.0f, 0.0f, W, H, { 0.0f, 0.01f, 0.03f, 0.74f });
+    Scanlines(0.0f, 0.0f, W, H, 4.0f, 0.04f);
+    const float headY = (g_State == PauseState::Option) ? OPT_PNL_Y - 40.0f : 216.0f;
+    if (g_State == PauseState::Main)
+        HazardTape(W * 0.5f - 300.0f, 240.0f, 600.0f, 4.0f, g_Time * 60.0f, WithAlpha(kAmber, 0.5f));
 
-    const float scaleX = static_cast<float>(Direct3D_GetBackBufferWidth()) / 1600.0f;
-    const float scaleY = static_cast<float>(Direct3D_GetBackBufferHeight()) / 900.0f;
+    Text(L"SYS://PAUSE", W * 0.5f - 300.0f, headY, 13.0f, ToD2D(kCyan, 0.85f), UIFont::Mono, UIAlign::Left, true);
+    Text(L"OPERATION SUSPENDED", W * 0.5f + 300.0f, headY, 13.0f, ToD2D(kAmber, 0.6f + 0.4f * sinf(g_Time * 3.0f)),
+         UIFont::Mono, UIAlign::Right, true);
 
     //==================================================================
-    // PauseState::Option – サブパネル
+    // PauseState::Option – 設定パネル
     //==================================================================
     if (g_State == PauseState::Option)
     {
-        // パネル背景・枠
-        const XMFLOAT4 BG = { 0.04f, 0.06f, 0.12f, 0.92f };
-        const XMFLOAT4 BORDER = { 0.2f, 0.72f, 1.0f, 0.8f };
-        const XMFLOAT4 BARFIL = { 0.2f, 0.72f, 1.0f, 1.0f };
-        const XMFLOAT4 BAREMP = { 0.12f, 0.12f, 0.12f, 1.0f };
-
-        Sprite_Draw(g_TexWhite, OPT_PNL_X - 2.0f, OPT_PNL_Y - 2.0f,
-            OPT_PNL_W + 4.0f, OPT_PNL_H + 4.0f, BORDER);
-        Sprite_Draw(g_TexWhite, OPT_PNL_X, OPT_PNL_Y, OPT_PNL_W, OPT_PNL_H, BG);
-
-        // 感度ステップを計算（横を基準）
         auto toStep = [](float sens) -> int {
-            return std::max(SENS_MIN, std::min(SENS_MAX,
-                static_cast<int>(roundf(sens / SENS_STEP))));
-            };
-        const int   sensStep = toStep(Player_Camera_GetMouseSensitivity());
-        const float sensRatio = static_cast<float>(sensStep - SENS_MIN) / (SENS_MAX - SENS_MIN);
-
-        // パッド感度ステップ
+            return std::max(SENS_MIN, std::min(SENS_MAX, static_cast<int>(roundf(sens / SENS_STEP))));
+        };
         auto toPadStep = [](float sens) -> int {
-            return std::max(PAD_SENS_MIN, std::min(PAD_SENS_MAX,
-                static_cast<int>(roundf(sens / PAD_SENS_STEP))));
-            };
-        const int   padStep  = toPadStep(Player_Camera_GetPadSensitivity());
-        const float padRatio = static_cast<float>(padStep - PAD_SENS_MIN) / (PAD_SENS_MAX - PAD_SENS_MIN);
+            return std::max(PAD_SENS_MIN, std::min(PAD_SENS_MAX, static_cast<int>(roundf(sens / PAD_SENS_STEP))));
+        };
+        const int   sensStep  = toStep(Player_Camera_GetMouseSensitivity());
+        const float sensRatio = static_cast<float>(sensStep) / SENS_MAX;
+        const int   padStep   = toPadStep(Player_Camera_GetPadSensitivity());
+        const float padRatio  = static_cast<float>(padStep) / PAD_SENS_MAX;
+        const bool  invertY   = Player_Camera_GetMouseInvertY();
 
-        // ─ バー描画 ────────────────────────────────────────────────────
-        auto drawBar = [&](float rowY, float ratio)
-            {
-                Sprite_Draw(g_TexWhite, OPT_BAR_X, rowY - OPT_BAR_H * 0.5f,
-                    OPT_BAR_W, OPT_BAR_H, BAREMP);
-                const float f = ratio * OPT_BAR_W;
-                if (f >= 1.0f)
-                    Sprite_Draw(g_TexWhite, OPT_BAR_X, rowY - OPT_BAR_H * 0.5f,
-                        f, OPT_BAR_H, BARFIL);
-            };
-        drawBar(OPT_ROW_Y0, g_Volume);
-        drawBar(OPT_ROW_Y1, sensRatio);
-        drawBar(OPT_ROW_Y2, padRatio);
-        // Y軸反転はバーなし（ON/OFFトグルのみ）
+        Panel(OPT_PNL_X, OPT_PNL_Y, OPT_PNL_W, OPT_PNL_H, kPanel, WithAlpha(kCyan, 0.55f), 18.0f);
+        Brackets(OPT_PNL_X - 5.0f, OPT_PNL_Y - 5.0f, OPT_PNL_W + 10.0f, OPT_PNL_H + 10.0f, 14.0f, WithAlpha(kCyan, 0.85f));
+        Fill(OPT_PNL_X + 1.0f, OPT_PNL_Y + 44.0f, OPT_PNL_W - 2.0f, 1.0f, WithAlpha(kCyan, 0.3f));
 
-        // ─ 選択行ハイライト ───────────────────────────────────────────
-        const XMFLOAT4 SEL_HL = { 0.2f, 0.72f, 1.0f, 0.15f };
         const float rowYs[OPTION_COUNT] = { OPT_ROW_Y0, OPT_ROW_Y1, OPT_ROW_Y2, OPT_ROW_Y3 };
-        Sprite_Draw(g_TexWhite, OPT_PNL_X + 4.0f, rowYs[g_Cursor] - 22.0f,
-            OPT_PNL_W - 8.0f, 44.0f, SEL_HL);
-
-        // ─ テキスト ──────────────────────────────────────────────────
-        if (g_pDW && g_pDW_Label)
+        const float ratios[3] = { g_Volume, sensRatio, padRatio };
+        for (int i = 0; i < OPTION_COUNT; ++i)
         {
-
-            const D2D1_COLOR_F dCYAN = D2D1::ColorF(0.2f, 0.72f, 1.0f, 1.0f);
-            const D2D1_COLOR_F dWHITE = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
-            const D2D1_COLOR_F dGRAY = D2D1::ColorF(0.55f, 0.55f, 0.55f, 1.0f);
-            const D2D1_COLOR_F dAMBER = D2D1::ColorF(1.0f, 0.75f, 0.2f, 1.0f);
-
-            const float LBL_HW = 120.0f;
-            const float LBL_CX = OPT_BAR_X - 12.0f - LBL_HW;
-            const float VAL_CX = OPT_BAR_X + OPT_BAR_W + 50.0f;
-            const float VAL_HW = 55.0f;
-            const float cx = OPT_PNL_X + OPT_PNL_W * 0.5f;
-
-            char volPct[8];  snprintf(volPct, sizeof(volPct), "%d%%", static_cast<int>(roundf(g_Volume * 100.0f)));
-            char sensStr[8]; snprintf(sensStr, sizeof(sensStr), "%d", sensStep);
-            char padStr[8];  snprintf(padStr, sizeof(padStr), "%d", padStep);
-            const bool invertY = Player_Camera_GetMouseInvertY();
-
-            // ラベル（右揃え DW）
-            g_pDW_Label->SetScale(scaleX, scaleY);
-            g_pDW_Label->BeginBatch();
-            g_pDW_Label->DrawAt(std::wstring(L"ボリューム"),   LBL_CX, OPT_ROW_Y0, LBL_HW, (g_Cursor == 0) ? dCYAN : dWHITE, 1.5f);
-            g_pDW_Label->DrawAt(std::wstring(L"マウス感度"),   LBL_CX, OPT_ROW_Y1, LBL_HW, (g_Cursor == 1) ? dCYAN : dWHITE, 1.5f);
-            g_pDW_Label->DrawAt(std::wstring(L"パッド感度"),   LBL_CX, OPT_ROW_Y2, LBL_HW, (g_Cursor == 2) ? dCYAN : dWHITE, 1.5f);
-            g_pDW_Label->DrawAt(std::wstring(L"Y軸反転"),      LBL_CX, OPT_ROW_Y3, LBL_HW, (g_Cursor == 3) ? dCYAN : dWHITE, 1.5f);
-            g_pDW_Label->EndBatch();
-            g_pDW_Label->SetScale(1.0f, 1.0f);
-
-            // ヘッダー・値・フッター（中央揃え DW）
-            g_pDW->SetScale(scaleX, scaleY);
-            g_pDW->BeginBatch();
-            g_pDW->DrawAt(std::wstring(L"オプション"), cx, OPT_PNL_Y + 30.0f, 160.0f, dAMBER, 1.5f);
-            g_pDW->DrawAt(volPct, VAL_CX, OPT_ROW_Y0, VAL_HW, (g_Cursor == 0) ? dCYAN : dGRAY, 1.5f);
-            g_pDW->DrawAt(sensStr, VAL_CX, OPT_ROW_Y1, VAL_HW, (g_Cursor == 1) ? dCYAN : dGRAY, 1.5f);
-            g_pDW->DrawAt(padStr, VAL_CX, OPT_ROW_Y2, VAL_HW, (g_Cursor == 2) ? dCYAN : dGRAY, 1.5f);
-            g_pDW->DrawAt(invertY ? "ON" : "OFF", VAL_CX, OPT_ROW_Y3, VAL_HW, (g_Cursor == 3) ? dCYAN : dGRAY, 1.5f);
-            g_pDW->DrawAt(std::wstring(L"ESC / B : 戻る"), cx, OPT_PNL_Y + OPT_PNL_H - 25.0f, 180.0f, dGRAY, 1.2f);
-            g_pDW->EndBatch();
-            g_pDW->SetScale(1.0f, 1.0f);
-
+            const bool sel = (i == g_Cursor);
+            const float y = rowYs[i];
+            if (sel)
+            {
+                Fill(OPT_PNL_X + 12.0f, y - 24.0f, OPT_PNL_W - 24.0f, 48.0f, WithAlpha(kCyan, 0.12f));
+                Fill(OPT_PNL_X + 12.0f, y - 24.0f, 3.0f, 48.0f, kCyan);
+            }
+            if (i < 3)
+            {
+                SegmentBar(OPT_BAR_X, y - OPT_BAR_H * 0.5f, OPT_BAR_W, OPT_BAR_H, 20, ratios[i],
+                           WithAlpha(sel ? kCyan : kCyanDim, sel ? 0.95f : 0.8f), WithAlpha(kCyan, 0.10f));
+            }
+            else
+            {
+                // ON / OFF の切り替えスイッチ
+                Frame(OPT_BAR_X, y - 13.0f, 120.0f, 26.0f, WithAlpha(kCyan, sel ? 0.9f : 0.5f), 1.0f);
+                Fill(invertY ? OPT_BAR_X + 62.0f : OPT_BAR_X + 2.0f, y - 11.0f, 56.0f, 22.0f,
+                     WithAlpha(invertY ? kGreen : kCyanDim, sel ? 0.8f : 0.5f));
+            }
         }
+
+        static const wchar_t* LABELS[OPTION_COUNT] = { L"ボリューム", L"マウス感度", L"パッド感度", L"Y軸反転" };
+        static const wchar_t* CODES[OPTION_COUNT]  = { L"VOLUME", L"MOUSE SENS", L"PAD SENS", L"INVERT Y" };
+        wchar_t vals[OPTION_COUNT][16];
+        swprintf_s(vals[0], L"%d%%", static_cast<int>(roundf(g_Volume * 100.0f)));
+        swprintf_s(vals[1], L"%d", sensStep);
+        swprintf_s(vals[2], L"%d", padStep);
+        swprintf_s(vals[3], L"%s", invertY ? L"ON" : L"OFF");
+
+        Text(L"SETTINGS", OPT_PNL_X + 22.0f, OPT_PNL_Y + 12.0f, 20.0f, ToD2D(kCyan), UIFont::Mono, UIAlign::Left, true);
+        Text(L"オプション", OPT_PNL_X + OPT_PNL_W - 26.0f, OPT_PNL_Y + 12.0f, 18.0f, ToD2D(kCyan, 0.7f),
+             UIFont::Body, UIAlign::Right);
+        for (int i = 0; i < OPTION_COUNT; ++i)
+        {
+            const bool sel = (i == g_Cursor);
+            const float y = rowYs[i];
+            Text(CODES[i], OPT_PNL_X + 30.0f, y - 21.0f, 12.0f, ToD2D(kCyan, sel ? 0.9f : 0.5f), UIFont::Mono, UIAlign::Left, true);
+            Text(LABELS[i], OPT_PNL_X + 30.0f, y - 5.0f, 19.0f,
+                 sel ? D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f) : D2D1::ColorF(0.75f, 0.82f, 0.9f, 1.0f),
+                 UIFont::Body, UIAlign::Left, sel);
+            Text(vals[i], OPT_PNL_X + OPT_PNL_W - 30.0f, y - 16.0f, 26.0f, ToD2D(sel ? kCyan : kCyanDim, 1.0f),
+                 UIFont::Display, UIAlign::Right, true);
+        }
+        Text(L"LEFT / RIGHT : CHANGE     ESC / B : BACK", OPT_PNL_X + OPT_PNL_W * 0.5f, OPT_PNL_Y + OPT_PNL_H - 34.0f, 13.0f,
+             ToD2D(kCyan, 0.6f), UIFont::Mono, UIAlign::Center, true);
+
+        FlushText();
         return;
     }
 
     //==================================================================
     // PauseState::Main – メインメニュー
     //==================================================================
-    static constexpr float MENU_BOX_W = 280.0f;
-    static constexpr float MENU_BOX_H = 80.0f;
-    static constexpr int   MAIN_COUNT_DRAW = 3;
+    constexpr float ITEM_W = 520.0f, ITEM_H = 70.0f, ITEM_GAP = 18.0f;
+    const float itemX  = (W - ITEM_W) * 0.5f;
+    const float itemY0 = 300.0f;
 
-    const float baseX = W * 0.5f;
-    const float baseY = H * 0.35f;
-    const float gapY = 100.0f;
+    Fill(itemX - 40.0f, 196.0f, ITEM_W + 80.0f, 1.0f, WithAlpha(kCyan, 0.4f));
+    Ticks(itemX - 40.0f, 198.0f, ITEM_W + 80.0f, 40, 5, WithAlpha(kCyan, 0.35f));
 
-    // グローボックス
-    for (int i = 0; i < MAIN_COUNT_DRAW; ++i)
+    struct Item { const wchar_t* label; const wchar_t* sub; XMFLOAT4 color; };
+    static const Item items[MAIN_COUNT] =
     {
-        const bool  sel = (i == g_Cursor);
-        const float scale = sel ? 1.1f : 1.0f;
-        const float bob = sel ? std::sinf(g_Time * 6.0f) * 5.0f : 0.0f;
-        const float bw = MENU_BOX_W * scale;
-        const float bh = MENU_BOX_H * scale;
-        const float bx = baseX - bw * 0.5f;
-        const float by = baseY + i * gapY - bh * 0.5f + bob;
+        { L"RESUME", L"作戦を再開する",               kCyan },
+        { L"OPTION", L"音量・感度の設定",             kCyan },
+        { L"ABORT",  L"作戦を中止してタイトルへ",     kRed  },
+    };
 
-        Sprite_Draw(g_TexWhite, bx - 5.0f, by - 5.0f,
-            bw + 10.0f, bh + 10.0f, XMFLOAT4{ 1.0f, 1.0f, 1.0f, 0.3f });
+    for (int i = 0; i < MAIN_COUNT; ++i)
+    {
+        const bool sel = (i == g_Cursor);
+        const float y = itemY0 + i * (ITEM_H + ITEM_GAP);
+        const XMFLOAT4& c = items[i].color;
         if (sel)
         {
-            const float pulse = std::sinf(g_Time * 8.0f) * 0.5f + 0.5f;
-            const float a = 0.25f + 0.25f * pulse;
-            Sprite_Draw(g_TexWhite, bx - 12.0f, by - 12.0f,
-                bw + 24.0f, bh + 24.0f, XMFLOAT4{ 1.0f, 1.0f, 0.3f, a });
+            const float e = 4.0f + 2.0f * sinf(g_Time * 6.0f);
+            Panel(itemX, y, ITEM_W, ITEM_H, kPanelHi, c, 14.0f);
+            Brackets(itemX - e, y - e, ITEM_W + e * 2.0f, ITEM_H + e * 2.0f, 12.0f, c, 2.0f);
+            Fill(itemX + 1.0f, y + 1.0f, 4.0f, ITEM_H - 2.0f, c);
+            Diamond(itemX - 26.0f, y + ITEM_H * 0.5f, 6.0f, c);
         }
-    }
-
-    // TextLogo ラベル
-    {
-        LogoStyle s;
-        s.fontSize = 68.0f;
-        s.fontName = L"Gill Sans Ultra Bold";
-        s.colorTop = D2D1::ColorF(1.0f, 0.92f, 0.70f, 1.0f);
-        s.colorBottom = D2D1::ColorF(0.85f, 0.55f, 0.10f, 1.0f);
-        s.outlineColor = D2D1::ColorF(0.05f, 0.02f, 0.00f, 1.0f);
-        s.outlineWidth = 2.5f;
-
-        static const wchar_t* labels[MAIN_COUNT_DRAW] = { L"RESUME", L"OPTION", L"TITLE" };
-        for (int i = 0; i < MAIN_COUNT_DRAW; ++i)
+        else
         {
-            const bool  sel = (i == g_Cursor);
-            const float sc = sel ? 1.1f : 1.0f;
-            const float bob = sel ? std::sinf(g_Time * 6.0f) * 5.0f : 0.0f;
-            TextLogo_Draw(labels[i], baseX, baseY + i * gapY + bob, s, sc);
+            Panel(itemX, y, ITEM_W, ITEM_H, kPanel, WithAlpha(c, 0.35f), 14.0f);
         }
     }
+
+    Text(L"PAUSE", W * 0.5f, 112.0f, 64.0f, ToD2D(kCyan), UIFont::Display, UIAlign::Center, true, 1.5f);
+    for (int i = 0; i < MAIN_COUNT; ++i)
+    {
+        const bool sel = (i == g_Cursor);
+        const float y = itemY0 + i * (ITEM_H + ITEM_GAP);
+        wchar_t num[8];
+        swprintf_s(num, L"%02d", i + 1);
+        Text(num, itemX + 22.0f, y + 24.0f, 16.0f, ToD2D(items[i].color, sel ? 0.9f : 0.4f), UIFont::Mono, UIAlign::Left, true);
+        Text(items[i].label, itemX + 64.0f, y + 12.0f, 36.0f, ToD2D(items[i].color, sel ? 1.0f : 0.6f),
+             UIFont::Display, UIAlign::Left, true);
+        Text(items[i].sub, itemX + ITEM_W - 20.0f, y + 26.0f, 16.0f,
+             D2D1::ColorF(0.85f, 0.9f, 0.95f, sel ? 1.0f : 0.5f), UIFont::Body, UIAlign::Right);
+    }
+
+    FlushText();
 }

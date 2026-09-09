@@ -85,4 +85,49 @@ const WeaponDef k_WeaponDefs[WEAPON_COUNT] =
         1.00f,  0.11f,  0.00f,    // dmg=920（385超のためバー最大1.0）  rate≈0.09/0.85≈0.11  exp=0.00
         L"接近して前方を薙ぎ払う白兵武器。\n射程は短いが近距離で高火力の範囲ダメージを与える。"
     },
+
+    /* WEAPON_RAILGUN  実値: damage=520/発  interval=1.40s  貫通ビーム */
+    {
+        "RAIL CANNON", 520,   1.40f,  0.0f, 140000,
+        "resource/Models/Weapon_Railgun.obj",  0.15f,
+        180.0f, -30.0f, 0.0f,  0.30f, 0.30f, 0.0f,
+        1.00f,  0.06f,  0.00f,    // dmg=520（385超で1.0）  rate=0.09/1.40≈0.06
+        L"2本のレールで弾体を加速する高威力砲。\n連射は遅いが、一撃で敵をまとめて撃ち抜く。"
+    },
+
+    /* WEAPON_GATLING  実値: damage=24/発  interval=0.05s  拡散±2.5° */
+    {
+        "GATLING",      24,   0.05f,  0.0f, 110000,
+        "resource/Models/Weapon_Gatling.obj",  0.15f,
+        180.0f, -30.0f, 0.0f,  0.30f, 0.30f, 0.0f,
+        0.06f,  1.00f,  0.00f,    // dmg=24/385≈0.06  rate=1.00（MG以上）
+        L"6本の砲身を回して弾をばら撒く。\n1発は軽いが、毎秒20発の弾幕で押し切る。"
+    },
+
+    /* WEAPON_GRENADE  実値: damage=260/発  interval=1.00s  explosionR=4.5 */
+    {
+        "GRENADE",     260,   1.00f,  4.5f, 120000,
+        "resource/Models/Weapon_Grenade.obj",  0.15f,
+        180.0f, -30.0f, 0.0f,  0.30f, 0.30f, 0.0f,
+        0.68f,  0.09f,  0.60f,    // dmg=260/385≈0.68  rate=0.09  exp=4.5/7.5=0.60
+        L"放物線を描いて飛ぶ炸裂弾。\n遮蔽物の向こうや群れの中心へ撃ち込める。"
+    },
+
+    /* WEAPON_BURSTRIFLE  実値: damage=70×3発=210  interval=0.60s */
+    {
+        "BURST RIFLE", 210,   0.60f,  0.0f,  95000,
+        "resource/Models/Weapon_BurstRifle.obj",  0.15f,
+        180.0f, -30.0f, 0.0f,  0.30f, 0.30f, 0.0f,
+        0.55f,  0.15f,  0.00f,    // dmg=210/385≈0.55  rate=0.09/0.60=0.15
+        L"引き金1回で3発を撃つ精密ライフル。\n弾がまっすぐ飛び、遠くの敵にも当てやすい。"
+    },
+
+    /* WEAPON_SPREADLASER  実値: damage=60×5本=300  interval=0.50s */
+    {
+        "SPREAD LASER", 300,  0.50f,  0.0f, 130000,
+        "resource/Models/Weapon_SpreadLaser.obj",  0.15f,
+        180.0f, -30.0f, 0.0f,  0.30f, 0.30f, 0.0f,
+        0.78f,  0.18f,  0.00f,    // dmg=300/385≈0.78  rate=0.09/0.50=0.18
+        L"5つの発振器から扇状にビームを放つ。\n正面の広い範囲を一度に薙ぎ払う。"
+    },
 };

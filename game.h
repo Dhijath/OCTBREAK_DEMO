@@ -21,6 +21,7 @@
 #define GAME_H
 
 #include <DirectXMath.h>
+#include "MissionDef.h"
 
 // D3Dリソース（アプリ起動・終了時に1回だけ呼ぶ）
 void Game_InitializeD3D();
@@ -52,6 +53,28 @@ bool Game_IsBossAlive();
 // ボス部屋モードを設定（true のときのみ Game_RespawnEnemies でボスをスポーンする）
 void Game_SetBossRoomMode(bool isBossRoom);
 
+// 敵編成を設定（Game_Initialize / Game_RespawnEnemies のスポーン種別割り振りに使う）
+void Game_SetEnemyMix(EnemyMix mix);
+
+// 通常エネミーの耐久倍率を設定（以降に出現する敵に適用。ボスは対象外。既定 1.0）
+void Game_SetEnemyHpScale(float scale);
+
+// 編成 mix で index 番目に出す敵の種別（Game_SpawnEnemy の type に渡せる値）
+int Game_GetEnemyTypeForMix(EnemyMix mix, int index);
+
+// ボス部屋で出すボスの種類（EnemyType の値。ボス以外を渡すと従来のボス）
+void Game_SetBossType(int type);
+
+// ボスの体力と表示名（ボス戦中でなければ false）
+bool Game_GetBossStatus(int* outHp, int* outMaxHp, const wchar_t** outName);
+
+// 撃破数（Game_Initialize で 0 に戻る）
+int  Game_GetKillCount();
+void Game_ResetKillCount();
+
+// エネミーの更新中からの出現要求（召喚など）。その回の更新が終わってから出現する
+void Game_RequestEnemySpawn(const DirectX::XMFLOAT3& pos, int type);
+
 // ボスの向き（正面ベクトル）をセット（BossIntro_Start から呼ぶ）
 void Game_SetBossLookDir(const DirectX::XMFLOAT3& dir);
 
@@ -60,6 +83,10 @@ void Game_DrawEnemyMarkers();
 
 // サバイバル用：現在の生存エネミー数
 int Game_GetAliveEnemyCount();
+
+// index 番目のエネミーの位置を取得（0 〜 Game_GetAliveEnemyCount()-1。範囲外は false）
+// ミニマップの範囲外マーカー表示に使う
+bool Game_GetEnemyPosition(int index, DirectX::XMFLOAT3* outPos);
 
 // サバイバルモード中か
 bool Game_IsSurvivalMode();

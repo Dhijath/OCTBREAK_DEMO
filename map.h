@@ -182,6 +182,20 @@ void Map_ResetGoalReachCount();
 //==============================================================================
 bool Map_IsClearConditionMet();
 
+//==============================================================================
+// ステージ設定（ミッションごとの階層数・敵の密度）
+//
+// ■役割
+// ・クリアに必要なゴール到達回数と、敵の密度の初期値を設定する
+// ・Map_Initialize（Game_Initialize）より前に呼ぶこと
+//   （初期ダンジョン生成時の敵スポーン数に反映されるため）
+//
+// ■引数
+// ・goalRequiredCount : クリアに必要なゴール到達回数（1以上）
+// ・enemySpawnRate    : 敵の密度（小さいほど多い。3以上）
+//==============================================================================
+void Map_SetStageConfig(int goalRequiredCount, int enemySpawnRate);
+
 void Map_Light_Reset();
 
 //==============================================================================
@@ -244,6 +258,7 @@ void     Map_Internal_ClearObjects();
 void     Map_Internal_AddObject(int kindId, const DirectX::XMFLOAT3& pos, const AABB& aabb);
 void     Map_Internal_SetSpawnPos(const DirectX::XMFLOAT3& pos);
 void     Map_Internal_SetGoalInvalid();
+void     Map_Internal_SetGoal(const DirectX::XMFLOAT3& pos, const AABB& aabb);
 void     Map_Internal_SetBossSpawnPos(const DirectX::XMFLOAT3& pos);
 void     Map_Internal_ClearEnemySpawns();
 void     Map_Internal_AddEnemySpawn(const DirectX::XMFLOAT3& pos);
@@ -256,6 +271,10 @@ int      Map_Internal_KindFloor();
 int      Map_Internal_KindMinimapFloor();
 int      Map_Internal_KindMinimapWall();
 int      Map_Internal_KindWall();
+int      Map_Internal_KindCeiling();
+
+// ゴールが有効か（ボス部屋・屋外アリーナなどゴールのないマップでは false）
+bool Map_HasGoal();
 
 // map.h
 void Map_DrawMinimap();  // ミニマップ専用

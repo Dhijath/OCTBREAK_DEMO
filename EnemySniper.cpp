@@ -122,6 +122,7 @@ void EnemySniper::Update(double elapsed_time)
 
     if (m_ContactDamageCooldown > 0.0f) m_ContactDamageCooldown -= dt;
     ResolveBulletHits();
+    UpdateAnim(dt);   // 見た目のアニメーション
 
     // 死亡判定：スコア・アイテムは GetKillScore() + Enemy 基底の Update 経由で処理しないため
     // ここで Enemy::Update() 相当の死亡処理を行う
@@ -161,10 +162,28 @@ void EnemySniper::Draw()
     XMMATRIX trans =
         XMMatrixTranslation(
             m_Position.x,
-            m_Position.y + ENEMY_HEIGHT * 1.0f,
+            m_Position.y + m_DrawOffsetY,
             m_Position.z);
 
-    ModelDraw(m_pModel, rot * trans);
+    //--------------------------------------------------------------------------
+    // アニメーション
+    //   狙っている間 : 発射が近づくほど目を細める
+    //   撃った瞬間   : 後ろへのけぞり、少し下がってから戻る（反動）
+    //   移動中       : 前傾・弾み・まばたき
+    //--------------------------------------------------------------------------
+    float eye = BlinkScale();
+    if (m_shootTimer > 0.0f)
+        eye = std::min(eye, 1.0f - 0.55f * std::min(1.0f, m_shootTimer / SHOOT_INTERVAL));
+    const float radius = m_obbHalfHeight;
+    XMVECTOR f = XMVector3Normalize(XMVectorSet(m_Front.x, 0.0f, m_Front.z, 0.0f) + XMVectorSet(0, 0, 1e-4f, 0));
+    const XMVECTOR right = XMVector3Normalize(XMVector3Cross(XMVectorSet(0, 1, 0, 0), f));
+    const float kick = m_Recoil * m_Recoil;
+    const XMMATRIX recoil =
+        XMMatrixRotationAxis(right, -XMConvertToRadians(22.0f) * kick) *
+        XMMatrixTranslation(-m_Front.x * 0.08f * kick, 0.0f, -m_Front.z * 0.08f * kick);
+    const XMMATRIX world = rot * recoil *
+        BallMotion(XMConvertToRadians(12.0f), XMConvertToRadians(8.0f), radius * 0.12f) * trans;
+    DrawEyeModel(m_pModel, 1, radius * 0.18f, world, eye);
     Light_SetAmbient({ 1.0, 1.0, 1.0 });
 }
 
@@ -194,6 +213,7 @@ void EnemySniper::Shoot()
     XMStoreFloat3(&vel, XMVector3Normalize(dir));
 
     EnemyBullet_Create(spawnPos, vel, SHOOT_DAMAGE);
+    m_Recoil = 1.0f;   // 反動（Draw で後ろへのけぞる）
 }
 
 //==============================================================================

@@ -36,6 +36,7 @@
 #include "TileWall.h"
 #include "WallPlaneRenderer.h"
 #include "MapPatrolAI.h"
+#include "BlockStage.h"
 
 #include <vector>
 #include <random>
@@ -129,7 +130,7 @@ namespace
 
     // ゴール到達回数管理 
     int g_GoalReachCount = 0;              // 現在の到達回数
-    constexpr int GOAL_REQUIRED_COUNT = 2; // クリアに必要な回数
+    int g_GoalRequiredCount = 2;           // クリアに必要な回数（Map_SetStageConfig で変更）
 
 
     //==========================================================================
@@ -514,6 +515,8 @@ XMFLOAT3 Map_GetBossSpawnPosition()
 //==============================================================================
 void Map_GenerateDungeon(std::uint32_t seed)
 {
+    BlockStage_Deactivate();   // タイル式マップに戻すので、描画の委譲を解除する
+
     //==============================
     // マップ全体サイズ（奇数推奨）
     //==============================
@@ -1302,7 +1305,15 @@ void Map_Internal_SetGoalInvalid()
     g_GoalPos  = { 0.0f, -100.0f, 0.0f };
     g_GoalAabb = { { -0.01f,-101.0f,-0.01f }, { 0.01f,-99.0f,0.01f } };
 }
+void Map_Internal_SetGoal(const XMFLOAT3& pos, const AABB& aabb)
+{
+    g_GoalPos  = pos;
+    g_GoalAabb = aabb;
+}
 void Map_Internal_SetBossSpawnPos(const XMFLOAT3& pos) { g_BossSpawnPos = pos; }
+
+// ゴールは無効化時に地下（Y=-100）へ沈めているので、その高さで有効/無効を判定する
+bool Map_HasGoal() { return g_GoalPos.y > -50.0f; }
 
 void Map_Internal_ClearEnemySpawns()                  { g_EnemySpawnPositions.clear(); }
 void Map_Internal_AddEnemySpawn(const XMFLOAT3& pos)  { g_EnemySpawnPositions.push_back(pos); }
@@ -1335,6 +1346,7 @@ int   Map_Internal_KindFloor()  { return KIND_FLOOR; }
 int   Map_Internal_KindMinimapFloor() { return KIND_MINIMAP_FLOOR; }
 int   Map_Internal_KindMinimapWall()  { return KIND_MINIMAP_WALL;  }
 int   Map_Internal_KindWall()   { return KIND_WALL; }
+int   Map_Internal_KindCeiling(){ return KIND_CEILING; }
 
 void Map_RegisterFloors()
 {
@@ -1393,6 +1405,13 @@ const AABB* Map_GetFloorCollider(int index)
 //==============================================================================
 void Map_Draw()
 {
+    // ブロックステージは床・壁の描画方法が異なるため、描画をまるごと委譲する
+    if (BlockStage_IsActive())
+    {
+        BlockStage_Draw();
+        return;
+    }
+
     ID3D11DeviceContext* ctx = Direct3D_GetContext();
 
     // 丸影（b6）は呼び元（game.cpp）が設定済みの値をそのまま使う
@@ -1512,6 +1531,12 @@ void Map_Draw()
 //==============================================================================
 void Map_DrawGoal()
 {
+    if (BlockStage_IsActive())
+    {
+        BlockStage_DrawGoal();   // ブロックステージのゴールは光柱（ビルボード不使用）
+        return;
+    }
+
     if (g_GoalTexID < 0) return;
 
     ID3D11DeviceContext* ctx = Direct3D_GetContext();
@@ -1611,7 +1636,21 @@ void Map_ResetGoalReachCount()
 //==============================================================================
 bool Map_IsClearConditionMet()
 {
-    return g_GoalReachCount >= GOAL_REQUIRED_COUNT;
+    return g_GoalReachCount >= g_GoalRequiredCount;
+}
+
+//==============================================================================
+// ステージ設定
+//
+// ■役割
+// ・ミッションごとの階層数と敵の密度を設定する
+// ・敵の密度は Map_AddGoalReachCount で階層ごとに上がっていくため、
+//   ここで初期値に戻す（前回プレイの値を引き継がないようにする）
+//==============================================================================
+void Map_SetStageConfig(int goalRequiredCount, int enemySpawnRate)
+{
+    g_GoalRequiredCount = std::max(1, goalRequiredCount);
+    enemy_spawnrate     = std::max(3, enemySpawnRate);
 }
 
 //==============================================================================
@@ -1624,6 +1663,8 @@ bool Map_IsClearConditionMet()
 //==============================================================================
 void Map_GenerateBossRoom(std::uint32_t /*seed*/)
 {
+    BlockStage_Deactivate();   // タイル式マップに戻すので、描画の委譲を解除する
+
     //==============================
     // マップサイズ（単一アリーナ）
     //==============================
@@ -1794,6 +1835,12 @@ void Map_GenerateBossRoom(std::uint32_t /*seed*/)
 
 void Map_DrawForMinimap()
 {
+    if (BlockStage_IsActive())
+    {
+        BlockStage_DrawMinimap();
+        return;
+    }
+
     Shader3d_Begin();
     Light_SetAmbient({ 1.0f, 1.0f, 1.0f });
 
@@ -1901,9 +1948,19 @@ bool Map_RaycastWalls(
     float nearestT = FLT_MAX;
     bool  hit = false;
 
+    // 線分を包む箱（粗い判定用）。これと重ならない AABB はスラブ判定をせずに捨てる。
+    // 敵の視線判定は毎フレーム多数呼ばれるため、ほとんどの壁をここで除外できると速い
+    const float segMinX = std::min(start.x, end.x), segMaxX = std::max(start.x, end.x);
+    const float segMinY = std::min(start.y, end.y), segMaxY = std::max(start.y, end.y);
+    const float segMinZ = std::min(start.z, end.z), segMaxZ = std::max(start.z, end.z);
+
     // 1つの AABB に対するスラブ判定。ヒットすれば nearestT / hit を更新する。
     auto testAABB = [&](const AABB& a)
     {
+        if (a.max.x < segMinX || a.min.x > segMaxX ||
+            a.max.y < segMinY || a.min.y > segMaxY ||
+            a.max.z < segMinZ || a.min.z > segMaxZ) return;
+
         float tMin = 0.0f;
         float tMax = 1.0f;
 

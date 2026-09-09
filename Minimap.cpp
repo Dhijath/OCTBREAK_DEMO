@@ -15,6 +15,9 @@
 #include "Minimap.h"
 #include "texture.h"
 #include "game.h"
+#include "SciFiUI.h"
+#include <cmath>
+#include <cwchar>
 
 
 //==============================================================================
@@ -22,15 +25,53 @@
 //==============================================================================
 
 int g_MinimapframeTexID = -1;  //ミニマップのフレーム用テクスチャ
+
+// 真上から見下ろすカメラの設定（3D描画と、範囲外マーカーの位置計算で共有する）
+static constexpr float MINIMAP_CAMERA_HEIGHT = 100.0f;
+static constexpr float MINIMAP_RANGE         = 60.0f;   // 平行投影の横幅の半分（m）
+
 void Minimap_Initialize()
 {
+}
+
+//==============================================================================
+// 範囲外マーカー
+//
+// ■役割
+// ・ミニマップに映っていない目標（ゴール・敵）の方角を、枠の縁の小さな四角で示す
+// ・ミニマップはプレイヤー中心・北（+Z）が上・東（+X）が右
+//
+// ■引数
+// ・target         : 目標のワールド座標
+// ・sx, sy, size   : ミニマップ本体の左上座標と一辺（仮想 1600×900 座標）
+// ・halfVisible    : ミニマップに映る範囲の半分（m）
+// ・markSize, color: マーカーの一辺と色
+//==============================================================================
+static void DrawOffMapMarker(const DirectX::XMFLOAT3& target,
+    float sx, float sy, float size, float halfVisible,
+    float markSize, const DirectX::XMFLOAT4& color)
+{
+    const DirectX::XMFLOAT3 center = Player_GetPosition();
+    float u = (target.x - center.x) / halfVisible;   // -1〜1 が映っている範囲
+    float v = (target.z - center.z) / halfVisible;
+
+    const float m = (fabsf(u) > fabsf(v)) ? fabsf(u) : fabsf(v);
+    if (m <= 1.0f) return;   // 映っているので不要（3D側のマーカーが見えている）
+
+    // 中心から目標へ向かう線が枠と交わる点へ寄せる
+    u /= m;
+    v /= m;
+
+    const float px = sx + (u * 0.5f + 0.5f) * size;
+    const float py = sy + (0.5f - v * 0.5f) * size;
+    Sprite_Draw(Map_GetWiteTexID(), px - markSize * 0.5f, py - markSize * 0.5f, markSize, markSize, color);
 }
 
 void MiniMap_Render3D()
 {
     Direct3D_BeginOffScreen();
     const DirectX::XMFLOAT3 center = Player_GetPosition();
-    Player_Camera_SetMiniMapTopDown(center, 100.0f, 60.0f);
+    Player_Camera_SetMiniMapTopDown(center, MINIMAP_CAMERA_HEIGHT, MINIMAP_RANGE);
 
     Map_DrawForMinimap();
     Player_DrawMarker();
@@ -150,6 +191,45 @@ void MiniMap_Draw2D()
     SAFE_RELEASE(oldBlend);
     // 通常スプライト描画開始
     Sprite_Begin();
+
+    //============================================================
+    // 範囲外マーカー（映っていないゴール・敵の方角を枠の縁に表示）
+    //============================================================
+    {
+        // オフスクリーンは横 MINIMAP_RANGE×2 を映し、上の UV 指定で中央の 9/16 を
+        // 切り出して表示しているので、実際に映る範囲はその 9/16 になる
+        const float halfVisible = MINIMAP_RANGE * (9.0f / 16.0f);
+
+        DirectX::XMFLOAT3 enemyPos;
+        for (int i = 0; Game_GetEnemyPosition(i, &enemyPos); ++i)
+            DrawOffMapMarker(enemyPos, sx, sy, mapSize, halfVisible, 7.0f, { 1.0f, 0.25f, 0.2f, 0.9f });
+
+        // ゴールは敵より大きく、点滅させて目立たせる
+        if (Map_HasGoal())
+        {
+            static int s_Blink = 0;
+            s_Blink = (s_Blink + 1) % 40;
+            const float a = (s_Blink < 28) ? 1.0f : 0.35f;
+            DrawOffMapMarker(Map_GetGoalPosition(), sx, sy, mapSize, halfVisible, 12.0f, { 0.3f, 0.95f, 1.0f, a });
+        }
+
+        //============================================================
+        // SF調の重ね表示：照準線・目盛り・四隅のブラケット・方位と範囲
+        //============================================================
+        using namespace SciFiUI;
+        const float cx = sx + mapSize * 0.5f;
+        const float cy = sy + mapSize * 0.5f;
+        Fill(sx, cy, mapSize, 1.0f, WithAlpha(kCyan, 0.18f));
+        Fill(cx, sy, 1.0f, mapSize, WithAlpha(kCyan, 0.18f));
+        Ticks(sx, sy + mapSize - 8.0f, mapSize, 11, 5, WithAlpha(kCyan, 0.45f));
+        Brackets(sx - 6.0f, sy - 6.0f, mapSize + 12.0f, mapSize + 12.0f, 14.0f, WithAlpha(kCyan, 0.85f));
+
+        wchar_t range[32];
+        swprintf_s(range, L"RADAR  ±%dm", static_cast<int>(halfVisible));
+        Text(L"N", cx, sy + 4.0f, 14.0f, ToD2D(kCyan), UIFont::Mono, UIAlign::Center, true, 1.0f);
+        Text(range, sx + mapSize, sy + mapSize + 10.0f, 12.0f, ToD2D(kCyan, 0.8f), UIFont::Mono, UIAlign::Right, true);
+        FlushText();
+    }
 
 
     //============================================================

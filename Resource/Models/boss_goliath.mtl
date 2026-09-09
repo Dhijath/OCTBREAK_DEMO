@@ -1,0 +1,24 @@
+newmtl armor
+Ka 0 0 0
+Kd 0.420 0.440 0.400
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+
+newmtl frame
+Ka 0 0 0
+Kd 0.160 0.160 0.170
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+
+newmtl lamp
+Ka 0 0 0
+Kd 1.000 0.550 0.100
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+

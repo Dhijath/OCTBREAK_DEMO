@@ -1,0 +1,8 @@
+newmtl barrel
+Ka 0 0 0
+Kd 0.200 0.200 0.220
+Ks 0.1 0.1 0.1
+Ns 10
+d 1
+illum 2
+
