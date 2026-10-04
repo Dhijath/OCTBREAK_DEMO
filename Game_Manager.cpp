@@ -280,6 +280,7 @@ static void CompleteMission()
 {
     PlayAudio(g_PlayerclearSE);
     Score_Addscore(Mission_GetCurrentDef().reward);   // 成功報酬
+    AssemblyScreen_AddSavedCredits(Mission_GetCurrentDef().reward);   // 報酬をアセンブリの予算へ持ち越す
     Mission_SetCleared(Mission_GetCurrent(), true);
     SaveData_SaveMissions();
     Score_AddRecord(Score_GetScore(),

@@ -38,6 +38,18 @@ WeaponID AssemblyScreen_GetLeftWeapon();
 // 残クレジット
 int      AssemblyScreen_GetRemainingCredits();
 
+//==============================================================================
+// 持ち越しクレジット（ミッション報酬の累計）
+//   通常モードの予算 = INITIAL_CREDITS + 持ち越しクレジット
+//
+// ・GetSavedCredits : 現在の持ち越し額
+// ・SetSavedCredits : 持ち越し額を設定（SaveData_Load から呼ぶ）
+// ・AddSavedCredits : 報酬を加算（amount : 加算するクレジット。0 以下は無視）
+//==============================================================================
+int      AssemblyScreen_GetSavedCredits();
+void     AssemblyScreen_SetSavedCredits(int credits);
+void     AssemblyScreen_AddSavedCredits(int amount);
+
 // 前回選択を引き継ぐ（SaveData_Load から呼ぶ）
 void     AssemblyScreen_SetDefaults(WeaponID right, WeaponID left);
 

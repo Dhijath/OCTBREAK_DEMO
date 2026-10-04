@@ -52,6 +52,7 @@ using namespace DirectX;
 // 定数
 //==============================================================================
 static constexpr int   INITIAL_CREDITS = 200000;
+static constexpr int   MAX_SAVED_CREDITS = 99999999;   // 持ち越しクレジットの上限（表示桁あふれ防止）
 static constexpr float SW = 1600.0f;
 static constexpr float SH = 900.0f;
 
@@ -119,6 +120,9 @@ namespace
     // ショップモード（サバイバルのショップから流用する際に true）
     bool g_ShopMode   = false;
     int  g_ShopBudget = 0;
+
+    // ミッション報酬の持ち越し分（通常モードの予算に上乗せする。セーブ対象）
+    int  g_SavedCredits = 0;
 
     // 前回選択のデフォルト値（SaveData_Load から上書きされる）
     int g_DefaultRight = WEAPON_MACHINEGUN;
@@ -250,12 +254,12 @@ static int CalcRemaining()
         if (g_LeftSelected  != g_DefaultLeft)  spent += k_WeaponDefs[g_LeftSelected].cost;
         return g_ShopBudget - spent;
     }
-    return INITIAL_CREDITS - k_WeaponDefs[g_RightSelected].cost - k_WeaponDefs[g_LeftSelected].cost;
+    return INITIAL_CREDITS + g_SavedCredits - k_WeaponDefs[g_RightSelected].cost - k_WeaponDefs[g_LeftSelected].cost;
 }
 
 static int TotalBudget()
 {
-    return g_ShopMode ? g_ShopBudget : INITIAL_CREDITS;
+    return g_ShopMode ? g_ShopBudget : INITIAL_CREDITS + g_SavedCredits;
 }
 
 static void RestoreFullViewport()
@@ -910,6 +914,11 @@ void AssemblyScreen_Draw()
     Text(buf, RGT_X + RGT_W - 24.0f, RP_STATS_Y + 4.0f, 22.0f, ToD2D(stats.attackMul >= 1.0f ? kCyan : kRed), UIFont::Display, UIAlign::Right, true);
 
     Text(L"BUDGET", RGT_X + 24.0f, RP_CREDIT_Y + 4.0f, 13.0f, label, UIFont::Mono, UIAlign::Left, true);
+    if (!g_ShopMode && g_SavedCredits > 0)
+    {
+        swprintf_s(buf, L"+ REWARD %d c", g_SavedCredits);
+        Text(buf, RGT_X + 24.0f, RP_CREDIT_Y + 22.0f, 11.0f, ToD2D(kGreen, 0.85f), UIFont::Mono, UIAlign::Left, true);
+    }
     swprintf_s(buf, L"%d / %d c", remaining, TotalBudget());
     Text(buf, RGT_X + RGT_W - 24.0f, RP_CREDIT_Y, 22.0f, overBudget ? ToD2D(kRed) : ToD2D(kAmber), UIFont::Display, UIAlign::Right, true);
 
@@ -932,6 +941,19 @@ void AssemblyScreen_SetShopMode(bool on, int budget)
 }
 
 bool AssemblyScreen_IsShopMode() { return g_ShopMode; }
+
+int AssemblyScreen_GetSavedCredits() { return g_SavedCredits; }
+
+void AssemblyScreen_SetSavedCredits(int credits)
+{
+    g_SavedCredits = std::clamp(credits, 0, MAX_SAVED_CREDITS);
+}
+
+void AssemblyScreen_AddSavedCredits(int amount)
+{
+    if (amount <= 0) return;
+    g_SavedCredits = std::min(MAX_SAVED_CREDITS, g_SavedCredits + std::min(amount, MAX_SAVED_CREDITS));
+}
 
 void AssemblyScreen_SetDefaults(WeaponID right, WeaponID left)
 {

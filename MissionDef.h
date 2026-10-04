@@ -89,7 +89,7 @@ struct MissionDef
     const wchar_t* objective;   // 作戦目標
     const wchar_t* briefing;    // ブリーフィング本文（\n で改行）
 
-    int   reward;               // 成功報酬（スコアに加算）
+    int   reward;               // 成功報酬（スコアとアセンブリの予算に加算）
     int   rank;                 // 難度（1〜5）
     float enemyHpScale;         // 通常エネミーの耐久倍率
     float enemySight;           // 敵の視野距離の倍率

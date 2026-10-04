@@ -139,6 +139,7 @@ void SaveData_Load()
         snprintf(key, sizeof(key), "Cleared_%d", i);
         Mission_SetCleared(i, ReadInt(SEC_MISSION, key, 0, path) != 0);
     }
+    AssemblyScreen_SetSavedCredits(ReadInt(SEC_MISSION, "Credits", 0, path));
 
     // ── Graphics ───────────────────────────────────────────
     {
@@ -228,6 +229,7 @@ void SaveData_SaveMissions()
         snprintf(key, sizeof(key), "Cleared_%d", i);
         WriteInt(SEC_MISSION, key, Mission_IsCleared(i) ? 1 : 0, path);
     }
+    WriteInt(SEC_MISSION, "Credits", AssemblyScreen_GetSavedCredits(), path);
 }
 
 void SaveData_SaveScores()
