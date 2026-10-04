@@ -324,7 +324,7 @@ void EnemyBall::Think(float dt, XMVECTOR& vel, float dist, bool seen)
             m_Flash = 1.0f;
             m_SpeedCap = DASH_SPEED;
             SetXZ(vel, m_DashDir.x * DASH_SPEED, m_DashDir.z * DASH_SPEED);
-            if (!m_HitDone && DistXZ(m_Position, Player_GetPosition()) < 1.2f)
+            if (!m_HitDone && PlayerInReach(m_Position, 1.2f, 0.7f))
             {
                 Player_TakeDamage(500);
                 KnockbackPlayer(m_Position, 9.0f, 3.0f);
@@ -462,7 +462,7 @@ void EnemyBall::Think(float dt, XMVECTOR& vel, float dist, bool seen)
                 SparkEffect_Create(c, 3.0f);
                 for (int i = 0; i < 10; ++i)
                     Fire(c, DirFromYaw(XM_2PI * i / 10.0f), 180, 6.0f);
-                if (DistXZ(m_Position, Player_GetPosition()) < 2.4f)
+                if (PlayerInReach(m_Position, 2.4f, 0.5f))
                 {
                     Player_TakeDamage(700);
                     KnockbackPlayer(m_Position, 12.0f, 4.0f);
@@ -614,11 +614,7 @@ void EnemyBall::Update(double elapsed_time)
     if (IsDead() && IsAlive())
     {
         m_IsAlive = false;
-        Score_Addscore(GetKillScore());
-        if (Game_IsSurvivalMode())
-            WaveManager_AddCredits(GetKillScore() * 3);
-        if (IsDropItem())
-            ItemManager_SpawnRandom(m_Position);
+        GiveReward();
         SparkEffect_Create({ m_Position.x, m_Position.y + m_DrawOffsetY, m_Position.z }, 1.5f);
     }
 }

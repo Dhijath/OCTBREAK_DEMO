@@ -69,6 +69,7 @@ public:
     static constexpr float CHARGE_SPEED       = 64.0f; // 突進速度（m/s）
     static constexpr float CHARGE_INTERVAL    = 7.0f;  // 突進インターバル（秒）
     static constexpr float CHARGE_DAMAGE_DIST = 2.0f;  // 接触判定距離
+    static constexpr float CHARGE_HIT_HEIGHT  = 1.0f;  // 接触判定の高さ（プレイヤーの足元がこれより上ならジャンプで回避）
     static constexpr int   CHARGE_DAMAGE      = 2360;   // 突進ダメージ
     static constexpr float CHARGE_KNOCKBACK   = 45.0f; // ノックバック強さ
     static constexpr float KEEP_DISTANCE      = 5.0f;   // 距離を保つ閾値

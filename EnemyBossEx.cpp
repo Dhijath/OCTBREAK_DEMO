@@ -319,7 +319,7 @@ bool EnemyBossEx::RunPattern(int pattern, float dt)
             }
             else
             {
-                if (!m_DashHit && DistXZ(m_Position, Player_GetPosition()) < 2.2f)
+                if (!m_DashHit && PlayerInReach(m_Position, 2.2f, 1.0f))
                 {
                     Player_TakeDamage(2000);
                     KnockbackPlayer(m_Position, 30.0f, 6.0f);
@@ -449,7 +449,7 @@ bool EnemyBossEx::RunPattern(int pattern, float dt)
             }
             else
             {
-                if (!m_DashHit && DistXZ(m_Position, Player_GetPosition()) < 1.8f)
+                if (!m_DashHit && PlayerInReach(m_Position, 1.8f, 1.0f))
                 {
                     Player_TakeDamage(1500);
                     KnockbackPlayer(m_Position, 18.0f, 4.0f);
@@ -564,8 +564,7 @@ void EnemyBossEx::Update(double elapsed_time)
     if (IsDead() && IsAlive() && Game_IsSurvivalMode())
     {
         m_IsAlive = false;
-        Score_Addscore(GetKillScore());
-        WaveManager_AddCredits(GetKillScore() * 3);
+        GiveReward();
     }
 }
 

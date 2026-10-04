@@ -11,6 +11,7 @@
 #include "sprite.h"
 #include "player.h"
 #include "EnemyManager.h"
+#include "SciFiUI.h"
 #include <d2d1helper.h>
 #include <DirectXMath.h>
 #include <vector>
@@ -46,11 +47,33 @@ namespace
     struct SpawnEntry { int type; int count; };
 
     // EnemyType の int 値（EnemyManager.h と一致させる）
-    enum : int { T_NORMAL=0, T_TANK=3, T_SPEED=2, T_SNIPER=3 };
+    enum : int { T_NORMAL=0, T_TANK=1, T_SPEED=2, T_SNIPER=3 };
     // ※ EnemyType: Normal=0, Tank=1, Speed=2, Sniper=3
 
     // 5の倍数のウェーブ（5, 10）はボスウェーブ
     static bool IsBossWave(int wave) { return (wave % 5) == 0; }
+
+    //------------------------------------------------------------------
+    // 所持クレジット表示（ミニマップの下・右端）
+    //------------------------------------------------------------------
+    static constexpr float CREDIT_X = 1310.0f;   // 左端（ミニマップと同じ幅にそろえる）
+    static constexpr float CREDIT_Y = 330.0f;    // 上端（ミニマップの範囲表示の下）
+    static constexpr float CREDIT_W = 270.0f;
+    static constexpr float CREDIT_H = 52.0f;
+
+    static void DrawCredits()
+    {
+        using namespace SciFiUI;
+
+        BeginSprites();
+        Panel(CREDIT_X, CREDIT_Y, CREDIT_W, CREDIT_H, kPanel, WithAlpha(kAmber, 0.55f), 10.0f);
+
+        wchar_t buf[32];
+        swprintf_s(buf, L"%d c", g_Credits);
+        Text(L"CREDIT", CREDIT_X + 14.0f, CREDIT_Y + 8.0f, 13.0f, ToD2D(kAmber, 0.85f), UIFont::Mono, UIAlign::Left, true);
+        Text(buf, CREDIT_X + CREDIT_W - 16.0f, CREDIT_Y + 10.0f, 30.0f, ToD2D(kAmber), UIFont::Display, UIAlign::Right, true);
+        FlushText();
+    }
 
     static std::vector<SpawnEntry> CalcSpawnList(int wave)
     {
@@ -143,7 +166,7 @@ void WaveManager_Initialize()
         fd.fontWeight    = DWRITE_FONT_WEIGHT_BOLD;
         fd.fontStyle     = DWRITE_FONT_STYLE_NORMAL;
         fd.fontStretch   = DWRITE_FONT_STRETCH_NORMAL;
-        fd.fontSize      = 52.0f;
+        fd.fontSize      = 34.0f;
         fd.localeName    = L"en-us";
         fd.textAlignment = DWRITE_TEXT_ALIGNMENT_CENTER;
         fd.Color         = D2D1::ColorF(1, 1, 1, 1);
@@ -287,9 +310,11 @@ void WaveManager_Draw()
 
     g_pDW->SetScale(scaleX, scaleY);
     g_pDW->BeginBatch();
-    g_pDW->DrawAt(buf, cx, 60.0f, 700.0f, col, 1.5f);
+    g_pDW->DrawAt(buf, cx, 56.0f, 480.0f, col, 1.5f);
     g_pDW->EndBatch();
     g_pDW->SetScale(1.0f, 1.0f);
+
+    DrawCredits();
 }
 
 //==============================================================================

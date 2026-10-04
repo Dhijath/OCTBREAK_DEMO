@@ -50,7 +50,7 @@ static constexpr float ROW_H  = 72.0f,   ROW_STEP = 84.0f;
 
 static constexpr float MAP_X  = 550.0f,  MAP_Y  = 100.0f, MAP_W  = 460.0f, MAP_H  = 420.0f;
 static constexpr float DATA_X = 1030.0f, DATA_Y = 100.0f, DATA_W = 530.0f, DATA_H = 420.0f;
-static constexpr float BRF_X  = 550.0f,  BRF_Y  = 540.0f, BRF_W  = 1010.0f, BRF_H = 250.0f;
+static constexpr float BRF_X  = 550.0f,  BRF_Y  = 540.0f, BRF_W  = 1010.0f, BRF_H = 280.0f;
 
 static constexpr float SORTIE_W = 220.0f, SORTIE_H = 58.0f;
 static constexpr float SORTIE_X = BRF_X + BRF_W - SORTIE_W - 18.0f;
@@ -407,7 +407,7 @@ void MissionSelect_Draw()
 
     // ヘッダ
     Text(L"SORTIE // MISSION SELECT", 52.0f, 12.0f, 40.0f, cyan, UIFont::Display, UIAlign::Left, true);
-    Text(L"ARMORED OPERATIONS NETWORK  ―  出撃する作戦を選択せよ", 470.0f, 30.0f, 14.0f, label, UIFont::Body);
+    Text(L"ARMORED OPERATIONS NETWORK  ―  出撃する作戦を選択せよ", 500.0f, 30.0f, 14.0f, label, UIFont::Body);
     {
         const int sec = static_cast<int>(g_Time);
         swprintf_s(buf, L"T+%02d:%02d:%02d", sec / 3600, (sec / 60) % 60, sec % 60);
@@ -473,10 +473,10 @@ void MissionSelect_Draw()
     Text(EnemyMixLabel(Mission_GetMainEnemyMix(md)), DATA_X + 130.0f, thY + 53.0f, 16.0f, white, UIFont::Body);
 
     swprintf_s(buf, L"ARMOR ×%.2f", md.enemyHpScale);
-    Text(buf, DATA_X + 300.0f, thY + 30.0f, 14.0f, ToD2D(md.enemyHpScale > 1.0f ? kAmber : kCyan), UIFont::Mono, UIAlign::Left, true);
+    Text(buf, DATA_X + 340.0f, thY + 30.0f, 14.0f, ToD2D(md.enemyHpScale > 1.0f ? kAmber : kCyan), UIFont::Mono, UIAlign::Left, true);
     const float limit = Mission_GetTimeLimit(md);
     swprintf_s(buf, L"TIME  %s", (limit > 0.0f) ? FormatTime(limit).c_str() : L"--:--");
-    Text(buf, DATA_X + 300.0f, thY + 56.0f, 14.0f, ToD2D(limit > 0.0f ? kAmber : kCyan), UIFont::Mono, UIAlign::Left, true);
+    Text(buf, DATA_X + 340.0f, thY + 56.0f, 14.0f, ToD2D(limit > 0.0f ? kAmber : kCyan), UIFont::Mono, UIAlign::Left, true);
 
     const bool hasBoss = Mission_HasBoss(md);
     Text(hasBoss ? L"!! LARGE-SCALE WEAPON DETECTED" : L"NO LARGE-SCALE SIGNATURE",
@@ -493,7 +493,7 @@ void MissionSelect_Draw()
         const size_t shown = std::min(brief.size(), static_cast<size_t>(g_BriefTime * BRIEF_CHARS_PER_SEC));
         std::wstring text = brief.substr(0, shown);
         if (fmodf(t, 0.8f) < 0.45f) text += L"_";
-        Text(text, BRF_X + 24.0f, BRF_Y + 48.0f, 17.0f, D2D1::ColorF(0.82f, 0.9f, 0.95f, 1.0f), UIFont::Body);
+        Text(text, BRF_X + 24.0f, BRF_Y + 46.0f, 16.0f, D2D1::ColorF(0.82f, 0.9f, 0.95f, 1.0f), UIFont::Body);
     }
 
     // 装備

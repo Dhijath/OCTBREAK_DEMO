@@ -19,7 +19,8 @@
 #include "score.h"
 using namespace DirectX;
 
-static const float ITEM_RADIUS = 0.6f;  // 取得判定の半径（メートル）
+static const float ITEM_RADIUS = 1.8f;  // 取得判定の半径（メートル）
+static const float ITEM_HEIGHT = 2.0f;  // 取得判定の高さの許容差（メートル。上下の階から拾わないため）
 static const float ITEM_SCALE = 0.5f;  // ビルボード表示サイズ
 static const int   ITEM_HP_VALUE = 200;    // HP回復量（10倍）
 static const float ITEM_ENERGY_VALUE = 500.0f; // エネルギー回復量（10倍）
@@ -129,6 +130,9 @@ void Item::Update()
     if (!Player_IsEnable()) return;
 
     const XMFLOAT3& playerPos = Player_GetPosition();
+
+    const float dy = playerPos.y - m_Position.y;
+    if (dy > ITEM_HEIGHT || dy < -ITEM_HEIGHT) return;
 
     const float dx = playerPos.x - m_Position.x;
     const float dz = playerPos.z - m_Position.z;

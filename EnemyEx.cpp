@@ -141,6 +141,7 @@ void EnemyEx::ThinkBomber(float dt, XMVECTOR& vel, float dist, bool seen)
     constexpr float ARM_RANGE  = 1.8f;
     constexpr float FUSE_TIME  = 0.55f;
     constexpr float BLAST_R    = 3.0f;
+    constexpr float BLAST_H    = 1.0f;   // 爆風が届く高さ（ジャンプで回避できる）
     constexpr int   BLAST_DMG  = 1300;
 
     m_SpeedCap = 7.0f;
@@ -167,7 +168,7 @@ void EnemyEx::ThinkBomber(float dt, XMVECTOR& vel, float dist, bool seen)
     if (m_StateTimer >= FUSE_TIME)
     {
         SparkEffect_Create({ m_Position.x, m_Position.y + 0.4f, m_Position.z }, 4.5f);
-        if (DistXZ(m_Position, Player_GetPosition()) < BLAST_R)
+        if (PlayerInReach(m_Position, BLAST_R, BLAST_H))
         {
             Player_TakeDamage(BLAST_DMG);
             KnockbackPlayer(m_Position, 14.0f, 5.0f);
@@ -329,6 +330,7 @@ void EnemyEx::ThinkPhantom(float dt, XMVECTOR& vel, float dist, bool seen)
     constexpr float BLINK_RANGE = 16.0f, BLINK_INTERVAL = 3.5f;
     constexpr float WINDUP = 0.4f, DASH_TIME = 0.25f, DASH_SPEED = 14.0f;
     constexpr float HIT_RANGE = 1.3f;
+    constexpr float HIT_HEIGHT = 0.7f;   // 斬撃が届く高さ（ジャンプで回避できる）
     constexpr int   DAMAGE = 650;
 
     switch (m_State)
@@ -376,7 +378,7 @@ void EnemyEx::ThinkPhantom(float dt, XMVECTOR& vel, float dist, bool seen)
         m_Flash = 1.0f;
         m_SpeedCap = DASH_SPEED;
         SetXZ(vel, m_DashDir.x * DASH_SPEED, m_DashDir.z * DASH_SPEED);
-        if (!m_HitDone && DistXZ(m_Position, Player_GetPosition()) < HIT_RANGE)
+        if (!m_HitDone && PlayerInReach(m_Position, HIT_RANGE, HIT_HEIGHT))
         {
             Player_TakeDamage(DAMAGE);
             KnockbackPlayer(m_Position, 10.0f, 3.0f);
@@ -451,11 +453,7 @@ void EnemyEx::Update(double elapsed_time)
     if (IsDead() && IsAlive())
     {
         m_IsAlive = false;
-        Score_Addscore(GetKillScore());
-        if (Game_IsSurvivalMode())
-            WaveManager_AddCredits(GetKillScore() * 3);
-        if (IsDropItem())
-            ItemManager_SpawnRandom(m_Position);
+        GiveReward();
         if (m_Kind == Kind::Bomber)   // 撃ち落とした自爆型は小さく誘爆する（ダメージなし）
             SparkEffect_Create({ m_Position.x, m_Position.y + 0.4f, m_Position.z }, 2.0f);
     }

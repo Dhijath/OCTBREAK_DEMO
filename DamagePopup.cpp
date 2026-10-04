@@ -18,6 +18,7 @@
 #include "Player_Camera.h"
 #include <DirectXMath.h>
 #include <d2d1helper.h>
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 
@@ -28,6 +29,19 @@ namespace
     static constexpr int   MAX_POPUPS = 64;
     static constexpr float POPUP_LIFE = 1.0f;   // 生存時間（秒）
     static constexpr float POPUP_RISE = 1.5f;   // 上昇速度（m/s）
+    static constexpr float FONT_SIZE  = 22.0f;  // 数字のフォントサイズ（実ピクセル）
+    static constexpr float CHAR_W     = FONT_SIZE * 0.6f;   // 数字1文字の幅（Arial Bold の目安）
+    static constexpr float LINE_H     = FONT_SIZE * 1.1f;   // 数字を縦に並べるときの間隔
+
+    // 画面上に描く数字（重なりを解消してから描く）
+    struct Visible
+    {
+        float        sx, sy;     // 描画中心（実ピクセル座標）
+        float        halfW;      // 文字列の半幅
+        float        life;       // 残り寿命（新しいほど大きい）
+        D2D1_COLOR_F color;
+        char         text[16];
+    };
 
     struct Popup
     {
@@ -56,7 +70,7 @@ void DamagePopup_Initialize()
         fd.fontWeight    = DWRITE_FONT_WEIGHT_BOLD;
         fd.fontStyle     = DWRITE_FONT_STYLE_NORMAL;
         fd.fontStretch   = DWRITE_FONT_STRETCH_NORMAL;
-        fd.fontSize      = 22.0f;
+        fd.fontSize      = FONT_SIZE;
         fd.localeName    = L"en-us";
         fd.textAlignment = DWRITE_TEXT_ALIGNMENT_CENTER;
         fd.Color         = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
@@ -127,9 +141,9 @@ void DamagePopup_Draw()
     XMMATRIX view = XMLoadFloat4x4(&Player_Camera_GetViewMatrix());
     XMMATRIX proj = XMLoadFloat4x4(&Player_Camera_GetProjectionMatrix());
 
-    // D3D11 RTV をアンバインド → D2D BeginDraw
-    // （BeginBatch 内で自動的に OMSetRenderTargets(0,...) を呼ぶ）
-    g_pDW->BeginBatch();
+    // 画面内に見えている数字を集める
+    Visible vis[MAX_POPUPS];
+    int     visCount = 0;
 
     for (auto& p : g_Popups)
     {
@@ -152,18 +166,49 @@ void DamagePopup_Draw()
 
         const float alpha = p.life * p.life; // 二乗フェード（後半急速フェード）
 
-        // ダメージ量による色分け
-        D2D1_COLOR_F col;
-        if      (p.damage >= 500) col = D2D1::ColorF(1.0f, 0.4f, 0.1f, alpha); // 橙赤
-        else if (p.damage >= 100) col = D2D1::ColorF(1.0f, 1.0f, 0.0f, alpha); // 黄
-        else                      col = D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha); // 白
+        Visible& v = vis[visCount++];
+        v.sx   = sx;
+        v.sy   = sy;
+        v.life = p.life;
 
-        // 数字文字列を生成して実ピクセル座標に描画
-        // （DirectWrite は実ピクセル空間で描くため仮想座標変換不要）
-        char buf[16];
-        snprintf(buf, sizeof(buf), "%d", p.damage);
-        g_pDW->DrawAt(buf, sx, sy, 80.0f, col, 1.5f); // 縁取り付き（背景に溶け込まない）
+        // ダメージ量による色分け
+        if      (p.damage >= 500) v.color = D2D1::ColorF(1.0f, 0.4f, 0.1f, alpha); // 橙赤
+        else if (p.damage >= 100) v.color = D2D1::ColorF(1.0f, 1.0f, 0.0f, alpha); // 黄
+        else                      v.color = D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha); // 白
+
+        const int len = snprintf(v.text, sizeof(v.text), "%d", p.damage);
+        v.halfW = len * CHAR_W * 0.5f + 2.0f;
     }
+
+    // 新しい数字ほど元の位置に置き、先に置いた数字と重なる古い数字を上へずらす
+    std::sort(vis, vis + visCount, [](const Visible& a, const Visible& b) { return a.life > b.life; });
+    for (int i = 1; i < visCount; ++i)
+    {
+        for (int tries = 0; tries < visCount; ++tries)
+        {
+            bool moved = false;
+            for (int j = 0; j < i; ++j)
+            {
+                const bool overlapX = fabsf(vis[i].sx - vis[j].sx) < vis[i].halfW + vis[j].halfW;
+                const bool overlapY = fabsf(vis[i].sy - vis[j].sy) < LINE_H;
+                if (overlapX && overlapY)
+                {
+                    vis[i].sy = vis[j].sy - LINE_H;
+                    moved = true;
+                }
+            }
+            if (!moved) break;
+        }
+    }
+
+    // D3D11 RTV をアンバインド → D2D BeginDraw
+    // （BeginBatch 内で自動的に OMSetRenderTargets(0,...) を呼ぶ）
+    g_pDW->BeginBatch();
+
+    // 古い数字から描き、新しい数字を手前に重ねる
+    // （DirectWrite は実ピクセル空間で描くため仮想座標変換不要）
+    for (int i = visCount - 1; i >= 0; --i)
+        g_pDW->DrawAt(vis[i].text, vis[i].sx, vis[i].sy, 80.0f, vis[i].color, 1.5f); // 縁取り付き（背景に溶け込まない）
 
     // D2D EndDraw → D3D11 RTV を再バインド
     g_pDW->EndBatch();

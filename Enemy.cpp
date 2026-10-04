@@ -81,7 +81,16 @@ void Enemy::ConfirmDeath()
 {
     if (!IsDead() || !IsAlive()) return;
     m_IsAlive = false;
+    GiveReward();
+}
+
+void Enemy::GiveReward()
+{
     Score_Addscore(GetKillScore());
+    if (Game_IsSurvivalMode())
+        WaveManager_AddCredits(GetKillScore() * 3);  // 武器購入用のクレジット（スコアの3倍）
+    if (IsDropItem())
+        ItemManager_SpawnRandom(m_Position);
 }
 
 void Enemy_PlayDeathSE()
@@ -325,11 +334,7 @@ void Enemy::Update(double elapsed_time)
         if (IsDeferDeath() && !Game_IsSurvivalMode()) return;
 
         m_IsAlive = false;
-        Score_Addscore(GetKillScore());
-        if (Game_IsSurvivalMode())
-            WaveManager_AddCredits(GetKillScore() * 3);  // 武器購入用にクレジットを増量（3倍）
-        if (IsDropItem())
-            ItemManager_SpawnRandom(m_Position);
+        GiveReward();
     }
 }
 

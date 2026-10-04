@@ -155,6 +155,7 @@ static int CountDeadEnemies()
     {
         const Enemy& e = g_EnemyManager.GetEnemy(i);
         if (e.IsAlive()) continue;
+        if (!e.IsDead()) continue;   // 自爆など、倒されずに消えたものは撃破に数えない
         ++dead;
         EnemyDex_RecordKill(e.GetTypeId());
     }
@@ -252,7 +253,10 @@ static void OnBossVanish()
     {
         Enemy& e = g_EnemyManager.GetEnemy(i);
         if (e.IsDead() && e.IsAlive())
+        {
             e.ConfirmDeath();
+            ++g_KillCount;   // 図鑑への記録は撃破演出の開始時に済んでいる
+        }
     }
     g_EnemyManager.RemoveDead();
 }
@@ -765,10 +769,12 @@ void Game_Update(double elapsed_time)
                 Enemy& e = g_EnemyManager.GetEnemy(j);
                 if (e.IsAlive() && e.IsDead())
                 {
+                    // 死亡を遅延させるボスは撃破演出（BossDefeat）側で確定させる
+                    if (e.IsDeferDeath() && !Game_IsSurvivalMode()) continue;
+
                     e.Kill();
                     Enemy_PlayDeathSE();
-                    Score_Addscore(e.GetKillScore());
-                    ItemManager_SpawnRandom(e.GetPosition());
+                    e.GiveReward();
                 }
             }
         }

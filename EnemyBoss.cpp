@@ -333,7 +333,8 @@ void EnemyBoss::Update(double elapsed_time)
             float dx   = playerPos.x - m_Position.x;
             float dz   = playerPos.z - m_Position.z;
             float dist = sqrtf(dx * dx + dz * dz);
-            if (dist < CHARGE_DAMAGE_DIST)
+            float dy   = playerPos.y - m_Position.y;
+            if (dist < CHARGE_DAMAGE_DIST && dy < CHARGE_HIT_HEIGHT && dy >= -1.0f)
             {
                 Player_TakeDamage(CHARGE_DAMAGE);
 

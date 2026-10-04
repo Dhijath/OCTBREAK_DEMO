@@ -130,8 +130,7 @@ void EnemySniper::Update(double elapsed_time)
     if (IsDead() && IsAlive())
     {
         m_IsAlive = false;
-        Score_Addscore(GetKillScore());
-        ItemManager_SpawnRandom(m_Position);
+        GiveReward();
     }
 }
 

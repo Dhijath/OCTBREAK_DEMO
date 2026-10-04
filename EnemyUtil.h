@@ -30,6 +30,18 @@ namespace EnemyUtil
         return std::sqrt(dx * dx + dz * dz);
     }
 
+    // 近接攻撃・地面の衝撃波がプレイヤーに届くか判定する
+    // ・from   : 攻撃の基準位置（エネミーの足元）
+    // ・radius : 水平方向に届く距離（m）
+    // ・height : 足元から届く高さ（m）。プレイヤーの足元がこれより上ならジャンプで回避したとみなす
+    inline bool PlayerInReach(const DirectX::XMFLOAT3& from, float radius, float height)
+    {
+        const DirectX::XMFLOAT3 p = Player_GetPosition();
+        const float dy = p.y - from.y;
+        if (dy >= height || dy < -1.0f) return false;
+        return DistXZ(from, p) < radius;
+    }
+
     // from から見たプレイヤーの水平方向（正規化）。重なっていれば (0,0,1)
     inline DirectX::XMFLOAT3 DirToPlayerXZ(const DirectX::XMFLOAT3& from)
     {
