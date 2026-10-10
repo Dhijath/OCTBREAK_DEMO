@@ -72,6 +72,9 @@ static constexpr float LP_READY_H  = 48.0f;
 static constexpr float LP_LIST_BOTTOM = LP_READY_Y - 30.0f;
 static constexpr float LP_SECTION_H   = 28.0f;   // セクション見出しの高さ
 
+// ヘッダのタブ
+static constexpr float TAB_X = 560.0f, TAB_W = 170.0f, TAB_GAP = 10.0f, TAB_Y = 12.0f, TAB_HT = 42.0f;
+
 // センターパネル
 static constexpr float CP_NAME_Y       = 96.0f;
 static constexpr float CP_DIV1_Y       = 150.0f;
@@ -222,6 +225,35 @@ namespace
         g_Focus = FirstRowOfSection(section) + SelectedRef(s[section].kind);
     }
 
+    // 左パネルのリストの配置（描画とマウスの当たり判定で共用）
+    struct ListLayout
+    {
+        Section secs[3];
+        int     secCount;
+        float   secTop[3];   // セクション見出しの上端
+        float   rowStep;     // 行間（項目数から自動で決める）
+        float   rowH;        // 行の高さ
+
+        float RowY(int s, int i) const { return secTop[s] + LP_SECTION_H + i * rowStep; }
+    };
+
+    ListLayout GetListLayout()
+    {
+        ListLayout L{};
+        L.secCount = SectionsOf(g_Tab, L.secs);
+        int rows = 0;
+        for (int i = 0; i < L.secCount; ++i) rows += L.secs[i].count;
+        L.rowStep = std::min(30.0f, (LP_LIST_BOTTOM - LP_LIST_TOP - L.secCount * LP_SECTION_H) / rows);
+        L.rowH    = L.rowStep - 4.0f;
+        float y = LP_LIST_TOP;
+        for (int s = 0; s < L.secCount; ++s)
+        {
+            L.secTop[s] = y;
+            y += LP_SECTION_H + L.secs[s].count * L.rowStep;
+        }
+        return L;
+    }
+
     std::wstring Widen(const char* s) { return std::wstring(s, s + strlen(s)); }   // ASCII のみ
 
     std::wstring ItemName(SectionKind k, int i)
@@ -338,9 +370,6 @@ bool AssemblyScreen_Update(double dt)
     g_TabTime += dt;
     g_PreviewAngle += static_cast<float>(dt) * 0.8f;
 
-    const int focusReady = TotalRows(g_Tab);
-    const int focusTotal = focusReady + 1;
-
     // ── 左右：タブ切り替え（ショップは武装のみ）──
     if (!g_ShopMode && (UI_IsMoveLeft() || UI_IsMoveRight()))
     {
@@ -349,6 +378,24 @@ bool AssemblyScreen_Update(double dt)
         g_TabTime = 0.0;
         PlayAudio(g_SeTabSwitch, false);
     }
+
+    // ── マウス：タブをクリックで切り替え ──
+    if (!g_ShopMode)
+    {
+        for (int i = 0; i < TAB_COUNT; ++i)
+        {
+            if (i != g_Tab && UI_IsClickIn(TAB_X + i * (TAB_W + TAB_GAP), TAB_Y, TAB_W, TAB_HT))
+            {
+                g_Tab = i;
+                FocusSelected(0);
+                g_TabTime = 0.0;
+                PlayAudio(g_SeTabSwitch, false);
+            }
+        }
+    }
+
+    const int focusReady = TotalRows(g_Tab);
+    const int focusTotal = focusReady + 1;
 
     // ── TAB / LB / RB：次のセクションへ（最後のセクションの次は READY、その次は先頭）──
     if (UI_IsTabSwitch())
@@ -365,6 +412,26 @@ bool AssemblyScreen_Update(double dt)
     if (UI_IsMoveDown()) { g_Focus = (g_Focus + 1) % focusTotal;              PlayAudio(g_SeCursorMove, false); }
     if (UI_IsMoveUp())   { g_Focus = (g_Focus + focusTotal - 1) % focusTotal; PlayAudio(g_SeCursorMove, false); }
 
+    // ── マウス：項目・READY にホバーでフォーカス、クリックで決定 ──
+    int mouseFocus = -1;
+    {
+        const ListLayout L = GetListLayout();
+        for (int s = 0; s < L.secCount && mouseFocus < 0; ++s)
+            for (int i = 0; i < L.secs[s].count; ++i)
+                if (UI_IsMouseIn(LEFT_X + 6.0f, L.RowY(s, i), LEFT_W - 12.0f, L.rowH))
+                {
+                    mouseFocus = FirstRowOfSection(s) + i;
+                    break;
+                }
+        if (UI_IsMouseIn(LP_READY_X, LP_READY_Y, LP_READY_W, LP_READY_H)) mouseFocus = focusReady;
+    }
+    if (mouseFocus >= 0 && mouseFocus != g_Focus && (UI_IsMouseMoved() || UI_IsMouseLeftTrig()))
+    {
+        g_Focus = mouseFocus;
+        if (!UI_IsMouseLeftTrig()) PlayAudio(g_SeCursorMove, false);   // クリック時は決定音だけ
+    }
+    const bool clicked = (mouseFocus >= 0) && UI_IsMouseLeftTrig();
+
     // ── キャンセル ──
     if (UI_IsCancel())
     {
@@ -374,7 +441,7 @@ bool AssemblyScreen_Update(double dt)
     }
 
     // ── 決定 ──
-    if (UI_IsConfirm())
+    if (UI_IsConfirmKeyPad() || clicked)
     {
         int sec = 0, item = 0;
         if (FocusToItem(g_Focus, &sec, &item))
@@ -619,17 +686,11 @@ void AssemblyScreen_Draw()
     const bool hoverFrame    = (hoverKind == SEC_HEAD || hoverKind == SEC_BODY || hoverKind == SEC_LEGS);
     const int  hoverSlot     = (hoverKind == SEC_HEAD) ? FRAME_HEAD : (hoverKind == SEC_BODY) ? FRAME_BODY : FRAME_LEGS;
 
-    // 左パネルのリストの行間（項目数から自動で決める）
-    int rows = 0;
-    for (int i = 0; i < secCount; ++i) rows += secs[i].count;
-    const float rowStep = std::min(30.0f, (LP_LIST_BOTTOM - LP_LIST_TOP - secCount * LP_SECTION_H) / rows);
-    const float rowH    = rowStep - 4.0f;
-    auto sectionTop = [&](int s)
-    {
-        float y = LP_LIST_TOP;
-        for (int i = 0; i < s; ++i) y += LP_SECTION_H + secs[i].count * rowStep;
-        return y;
-    };
+    // 左パネルのリストの配置
+    const ListLayout layout = GetListLayout();
+    const float rowStep = layout.rowStep;
+    const float rowH    = layout.rowH;
+    auto sectionTop = [&](int s) { return layout.secTop[s]; };
 
     // 構成の合計性能（この画面での選択）
     const MechStats stats = MechParts_CalcStats(g_FrameSel, g_InternalSel);
@@ -651,14 +712,14 @@ void AssemblyScreen_Draw()
     // タブ
     static const wchar_t* TAB_LABEL[TAB_COUNT] = { L"WEAPON", L"FRAME", L"INTERNAL" };
     static const wchar_t* TAB_SUB[TAB_COUNT]   = { L"武装", L"機体", L"内部パーツ" };
-    constexpr float TAB_X = 560.0f, TAB_W = 170.0f, TAB_Y = 12.0f, TAB_HT = 42.0f;
     if (!g_ShopMode)
     {
         for (int i = 0; i < TAB_COUNT; ++i)
         {
-            const float x = TAB_X + i * (TAB_W + 10.0f);
+            const float x = TAB_X + i * (TAB_W + TAB_GAP);
             const bool on = (i == g_Tab);
-            Panel(x, TAB_Y, TAB_W, TAB_HT, on ? kPanelHi : kPanel, WithAlpha(kCyan, on ? 0.95f : 0.35f), 10.0f);
+            const bool hover = !on && UI_IsMouseIn(x, TAB_Y, TAB_W, TAB_HT);
+            Panel(x, TAB_Y, TAB_W, TAB_HT, on ? kPanelHi : kPanel, WithAlpha(kCyan, on ? 0.95f : hover ? 0.7f : 0.35f), 10.0f);
             if (on) Fill(x + 1.0f, TAB_Y + TAB_HT - 3.0f, TAB_W - 2.0f, 3.0f, kCyan);
         }
     }

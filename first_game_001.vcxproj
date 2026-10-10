@@ -181,6 +181,7 @@
     <ClCompile Include="SciFiMenu.cpp" />
     <ClCompile Include="BlockStage.cpp" />
     <ClCompile Include="BlockStageLayouts.cpp" />
+    <ClCompile Include="BlockStageLayouts2.cpp" />
     <ClCompile Include="BlockStageRender.cpp" />
     <ClCompile Include="Tutorial.cpp" />
     <ClCompile Include="WaveManager.cpp" />

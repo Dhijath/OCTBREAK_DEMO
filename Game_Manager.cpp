@@ -132,6 +132,8 @@ static constexpr float BGM_VOL_GAME    = 0.70f; // 音小さめなので2倍に
 
 int g_PlayerWarpSE = -1;
 int g_PlayerclearSE = -1;
+static int g_SePauseOpen = -1;   // ポーズを開く
+static int g_SeConfirm   = -1;   // リザルトから戻る
 
 
 //------------------------------------------------------------------------------
@@ -393,6 +395,7 @@ static void FailMission()
 static void ResetDifficulty()
 {
     Game_SetEnemyHpScale(1.0f);
+    Game_SetBossHpScale(1.0f);
     EnemyAI_SetSightMultiplier(1.0f);
 }
 
@@ -458,6 +461,8 @@ void GameManager_Initialize()
     Fade_Start(1.0, /*isFadeOut=*/false, { 1,1,1 }); // 起動フェードイン
     g_PlayerWarpSE = LoadAudioWithVolume("resource/sound/warp.wav", 0.5f);
     g_PlayerclearSE = LoadAudioWithVolume("resource/sound/clear.wav", 0.5f);
+    g_SePauseOpen   = LoadAudioWithVolume("resource/Sound/ui_menu_open.wav", 0.6f);
+    g_SeConfirm     = LoadAudio("resource/Sound/ui_select.wav");
     g_IsPaused = false;
     Pause_Initialize();
     MissionHud_Initialize();
@@ -484,6 +489,8 @@ void GameManager_Finalize()
     Clear_Finalize();
     Result_Finalize();
     UnloadAudio(g_PlayerWarpSE);
+    UnloadAudio(g_SePauseOpen); g_SePauseOpen = -1;
+    UnloadAudio(g_SeConfirm);   g_SeConfirm   = -1;
 
     if (g_CurrentBgmId >= 0)
     {
@@ -511,6 +518,22 @@ void GameManager_Finalize()
 void GameManager_Update(double elapsed_time)
 {
     UIInput_Update();   // マウストリガー等を毎フレーム先頭で更新
+
+    // メニュー系の画面ではカーソルを出してマウスで操作できるようにする
+    //（ゲーム中に戻るとカメラ側が相対モード＋非表示へ戻す）
+    {
+        const bool inGame = (g_GameState == GameState::Playing || g_GameState == GameState::Survival
+                          || g_GameState == GameState::PlayerDeath || g_GameState == GameState::Exit);
+        const bool shopOpen = (g_GameState == GameState::Survival && Shop_IsOpen());
+        const bool menuNow  = !inGame || g_IsPaused || shopOpen;
+        if (menuNow) UIInput_UpdateMenuMouse();
+
+        // メニュー（ポーズ・ショップ・出撃前の画面）から戦闘に戻った最初のフレーム：
+        // メニューを閉じたクリックを押したままでも、離すまで射撃しない
+        static bool s_WasMenu = true;
+        if (s_WasMenu && !menuNow) Player_Camera_SuppressHeldMouseButtons();
+        s_WasMenu = menuNow;
+    }
 
     switch (g_GameState)
     {
@@ -674,6 +697,7 @@ void GameManager_Update(double elapsed_time)
                 g_IsPaused = true;
                 Player_OnPause();  // ループSE（ブースト等）を停止
                 Pause_Open();      // 入力状態をリセット（同フレームの誤検知防止）
+                PlayAudio(g_SePauseOpen, false);
             }
         }
 
@@ -846,6 +870,7 @@ void GameManager_Update(double elapsed_time)
                 g_IsPaused = true;
                 Player_OnPause();  // ループSE（ブースト等）を停止
                 Pause_Open();      // 入力状態をリセット（同フレームの誤検知防止）
+                PlayAudio(g_SePauseOpen, false);
             }
         }
 
@@ -975,6 +1000,7 @@ void GameManager_Update(double elapsed_time)
         // 作戦の選択画面へ戻る（アドベンチャー → ミッション選択、サバイバル → モード選択）
         if (!g_IsTransitioning && UI_IsConfirm())
         {
+            PlayAudio(g_SeConfirm, false);
             if (g_Report.survival) BeginTransition(GameState::StageSelect,   BGM_TITLE);
             else                   BeginTransition(GameState::MissionSelect, BGM_ASSEMBLY);
         }
@@ -1078,6 +1104,7 @@ void GameManager_Update(double elapsed_time)
             g_MissionFailed   = false;
             g_ReinforceSerial = 0;
             Game_SetEnemyHpScale(mission.enemyHpScale);
+            Game_SetBossHpScale(mission.bossHpScale);
             EnemyAI_SetSightMultiplier(mission.enemySight);
             if (mission.legacy)
             {
@@ -1206,7 +1233,7 @@ void GameManager_Draw()
     {
     case GameState::WeaponSelect:
         InputHint_Draw(
-            "{W}{S} Move    {K_A}{K_D} Tab    {ENTER} Set / Ready    {TAB} Section    {ESC} Back",
+            "{W}{S} Move    {K_A}{K_D} Tab    {ENTER}{MOUSE_L} Set / Ready    {TAB} Section    {ESC}{MOUSE_R} Back",
             "{DPAD_UP}{DPAD_DN} Move    {DPAD_LR} Tab    {A} Set / Ready    {LB}{RB} Section    {B} Back");
         break;
     case GameState::Title:
@@ -1218,7 +1245,7 @@ void GameManager_Draw()
         };
         const wchar_t* desc = titleDesc[Title_GetSelected()];
         InputHint_Draw(
-            "{UP}{DOWN} Move    {ENTER} Select",
+            "{UP}{DOWN} Move    {ENTER}{MOUSE_L} Select",
             "{DPAD_UP}{DPAD_DN} Move    {A} Select",
             desc);
         break;
@@ -1226,7 +1253,7 @@ void GameManager_Draw()
     case GameState::Playing:
         if (g_IsPaused)
             InputHint_Draw(
-                "{UP}{DOWN} Move    {ENTER} Select    {ESC} Back",
+                "{UP}{DOWN} Move    {ENTER}{MOUSE_L} Select    {ESC} Back",
                 "{DPAD_UP}{DPAD_DN} Move    {A} Select    {B} Back");
         else
             InputHint_Draw(
@@ -1236,7 +1263,7 @@ void GameManager_Draw()
     case GameState::Survival:
         if (g_IsPaused)
             InputHint_Draw(
-                "{UP}{DOWN} Move    {ENTER} Select    {ESC} Back",
+                "{UP}{DOWN} Move    {ENTER}{MOUSE_L} Select    {ESC} Back",
                 "{DPAD_UP}{DPAD_DN} Move    {A} Select    {B} Back");
         else if (!Shop_IsOpen())   // ショップ表示中は Shop_DrawUI が自前のヒントを描く
             InputHint_Draw(
@@ -1245,20 +1272,20 @@ void GameManager_Draw()
         break;
     case GameState::EnemyDex:
         InputHint_Draw(
-            "{UP}{DOWN} Select    {LEFT}{RIGHT} Rotate    {ESC} Back",
+            "{UP}{DOWN}{MOUSE_L} Select    {LEFT}{RIGHT} Rotate (Drag)    {ESC}{MOUSE_R} Back",
             "{DPAD_UP}{DPAD_DN} Select    {DPAD_LR} Rotate    {B} Back");
         break;
     case GameState::Option:
         InputHint_Draw(
-            "{UP}{DOWN} Move    {LEFT}{RIGHT} Change    {ESC} Back",
+            "{UP}{DOWN} Move    {LEFT}{RIGHT}{MOUSE_L} Change    {ESC}{MOUSE_R} Back",
             "{DPAD_UP}{DPAD_DN} Move    {DPAD_LR} Change    {B} Back");
         break;
     case GameState::Result:
     case GameState::Clear:
         if (g_Report.survival)
-            InputHint_Draw("{ENTER} Mode Select", "{A} Mode Select");
+            InputHint_Draw("{ENTER}{MOUSE_L} Mode Select", "{A} Mode Select");
         else
-            InputHint_Draw("{ENTER} Mission Select", "{A} Mission Select");
+            InputHint_Draw("{ENTER}{MOUSE_L} Mission Select", "{A} Mission Select");
         break;
     default:
         break;

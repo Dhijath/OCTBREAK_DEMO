@@ -185,12 +185,19 @@ void Tutorial_Update(double elapsed_time)
 
     if (count > 0)
     {
-        if (UI_IsMoveLeft())
+        // マウス：画面の左 1/3 をクリックで前へ、それ以外で次へ。ホイールでも送れる
+        float mx = 0.0f, my = 0.0f;
+        const bool clicked   = UI_IsMouseLeftTrig() && UI_GetMousePos(&mx, &my);
+        const bool clickPrev = clicked && mx < SPRITE_SCREEN_W / 3.0f;
+        const bool clickNext = clicked && !clickPrev;
+        const int  wheel     = UI_GetMouseWheel();
+
+        if (UI_IsMoveLeft() || clickPrev || wheel > 0)
         {
             g_index = (g_index - 1 + count) % count;
             PlayAudio(g_SeCursorMove, false);
         }
-        if (UI_IsMoveRight() || UI_IsConfirm())
+        if (UI_IsMoveRight() || UI_IsConfirmKeyPad() || clickNext || wheel < 0)
         {
             g_index = (g_index + 1) % count;
             PlayAudio(g_SeCursorMove, false);
@@ -257,7 +264,7 @@ void Tutorial_Draw()
 
     // フッター（操作ヒント）
     InputHint_Draw(
-        "{K_A}{K_D} / {LEFT}{RIGHT} Page    {ENTER} Next    {ESC} Back",
+        "{K_A}{K_D} / {LEFT}{RIGHT} Page    {ENTER}{MOUSE_L} Next    {ESC} Back",
         "{DPAD_LR} Page    {A} Next    {B} Back");
 }
 

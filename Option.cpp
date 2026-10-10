@@ -84,6 +84,13 @@ namespace
     constexpr float INF_X = 1030.0f, INF_Y = 120.0f, INF_W = 390.0f, INF_H = 680.0f;
     constexpr float ROW_H = 74.0f;
     constexpr float CTRL_X = PNL_X + 400.0f, CTRL_W = 300.0f;   // ゲージ・スイッチの位置
+    constexpr float SHADOW_BOX_STEP = 76.0f, SHADOW_BOX_W = 70.0f;   // シャドウの4段の箱
+
+    // 「保存して戻る」ボタン（詳細パネルの下端。マウスで押せる）
+    constexpr float BACK_W = INF_W - 80.0f, BACK_H = 30.0f;
+    constexpr float BACK_X = INF_X + 40.0f, BACK_Y = INF_Y + INF_H - 46.0f;
+
+    int g_DragItem = -1;   // マウスでゲージをドラッグ中の項目（-1 = なし）
 
     // 項目ごとの表示データ
     struct ItemInfo
@@ -147,6 +154,45 @@ namespace
         }
         return buf;
     }
+
+    // 項目の行（マウスの当たり判定。選択中の行の塗りと同じ範囲）
+    bool MouseOnRow(int i)
+    {
+        return UI_IsMouseIn(PNL_X + 14.0f, RowY(i) + 4.0f, PNL_W - 28.0f, ROW_H - 8.0f);
+    }
+
+    // ゲージ上のカーソル位置 → 段階（左端より左は minStep）
+    int BarStepAtMouse(int maxStep, int minStep)
+    {
+        float mx, my;
+        if (!UI_GetMousePos(&mx, &my)) return minStep;
+        const int s = static_cast<int>(floorf((mx - CTRL_X) / CTRL_W * maxStep)) + 1;
+        return std::max(minStep, std::min(maxStep, s));
+    }
+
+    // ゲージ項目（0〜2）をカーソル位置の値にする。変わったら true
+    bool SetBarFromMouse(int item)
+    {
+        if (item == 0)
+        {
+            const float v = BarStepAtMouse(10, 0) * 0.1f;
+            if (fabsf(v - g_Volume) < 0.001f) return false;
+            g_Volume = v;
+            SetMasterVolume(g_Volume);
+            return true;
+        }
+        if (item == 1)
+        {
+            const int s = BarStepAtMouse(SENS_MAX, SENS_MIN);
+            if (s == SensStep()) return false;
+            Player_Camera_SetMouseSensitivity(s * SENS_STEP);
+            return true;
+        }
+        const int s = BarStepAtMouse(PAD_SENS_MAX, PAD_SENS_MIN);
+        if (s == PadStep()) return false;
+        Player_Camera_SetPadSensitivity(s * PAD_SENS_STEP);
+        return true;
+    }
 }
 
 //==============================================================================
@@ -158,6 +204,7 @@ void Option_Initialize()
     g_End        = false;
     g_Time       = 0.0;
     g_ChangeTime = 10.0;
+    g_DragItem   = -1;
 
     // 現在のマスター音量を表示値に反映（SaveData_Load 後の値が正）
     g_Volume = GetMasterVolume();
@@ -191,9 +238,62 @@ void Option_Update(double elapsed_time)
     if (UI_IsMoveUp())   { g_CursorItem = (g_CursorItem - 1 + ITEM_COUNT) % ITEM_COUNT; PlayAudio(g_SeCursorMove, false); }
     if (UI_IsMoveDown()) { g_CursorItem = (g_CursorItem + 1) % ITEM_COUNT;              PlayAudio(g_SeCursorMove, false); }
 
-    // ── 値変更 ────────────────────────────────────────────────────────────
-    const bool goLeft  = UI_IsMoveLeft();
-    const bool goRight = UI_IsMoveRight();
+    // ── マウス：ホバーで項目選択 ────────────────────────────────────────
+    int hover = -1;
+    for (int i = 0; i < ITEM_COUNT; ++i)
+        if (MouseOnRow(i)) { hover = i; break; }
+    if (hover >= 0 && hover != g_CursorItem && g_DragItem < 0
+        && (UI_IsMouseMoved() || UI_IsMouseLeftTrig()))
+    {
+        g_CursorItem = hover;
+        PlayAudio(g_SeCursorMove, false);
+    }
+
+    // ── マウス：クリック・ドラッグで値変更 ──────────────────────────────
+    if (UI_IsMouseLeftTrig() && hover >= 0)
+    {
+        const float cy = RowY(hover) + ROW_H * 0.5f;
+        if (hover <= 2)
+        {
+            // ゲージ（左右に少し余裕を持たせる）を押したらドラッグ開始
+            if (UI_IsMouseIn(CTRL_X - 24.0f, cy - 18.0f, CTRL_W + 48.0f, 36.0f)) g_DragItem = hover;
+        }
+        else if (hover <= 4)
+        {
+            // スイッチは行のどこを押しても切り替え
+            if (hover == 3) Player_Camera_SetMouseInvertY(!Player_Camera_GetMouseInvertY());
+            else            GameWindow_RequestFullscreenToggle();
+            g_ChangeTime = 0.0;
+            PlayAudio(g_SeTabSwitch, false);
+        }
+        else
+        {
+            // シャドウ：押した箱の段階にする
+            for (int k = 0; k < 4; ++k)
+            {
+                if (UI_IsMouseIn(CTRL_X + k * SHADOW_BOX_STEP, cy - 14.0f, SHADOW_BOX_W, 28.0f) && k != g_ShadowMode)
+                {
+                    g_ShadowMode = k;
+                    g_ChangeTime = 0.0;
+                    PlayAudio(g_SeTabSwitch, false);
+                }
+            }
+        }
+    }
+    if (g_DragItem >= 0)
+    {
+        if (!UI_IsMouseLeftHeld()) g_DragItem = -1;
+        else if (SetBarFromMouse(g_DragItem))
+        {
+            g_ChangeTime = 0.0;
+            PlayAudio(g_SeTabSwitch, false);
+        }
+    }
+
+    // ── 値変更（キー・パッド・カーソル下の項目のホイール）──────────────
+    const int  wheel   = (hover == g_CursorItem) ? UI_GetMouseWheel() : 0;
+    const bool goLeft  = UI_IsMoveLeft()  || wheel < 0;
+    const bool goRight = UI_IsMoveRight() || wheel > 0;
     if (goLeft || goRight) g_ChangeTime = 0.0;
 
     if (g_CursorItem == 0) // ボリューム
@@ -227,8 +327,8 @@ void Option_Update(double elapsed_time)
         if (goLeft)  { g_ShadowMode = (g_ShadowMode + 3) % 4; PlayAudio(g_SeTabSwitch, false); }
     }
 
-    // ── 戻る（ESC / PAD_B）──────────────────────────────────────────────
-    if (UI_IsCancel())
+    // ── 戻る（ESC / PAD_B / 右クリック / 戻るボタン）────────────────────
+    if (UI_IsCancel() || UI_IsClickIn(BACK_X, BACK_Y, BACK_W, BACK_H))
     {
         PlayAudio(g_SeCancel, false);
         SaveData_Save();    // 設定を config.ini に書き込む
@@ -331,6 +431,14 @@ void Option_Draw()
     }
     Diamond(INF_X + INF_W * 0.5f, INF_Y + 500.0f, 40.0f, WithAlpha(kCyan, 0.08f));
 
+    // 保存して戻るボタン（マウスが乗ったら枠を出す）
+    const bool backHover = UI_IsMouseIn(BACK_X, BACK_Y, BACK_W, BACK_H);
+    if (backHover)
+    {
+        Fill(BACK_X, BACK_Y, BACK_W, BACK_H, WithAlpha(kCyan, 0.16f));
+        Brackets(BACK_X - 3.0f, BACK_Y - 3.0f, BACK_W + 6.0f, BACK_H + 6.0f, 8.0f, kCyan, 1.0f);
+    }
+
     //--------------------------------------------------------------------------
     // 文字
     //--------------------------------------------------------------------------
@@ -378,7 +486,7 @@ void Option_Draw()
          ToD2D(kCyan, flashOn ? 1.0f : 0.9f), UIFont::Display, UIAlign::Left, true, 1.0f);
     Text(L"LEFT / RIGHT : CHANGE", INF_X + INF_W * 0.5f, INF_Y + INF_H - 60.0f, 13.0f, ToD2D(kCyan, 0.55f),
          UIFont::Mono, UIAlign::Center, true);
-    Text(L"ESC / B : SAVE & BACK", INF_X + INF_W * 0.5f, INF_Y + INF_H - 38.0f, 13.0f, ToD2D(kCyan, 0.55f),
+    Text(L"ESC / B : SAVE & BACK", INF_X + INF_W * 0.5f, INF_Y + INF_H - 38.0f, 13.0f, ToD2D(kCyan, backHover ? 1.0f : 0.55f),
          UIFont::Mono, UIAlign::Center, true);
 
     FlushText();

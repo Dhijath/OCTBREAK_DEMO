@@ -636,6 +636,10 @@ static void BuildInternal(BlockStageID id, std::uint32_t seed, int enemyCount)
     case BlockStageID::Fortress: BlockStageLayout_Fortress(layoutRng); break;
     case BlockStageID::Trench:   BlockStageLayout_Trench(layoutRng);   break;
     case BlockStageID::Plant:    BlockStageLayout_Plant(layoutRng);    break;
+    case BlockStageID::Spaceport:   BlockStageLayout_Spaceport(layoutRng);   break;
+    case BlockStageID::DataVault:   BlockStageLayout_DataVault(layoutRng);   break;
+    case BlockStageID::CryoMine:    BlockStageLayout_CryoMine(layoutRng);    break;
+    case BlockStageID::CarrierDeck: BlockStageLayout_CarrierDeck(layoutRng); break;
     default:                     BlockStageLayout_Arena(layoutRng);    break;
     }
 

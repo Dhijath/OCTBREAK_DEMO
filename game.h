@@ -58,6 +58,7 @@ void Game_SetEnemyMix(EnemyMix mix);
 
 // 通常エネミーの耐久倍率を設定（以降に出現する敵に適用。ボスは対象外。既定 1.0）
 void Game_SetEnemyHpScale(float scale);
+void Game_SetBossHpScale(float scale);   // ボスの耐久倍率（1 = 通常）
 
 // 編成 mix で index 番目に出す敵の種別（Game_SpawnEnemy の type に渡せる値）
 int Game_GetEnemyTypeForMix(EnemyMix mix, int index);

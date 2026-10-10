@@ -102,7 +102,7 @@ void Shop_Initialize(const XMFLOAT3& pos)
         g_pBodyModel = ModelLoad("resource/Models/body.fbx", 0.6f);  // フィールド目印は大きめに
     g_AnimTime = 0.0;
 
-    if (g_SeOpen   < 0) g_SeOpen   = LoadAudio("resource/Sound/ui_select.wav");
+    if (g_SeOpen   < 0) g_SeOpen   = LoadAudioWithVolume("resource/Sound/ui_menu_open.wav", 0.6f);
     if (g_SeCursor < 0) g_SeCursor = LoadAudio("resource/Sound/ui_cursor_move.wav");
     if (g_SeSelect < 0) g_SeSelect = LoadAudio("resource/Sound/ui_select.wav");
     if (g_SeError  < 0) g_SeError  = LoadAudio("resource/Sound/ui_cancel.wav");
@@ -308,7 +308,7 @@ void Shop_DrawUI()
 
     // 操作ヒント（アセンブリ準拠。ショップなので Back → Close）
     InputHint_Draw(
-        "{W}{S} Move    {ENTER} Set / Buy    {TAB} Switch    {ESC} Close",
+        "{W}{S} Move    {ENTER}{MOUSE_L} Set / Buy    {TAB} Switch    {ESC} Close",
         "{DPAD_UP}{DPAD_DN} Move    {A} Set / Buy    {LB}{RB} Switch    {B} Close");
 }
 

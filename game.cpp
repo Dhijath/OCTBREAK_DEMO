@@ -134,6 +134,7 @@ namespace
     static EnemyMix g_EnemyMix    = EnemyMix::Balanced;  // 敵編成（ミッションごとに設定）
     static float    g_EnemyHpScale = 1.0f;               // 通常エネミーの耐久倍率（ミッションごとに設定）
     static EnemyType g_BossType   = EnemyType::Boss;     // ボス部屋で出すボスの種類（ミッションごとに設定）
+    static float    g_BossHpScale  = 1.0f;               // ボスの耐久倍率（ミッションごとに設定）
     static int      g_KillCount   = 0;                   // 撃破数（クリア画面の集計用）
 
     // 更新中に出された出現要求（ボスの召喚など）
@@ -179,6 +180,14 @@ static void ApplyEnemyHpScale(int index)
     Enemy& e = g_EnemyManager.GetEnemy(index);
     const int maxHp = static_cast<int>(e.GetMaxHP() * g_EnemyHpScale);
     e.SetHP(maxHp, maxHp);
+}
+
+// ボスの耐久をミッションの倍率に合わせる（第二作戦区域の再戦用）
+static void ApplyBossHpScale(Enemy& boss)
+{
+    if (g_BossHpScale == 1.0f) return;
+    const int maxHp = static_cast<int>(boss.GetMaxHP() * g_BossHpScale);
+    boss.SetHP(maxHp, maxHp);
 }
 
 // i 番目のスポーン位置に出す敵の種別。
@@ -319,6 +328,7 @@ void Game_Initialize()
     {
         const int bossIdx = g_EnemyManager.Spawn(Map_GetBossSpawnPosition(), g_BossType);
         g_pBossEnemy = &g_EnemyManager.GetEnemy(bossIdx);
+        ApplyBossHpScale(*g_pBossEnemy);
     }
 
     // プレイヤー追従カメラ
@@ -366,6 +376,7 @@ void Game_RespawnEnemies()
     {
         const int bossIdx = g_EnemyManager.Spawn(Map_GetBossSpawnPosition(), g_BossType);
         g_pBossEnemy = &g_EnemyManager.GetEnemy(bossIdx);
+        ApplyBossHpScale(*g_pBossEnemy);
     }
 }
 
@@ -409,6 +420,11 @@ void Game_RequestEnemySpawn(const XMFLOAT3& pos, int type)
 void Game_SetEnemyHpScale(float scale)
 {
     g_EnemyHpScale = std::max(0.1f, scale);
+}
+
+void Game_SetBossHpScale(float scale)
+{
+    g_BossHpScale = std::max(0.1f, scale);
 }
 
 //==============================================================================

@@ -79,7 +79,12 @@ void PreGame_Update(double elapsed_time)
         PlayAudio(g_SeCursorMove, false);
     }
 
-    if (UI_IsConfirm())
+    // マウス：ホバーで選択、項目クリックで決定
+    const int prevSelected = g_Selected;
+    const bool clicked = SciFiMenu_UpdateMouse(ITEM_COUNT, &g_Selected);
+    if (g_Selected != prevSelected && !clicked) PlayAudio(g_SeCursorMove, false);
+
+    if (UI_IsConfirmKeyPad() || clicked)
     {
         PlayAudio(g_SeSelect, false);
         if      (g_Selected == 0) g_Result = PreGameResult::QuickStart;
@@ -113,7 +118,7 @@ void PreGame_Draw()
         L"これまでに確認した敵機と大型兵器の資料を見ます",
     };
     InputHint_Draw(
-        "{UP}{DOWN} Move    {ENTER} Select    {ESC} Back",
+        "{UP}{DOWN} Move    {ENTER}{MOUSE_L} Select    {ESC}{MOUSE_R} Back",
         "{DPAD_UP}{DPAD_DN} Move    {A} Select    {B} Back",
         itemDesc[g_Selected]);
 }

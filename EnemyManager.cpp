@@ -198,6 +198,9 @@ int EnemyManager::Spawn(const DirectX::XMFLOAT3& position, EnemyType type)
     case EnemyType::BossOmega:   e = std::make_unique<EnemyBossEx>(EnemyBossEx::Kind::Omega);   break;
     case EnemyType::BossHydra:   e = std::make_unique<EnemyBossEx>(EnemyBossEx::Kind::Hydra);   break;
     case EnemyType::BossSpectre: e = std::make_unique<EnemyBossEx>(EnemyBossEx::Kind::Spectre); break;
+    case EnemyType::BossBastion: e = std::make_unique<EnemyBossEx>(EnemyBossEx::Kind::Bastion); break;
+    case EnemyType::BossNest:    e = std::make_unique<EnemyBossEx>(EnemyBossEx::Kind::Nest);    break;
+    case EnemyType::BossEclipse: e = std::make_unique<EnemyBossEx>(EnemyBossEx::Kind::Eclipse); break;
     case EnemyType::Normal:
     default:
         e = std::make_unique<Enemy>();

@@ -99,7 +99,13 @@ void Title_Update(double elapsed_time)
         g_Selected = MENU_COUNT - 1; // EXITにカーソル移動
         PlayAudio(g_SeCursorMove, false);
     }
-    if (UI_IsConfirm())
+
+    // マウス：ホバーで選択、項目クリックで決定
+    const int prevSelected = g_Selected;
+    const bool clicked = SciFiMenu_UpdateMouse(MENU_COUNT, &g_Selected);
+    if (g_Selected != prevSelected && !clicked) PlayAudio(g_SeCursorMove, false);
+
+    if (UI_IsConfirmKeyPad() || clicked)
     {
         PlayAudio(g_SeSelect, false);
         if (g_Selected == 0) {

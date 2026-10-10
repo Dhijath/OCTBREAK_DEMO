@@ -13,6 +13,14 @@
      HYDRA    三つ首         横へ素早く移動。扇状の一斉射 / 機雷散布 / 自爆型を召喚
      SPECTRE  刃の騎士       瞬間移動を多用。移動後の扇状弾 / 斬撃 / 幻影型を召喚
 
+   ■第二作戦区域のボス（ユーザー作のエネミーと同じ球体型。パーツが動く）
+     BASTION  要塞機         灰色の球＋両腕のガトリング＋周回する盾。ゆっくり迫る。
+                             交差する掃射 / 回転する十字砲火 / ガトリング型の投下と衝撃波
+     NEST     母艦機         白い球＋翼＋周回する子機。高く浮いて距離を取る。
+                             翼型の射出 / 予告付きの絨毯爆撃 / 子機からの斉射
+     ECLIPSE  日蝕           黄色い球＋3本のジャイロリング＋衛星。最終作戦の大型兵器。
+                             二重螺旋 / 引き寄せてからの全方位爆発 / 衛星からの連射（激昂で瞬間移動）
+
    既存のボス（EnemyBoss）と同じく、撃破後の演出（BossDefeat）が終わるまで
    死亡を遅らせ（IsDeferDeath）、登場演出（BossIntro）中は攻撃しない。
 ==============================================================================*/
@@ -22,9 +30,16 @@
 class EnemyBossEx : public Enemy
 {
 public:
-    enum class Kind { Argus, Goliath, Omega, Hydra, Spectre };
+    enum class Kind { Argus, Goliath, Omega, Hydra, Spectre, Bastion, Nest, Eclipse };
 
     explicit EnemyBossEx(Kind kind) : m_Kind(kind) {}
+
+    // 球体型ボス（BASTION / NEST / ECLIPSE）の本体＋パーツを描く。エネミー図鑑のプレビューと共用。
+    //   t       : アニメーションの時刻（秒）
+    //   gunSpin : BASTION のガトリングの回転角
+    //   recoil  : 射撃の反動（0〜1）
+    static void DrawBallRig(Kind kind, MODEL* body, const DirectX::XMMATRIX& base,
+                            float t, float gunSpin, float recoil, bool shadow);
 
     void Initialize(const DirectX::XMFLOAT3& position) override;
     void Finalize() override;
@@ -60,12 +75,18 @@ private:
     // 弾の撃ち方
     void Ring(int count, float speed, int damage, float height, float angleOffset);
     void AimedFan(int count, float spreadDeg, float speed, int damage, float lead, float height);
+    void FanFrom(const DirectX::XMFLOAT3& from, int count, float spreadDeg, float speed, int damage, float lead);
     void Summon(int type, int count);
     bool Blink(float minDist, float maxDist);
 
     DirectX::XMFLOAT3 Center(float height) const;
     void FireR(const DirectX::XMFLOAT3& from, const DirectX::XMFLOAT3& dir, int damage, float speed);   // 発射＋反動
     void DrawRig(bool shadow);   // 本体＋動くパーツ
+
+    // 描画と同じ配置の基準行列（向き＋位置＋浮遊）と、その上の点のワールド座標（子機・衛星から撃つ用）
+    DirectX::XMMATRIX RigBase() const;
+    DirectX::XMFLOAT3 RigPoint(const DirectX::XMFLOAT3& local) const;
+    float RigTime() const { return m_AnimTime * (m_Enraged ? 1.6f : 1.0f); }
 
     Kind  m_Kind;
     bool  m_Enraged = false;
@@ -91,4 +112,15 @@ private:
     DirectX::XMFLOAT3 m_LastPos   = {};
 
     float m_WalkPhase = 0.0f;   // 歩行の位相（GOLIATH の脚）
+
+    // 第二作戦区域のボス
+    float m_PatternTime = 0.0f;   // パターン開始からの経過時間（掃射の進み具合など）
+    int   m_Shots       = 0;      // パターン内の発射回数（発射音を間引く）
+    float m_GunSpin     = 0.0f;   // BASTION：ガトリングの回転角
+    float m_GunSpinRate = 4.0f;   //          回転速度（掃射中は上がる）
+    static constexpr int MARK_MAX = 6;
+    DirectX::XMFLOAT3 m_Marks[MARK_MAX] = {};   // NEST：爆撃の着弾予告地点
+    int   m_MarkCount   = 0;
+    int   m_Salvo       = 0;      // NEST：爆撃の回数
+    float m_BlinkTimer  = 0.0f;   // 予告の点滅
 };

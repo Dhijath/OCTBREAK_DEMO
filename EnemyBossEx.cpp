@@ -59,6 +59,9 @@ const EnemyBossEx::Spec& EnemyBossEx::SpecOf(Kind kind)
         { "resource/Models/boss_omega.obj",   80000, 20000, L"OMEGA CORE" },
         { "resource/Models/boss_hydra.obj",   70000, 18000, L"HYDRA"   },
         { "resource/Models/boss_spectre.obj", 55000, 22000, L"SPECTRE" },
+        { "resource/Models/boss_bastion.obj", 100000, 25000, L"BASTION" },
+        { "resource/Models/boss_nest.obj",     85000, 24000, L"NEST"    },
+        { "resource/Models/boss_eclipse.obj", 120000, 30000, L"ECLIPSE" },
     };
     return specs[static_cast<int>(kind)];
 }
@@ -72,8 +75,43 @@ float EnemyBossEx::GetHoverHeight() const
     {
     case Kind::Argus:   return 0.9f;    // 浮遊
     case Kind::Spectre: return 0.25f;
+    case Kind::Nest:    return 2.0f;    // 高く浮く母艦
+    case Kind::Eclipse: return 0.8f;
     default:            return 0.0f;
     }
+}
+
+//==============================================================================
+// 球体型ボスの動くパーツの位置（描画と、そこから撃つ処理で共用）
+//==============================================================================
+namespace
+{
+    // NEST の子機 i（0〜3）：機体のまわりを周回しながら上下に揺れる
+    XMFLOAT3 NestPodLocal(int i, float t)
+    {
+        const float a = t * 0.9f + i * XM_PIDIV2;
+        return { cosf(a) * 2.7f, 1.0f + sinf(t * 2.0f + i) * 0.18f, sinf(a) * 2.7f };
+    }
+
+    // ECLIPSE の衛星 i（0〜3）：リングの外側を傾いた軌道で周回する
+    XMFLOAT3 EclipseBitLocal(int i, float t)
+    {
+        const float a = t * 1.3f + i * XM_PIDIV2;
+        return { cosf(a) * 3.5f, 1.75f + sinf(a * 2.0f) * 0.5f, sinf(a) * 3.5f };
+    }
+}
+
+XMMATRIX EnemyBossEx::RigBase() const
+{
+    return XMMatrixRotationY(atan2f(m_Front.x, m_Front.z)) *
+           XMMatrixTranslation(m_Position.x, m_Position.y + m_DrawOffsetY, m_Position.z);
+}
+
+XMFLOAT3 EnemyBossEx::RigPoint(const XMFLOAT3& local) const
+{
+    XMFLOAT3 out;
+    XMStoreFloat3(&out, XMVector3TransformCoord(XMLoadFloat3(&local), RigBase()));
+    return out;
 }
 
 //==============================================================================
@@ -136,6 +174,11 @@ void EnemyBossEx::Ring(int count, float speed, int damage, float height, float a
 void EnemyBossEx::AimedFan(int count, float spreadDeg, float speed, int damage, float lead, float height)
 {
     const XMFLOAT3 from = { m_Position.x + m_Front.x * 1.0f, m_Position.y + height, m_Position.z + m_Front.z * 1.0f };
+    FanFrom(from, count, spreadDeg, speed, damage, lead);
+}
+
+void EnemyBossEx::FanFrom(const XMFLOAT3& from, int count, float spreadDeg, float speed, int damage, float lead)
+{
     const XMFLOAT3 dir  = LeadDirection(from, speed, lead);
     for (int i = 0; i < count; ++i)
     {
@@ -222,6 +265,26 @@ void EnemyBossEx::Move(float dt, XMVECTOR& vel, float dist)
         float ax = tx * 4.5f * m_StrafeSign, az = tz * 4.5f * m_StrafeSign;
         if (dist < 5.0f) { ax -= to.x * 3.0f; az -= to.z * 3.0f; }
         if (dist > 8.0f) { ax += to.x * 3.5f; az += to.z * 3.5f; }
+        SetXZ(vel, ax * rage, az * rage);
+        break;
+    }
+    case Kind::Bastion:   // 6〜9m まで迫り、そこからはじりじり横へ
+        if (dist > 9.0f)      SetXZ(vel, to.x * 1.8f * rage, to.z * 1.8f * rage);
+        else if (dist < 6.0f) SetXZ(vel, -to.x * 1.5f, -to.z * 1.5f);
+        else                  SetXZ(vel, tx * 1.2f * m_StrafeSign, tz * 1.2f * m_StrafeSign);
+        break;
+
+    case Kind::Nest:      // 12〜17m を保って大きく周回
+        if (dist < 12.0f)      SetXZ(vel, -to.x * 4.5f, -to.z * 4.5f);
+        else if (dist > 17.0f) SetXZ(vel,  to.x * 4.5f,  to.z * 4.5f);
+        else                   SetXZ(vel, tx * 4.0f * rage * m_StrafeSign, tz * 4.0f * rage * m_StrafeSign);
+        break;
+
+    case Kind::Eclipse:   // 9〜13m を保ってゆっくり周回
+    {
+        float ax = tx * 3.0f * m_StrafeSign, az = tz * 3.0f * m_StrafeSign;
+        if (dist < 9.0f)  { ax -= to.x * 3.0f; az -= to.z * 3.0f; }
+        if (dist > 13.0f) { ax += to.x * 3.0f; az += to.z * 3.0f; }
         SetXZ(vel, ax * rage, az * rage);
         break;
     }
@@ -468,6 +531,249 @@ bool EnemyBossEx::RunPattern(int pattern, float dt)
             return true;
         }
         break;
+
+    //--------------------------------------------------------------------------
+    case Kind::Bastion:
+        if (pattern == 0)   // 双腕ガトリング掃射：回転を上げてから、左右の腕が交差するように薙ぎ払う
+        {
+            constexpr float SPIN_UP = 0.7f;
+            const float duration = rage ? 3.2f : 2.4f;
+            if (m_Step == 0)
+            {
+                const float k = std::min(1.0f, m_StepTimer / SPIN_UP);
+                m_GunSpinRate = 4.0f + 26.0f * k;
+                m_Flash       = 0.6f * k;
+                if (m_StepTimer >= SPIN_UP)
+                {
+                    m_Step = 1;
+                    m_StepTimer = 0.0f;
+                    m_PatternTime = 0.0f;
+                    m_Flash = 0.0f;
+                }
+            }
+            else
+            {
+                m_PatternTime += dt;
+                const float u = std::min(1.0f, m_PatternTime / duration);
+                if (stepReady(0.06f))
+                {
+                    // 銃口：機体の左右（向きに合わせて回す）。狙いはプレイヤーの方向から ±55° を交差して薙ぐ
+                    const float    yaw   = atan2f(m_Front.x, m_Front.z);
+                    const XMFLOAT3 to    = DirToPlayerXZ(m_Position);
+                    const float    aim   = atan2f(to.x, to.z);
+                    const float    sweep = XMConvertToRadians(55.0f - 110.0f * u);
+                    for (float s : { -1.0f, 1.0f })
+                    {
+                        const XMFLOAT3 from = {
+                            m_Position.x + cosf(yaw) * s * 1.68f + sinf(yaw) * 1.45f,
+                            m_Position.y + m_DrawOffsetY + 1.55f,
+                            m_Position.z - sinf(yaw) * s * 1.68f + cosf(yaw) * 1.45f };
+                        FireR(from, DirFromYaw(aim + s * sweep), 150, rage ? 13.0f : 12.0f);
+                    }
+                    if (m_Shots++ % 3 == 0)
+                    {
+                        UpdateAudioAttenuation(m_ShootSE, DistXZ(m_Position, Player_GetPosition()), 45.0f);
+                        PlayAudio(m_ShootSE, false);
+                    }
+                }
+                m_GunSpinRate = 30.0f;
+                if (u >= 1.0f) { m_GunSpinRate = 4.0f; return true; }
+            }
+        }
+        else if (pattern == 1)   // 十字砲火：回転する4本（激昂で6本）の弾の列を3秒間
+        {
+            const int arms = rage ? 6 : 4;
+            m_Spin += (rage ? 1.0f : 0.8f) * dt;
+            if (stepReady(0.08f))
+            {
+                const XMFLOAT3 from = Center(1.2f);
+                for (int k = 0; k < arms; ++k)
+                    FireR(from, DirFromYaw(m_Spin + XM_2PI * k / arms), 200, 6.5f);
+                if (++m_Step % 4 == 0)
+                {
+                    UpdateAudioAttenuation(m_ShootSE, DistXZ(m_Position, Player_GetPosition()), 45.0f);
+                    PlayAudio(m_ShootSE, false);
+                }
+            }
+            if (m_Step * 0.08f >= 3.0f) return true;
+        }
+        else   // ガトリング型を投下して、足元から衝撃波（激昂で2波）
+        {
+            if (m_Step == 0)
+            {
+                Summon(static_cast<int>(EnemyType::Gatling), 2);
+                Ring(24, 6.5f, 380, 0.25f, m_Spin);
+                SparkEffect_Create(Center(0.2f), 3.5f);
+                if (!rage) return true;
+                m_Step = 1;
+                m_StepTimer = 0.0f;
+            }
+            else if (stepReady(0.35f))
+            {
+                Ring(24, 6.5f, 380, 0.25f, m_Spin + XM_PI / 24.0f);
+                SparkEffect_Create(Center(0.2f), 3.5f);
+                return true;
+            }
+        }
+        break;
+
+    //--------------------------------------------------------------------------
+    case Kind::Nest:
+        if (pattern == 0)   // 翼型の射出：子機が光って溜めてから、翼型を3体（激昂で4体）放つ
+        {
+            m_Flash = std::min(1.0f, m_StepTimer / 0.6f);
+            if (m_StepTimer >= 0.6f)
+            {
+                Summon(static_cast<int>(EnemyType::Wing), rage ? 4 : 3);
+                for (int i = 0; i < 4; ++i) SparkEffect_Create(RigPoint(NestPodLocal(i, RigTime())), 1.5f);
+                m_Flash = 0.0f;
+                return true;
+            }
+        }
+        else if (pattern == 1)   // 絨毯爆撃：着弾点を予告（火花が点滅）してから、各地点で全方位に炸裂
+        {
+            const int salvos = rage ? 2 : 1;
+            if (m_Step == 0)
+            {
+                // 1つ目はプレイヤーの移動先、残りはそのまわりにばらまく
+                const XMFLOAT3  p   = Player_GetPosition();
+                const XMFLOAT3* v   = Player_GetVelocityPtr();
+                const float     vx  = v ? v->x : 0.0f, vz = v ? v->z : 0.0f;
+                m_MarkCount = rage ? 5 : 3;
+                m_Marks[0]  = { p.x + vx * 0.8f, p.y, p.z + vz * 0.8f };
+                for (int i = 1; i < m_MarkCount; ++i)
+                {
+                    const float a = XM_2PI * static_cast<float>(rand() % 1000) / 1000.0f;
+                    const float r = 3.0f + static_cast<float>(rand() % 100) * 0.03f;
+                    m_Marks[i] = { p.x + cosf(a) * r, p.y, p.z + sinf(a) * r };
+                }
+                m_Step       = 1;
+                m_StepTimer  = 0.0f;
+                m_BlinkTimer = 0.0f;
+            }
+            else
+            {
+                m_BlinkTimer -= dt;
+                if (m_BlinkTimer <= 0.0f)
+                {
+                    m_BlinkTimer = 0.2f;
+                    for (int i = 0; i < m_MarkCount; ++i)
+                        SparkEffect_Create({ m_Marks[i].x, m_Marks[i].y + 0.3f, m_Marks[i].z }, 1.0f);
+                }
+                if (m_StepTimer >= 1.0f)
+                {
+                    for (int i = 0; i < m_MarkCount; ++i)
+                    {
+                        const XMFLOAT3 at = { m_Marks[i].x, m_Marks[i].y + 0.4f, m_Marks[i].z };
+                        for (int k = 0; k < 10; ++k)
+                            FireR(at, DirFromYaw(m_Spin + XM_2PI * k / 10.0f), 350, 6.0f);
+                        SparkEffect_Create(at, 2.5f);
+                    }
+                    m_Spin += 0.31f;
+                    UpdateAudioAttenuation(m_ShootSE, DistXZ(m_Position, Player_GetPosition()), 45.0f);
+                    PlayAudio(m_ShootSE, false);
+                    if (++m_Salvo >= salvos) return true;
+                    m_Step = 0;
+                }
+            }
+        }
+        else   // 子機からの斉射：4つの子機が順番に3方向の弾を撃つ（2周 / 激昂で3周）
+        {
+            const int volleys = (rage ? 3 : 2) * 4;
+            if (stepReady(m_Step == 0 ? 0.0f : 0.3f))
+            {
+                FanFrom(RigPoint(NestPodLocal(m_Step % 4, RigTime())), 3, 14.0f, 10.0f, 260, 0.7f);
+                if (++m_Step >= volleys) return true;
+            }
+        }
+        break;
+
+    //--------------------------------------------------------------------------
+    case Kind::Eclipse:
+        if (pattern == 0)   // 二重螺旋：逆向きに回る2組の螺旋（3本ずつ / 激昂で4本ずつ）を3.5秒間
+        {
+            const int arms = rage ? 4 : 3;
+            m_Spin += 1.6f * dt;
+            if (stepReady(0.1f))
+            {
+                const XMFLOAT3 from = Center(1.4f);
+                for (int k = 0; k < arms; ++k)
+                {
+                    const float a = XM_2PI * k / arms;
+                    FireR(from, DirFromYaw(m_Spin + a), 220, 5.0f);
+                    FireR(from, DirFromYaw(-m_Spin * 1.3f + a + XM_PI / arms), 220, 4.2f);
+                }
+                if (++m_Step % 4 == 0)
+                {
+                    UpdateAudioAttenuation(m_ShootSE, DistXZ(m_Position, Player_GetPosition()), 45.0f);
+                    PlayAudio(m_ShootSE, false);
+                }
+            }
+            if (m_Step * 0.1f >= 3.5f) return true;
+        }
+        else if (pattern == 1)   // 蝕の引力：光りながらプレイヤーを引き寄せ、全方位に炸裂（2波 / 激昂で3波）
+        {
+            if (m_Step == 0)
+            {
+                constexpr float PULL_TIME = 1.6f;
+                m_Hold  = true;
+                m_Flash = std::min(1.0f, m_StepTimer / PULL_TIME);
+
+                // 引き寄せ（移動や回避で振り切れる強さ）。近すぎるときは引かない
+                XMFLOAT3* v = Player_GetVelocityPtr();
+                if (v && DistXZ(m_Position, Player_GetPosition()) > 2.5f)
+                {
+                    const XMFLOAT3 d = DirToPlayerXZ(m_Position);
+                    v->x -= d.x * 16.0f * dt;
+                    v->z -= d.z * 16.0f * dt;
+                }
+                m_BlinkTimer -= dt;
+                if (m_BlinkTimer <= 0.0f)
+                {
+                    m_BlinkTimer = 0.3f;
+                    SparkEffect_Create(Center(m_DrawOffsetY + 1.75f), 2.0f + 2.0f * m_Flash);
+                }
+
+                if (m_StepTimer >= PULL_TIME)
+                {
+                    Ring(32, 7.0f, 420, 1.0f, m_Spin);
+                    SparkEffect_Create(Center(m_DrawOffsetY + 1.75f), 4.5f);
+                    m_Flash     = 0.0f;
+                    m_Step      = 1;
+                    m_StepTimer = 0.0f;
+                }
+            }
+            else if (stepReady(0.25f))
+            {
+                Ring(32, 6.0f, 420, 1.0f, m_Spin + m_Step * XM_PI / 32.0f);
+                ++m_Step;
+                if (!rage || m_Step >= 3) return true;
+            }
+        }
+        else   // 衛星からの連射：4つの衛星が順番に狙い撃つ。激昂中は撃ち終わりに瞬間移動して光輪型を呼ぶ
+        {
+            const int shots = rage ? 24 : 16;
+            if (stepReady(m_Step == 0 ? 0.0f : 0.11f))
+            {
+                const XMFLOAT3 from = RigPoint(EclipseBitLocal(m_Step % 4, RigTime()));
+                FireR(from, LeadDirection(from, 12.0f, 0.7f), 200, 12.0f);
+                if (m_Step % 4 == 0)
+                {
+                    UpdateAudioAttenuation(m_ShootSE, DistXZ(m_Position, Player_GetPosition()), 45.0f);
+                    PlayAudio(m_ShootSE, false);
+                }
+                if (++m_Step >= shots)
+                {
+                    if (rage)
+                    {
+                        Blink(9.0f, 13.0f);
+                        Summon(static_cast<int>(EnemyType::Halo), 1);
+                    }
+                    return true;
+                }
+            }
+        }
+        break;
     }
     return false;
 }
@@ -494,9 +800,13 @@ void EnemyBossEx::Update(double elapsed_time)
             m_RestTimer -= dt;
             if (m_RestTimer <= 0.0f)
             {
-                m_InPattern = true;
-                m_Step      = 0;
-                m_StepTimer = 0.0f;
+                m_InPattern   = true;
+                m_Step        = 0;
+                m_StepTimer   = 0.0f;
+                m_PatternTime = 0.0f;
+                m_Shots       = 0;
+                m_Salvo       = 0;
+                m_BlinkTimer  = 0.0f;
             }
         }
         else if (RunPattern(m_Pattern, dt))
@@ -556,6 +866,7 @@ void EnemyBossEx::Update(double elapsed_time)
         const float speed = sqrtf(m_Velocity.x * m_Velocity.x + m_Velocity.z * m_Velocity.z);
         m_WalkPhase += dt * (2.5f + speed * 1.2f);
     }
+    m_GunSpin += m_GunSpinRate * dt;   // BASTION のガトリング（掃射中は高速で回る）
 
     if (m_ContactDamageCooldown > 0.0f) m_ContactDamageCooldown -= dt;
     if (!intro) ResolveBulletHits();
@@ -673,6 +984,81 @@ void EnemyBossEx::DrawRig(bool shadow)
         }
         break;
     }
+
+    case Kind::Bastion:
+    case Kind::Nest:
+    case Kind::Eclipse:
+        DrawBallRig(m_Kind, m_pModel, base, t, m_GunSpin, k, shadow);
+        break;
+    }
+}
+
+//==============================================================================
+// 球体型ボスの本体＋動くパーツ（エネミー図鑑のプレビューと共用）
+//   BASTION : 両腕のガトリングが回り（掃射中は高速）、撃つと後退する。3枚の盾が周回する
+//   NEST    : 底の格納リングが回り、翼がはばたき、4つの子機が周回する
+//   ECLIPSE : 3本のリングがジャイロのように別々の軸で回り、4つの衛星が傾いた軌道を回る
+//==============================================================================
+void EnemyBossEx::DrawBallRig(Kind kind, MODEL* body, const XMMATRIX& base,
+                              float t, float gunSpin, float recoil, bool shadow)
+{
+    auto draw = [shadow](MODEL* m, const XMMATRIX& w)
+    {
+        if (!m) return;
+        if (shadow) ShadowMap::DrawModel(m, w);
+        else        ModelDraw(m, w);
+    };
+
+    draw(body, base);
+    switch (kind)
+    {
+    case Kind::Bastion:
+    {
+        MODEL* gun = EnemyParts_Get("resource/Models/boss_bastion_gun.obj");
+        for (float s : { -1.0f, 1.0f })
+            draw(gun, XMMatrixRotationZ(gunSpin * s) * XMMatrixTranslation(0.0f, 0.0f, -0.25f * recoil) *
+                      XMMatrixTranslation(s * 1.68f, 1.55f, 0.0f) * base);
+        MODEL* plate = EnemyParts_Get("resource/Models/boss_bastion_plate.obj");
+        for (int i = 0; i < 3; ++i)
+            draw(plate, XMMatrixRotationY(t * 0.5f + i * XM_2PI / 3.0f) * XMMatrixTranslation(0.0f, 1.45f, 0.0f) * base);
+        break;
+    }
+
+    case Kind::Nest:
+    {
+        draw(EnemyParts_Get("resource/Models/boss_nest_ring.obj"), XMMatrixRotationY(t * 1.2f) * XMMatrixTranslation(0.0f, 0.42f, 0.0f) * base);
+        const float flap = sinf(t * 2.6f) * 0.14f;
+        draw(EnemyParts_Get("resource/Models/boss_nest_wing_l.obj"), XMMatrixRotationZ(-flap) * XMMatrixTranslation(-1.35f, 1.95f, 0.0f) * base);
+        draw(EnemyParts_Get("resource/Models/boss_nest_wing_r.obj"), XMMatrixRotationZ( flap) * XMMatrixTranslation( 1.35f, 1.95f, 0.0f) * base);
+        MODEL* pod = EnemyParts_Get("resource/Models/boss_nest_pod.obj");
+        for (int i = 0; i < 4; ++i)
+        {
+            const XMFLOAT3 p = NestPodLocal(i, t);
+            draw(pod, XMMatrixTranslation(p.x, p.y, p.z) * base);
+        }
+        break;
+    }
+
+    case Kind::Eclipse:
+    {
+        const XMMATRIX c = XMMatrixTranslation(0.0f, 1.75f, 0.0f) * base;
+        draw(EnemyParts_Get("resource/Models/boss_eclipse_ring1.obj"),
+             XMMatrixRotationY(t * 1.0f) * XMMatrixRotationX(0.55f) * XMMatrixRotationY(t * 0.4f) * c);
+        draw(EnemyParts_Get("resource/Models/boss_eclipse_ring2.obj"),
+             XMMatrixRotationY(-t * 0.8f) * XMMatrixRotationZ(1.05f) * XMMatrixRotationY(t * 0.3f) * c);
+        draw(EnemyParts_Get("resource/Models/boss_eclipse_ring3.obj"),
+             XMMatrixRotationY(t * 0.5f) * XMMatrixRotationX(-0.22f) * c);
+        MODEL* bit = EnemyParts_Get("resource/Models/boss_eclipse_bit.obj");
+        for (int i = 0; i < 4; ++i)
+        {
+            const XMFLOAT3 p = EclipseBitLocal(i, t);
+            draw(bit, XMMatrixTranslation(p.x, p.y, p.z) * base);
+        }
+        break;
+    }
+
+    default:
+        break;
     }
 }
 

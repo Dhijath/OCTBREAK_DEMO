@@ -337,6 +337,9 @@
     <ClCompile Include="BlockStageLayouts.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
+    <ClCompile Include="BlockStageLayouts2.cpp">
+      <Filter>ソース ファイル</Filter>
+    </ClCompile>
     <ClCompile Include="BlockStageRender.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>

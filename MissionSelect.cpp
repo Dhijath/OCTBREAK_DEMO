@@ -7,7 +7,8 @@
 
    ■レイアウト（1600×900）
      Header (y=0〜72)            : SORTIE // MISSION SELECT、稼働時間、回線状態
-     List   (x=40,   w=480)      : ミッション一覧（番号・作戦名・難度・完了印）
+     List   (x=40,   w=480)      : ミッション一覧（番号・作戦名・難度・完了印）。1ページ7件、
+                                   上のタブ / 左右 / LB・RB でページ（作戦区域）を切り替える
      Map    (x=550,  w=460)      : 戦術マップ（作戦エリアの見取り図・敵部隊・降下地点）
      Data   (x=1030, w=530)      : 作戦データ（依頼主・領域・目標・脅威分析・報酬）
      Brief  (x=550,  w=1010)     : ブリーフィング（1文字ずつ送る）・装備・出撃ボタン
@@ -58,6 +59,10 @@ static constexpr float SORTIE_Y = BRF_Y + BRF_H - SORTIE_H - 16.0f;
 
 static constexpr float BRIEF_CHARS_PER_SEC = 55.0f;   // ブリーフィングの文字送り速度
 
+// ページ切り替えのタブ（一覧の上。「MISSION LIST」の右）
+static constexpr float PAGE_TAB_X = LIST_X + 160.0f, PAGE_TAB_Y = LIST_Y - 30.0f;
+static constexpr float PAGE_TAB_W = 156.0f, PAGE_TAB_H = 24.0f, PAGE_TAB_GAP = 8.0f;
+
 //==============================================================================
 // 内部状態
 //==============================================================================
@@ -73,6 +78,14 @@ namespace
     int g_SeCursorMove = -1;
     int g_SeSelect     = -1;
     int g_SeCancel     = -1;
+    int g_SeTabSwitch  = -1;
+
+    double g_PageTime = 10.0;   // ページを切り替えてからの時間（切り替えの演出）
+
+    // ページ：選択中のミッションから決まる（1ページ = MISSION_PAGE_SIZE 件）
+    int PageOf(int mission)  { return mission / MISSION_PAGE_SIZE; }
+    int PageFirst(int page)  { return page * MISSION_PAGE_SIZE; }
+    int PageCount(int page)  { return std::min(MISSION_PAGE_SIZE, static_cast<int>(MISSION_COUNT) - PageFirst(page)); }
 
     // ステージごとの見取り図（Initialize で作る）
     BlockStagePreview g_Previews[static_cast<int>(BlockStageID::Count)];
@@ -234,11 +247,13 @@ void MissionSelect_Initialize()
     g_Selected  = Mission_GetCurrent();   // 前回出撃したミッションにカーソルを合わせる
     g_Time      = 0.0;
     g_BriefTime = 0.0;
+    g_PageTime  = 10.0;
     g_Result    = MissionSelectResult::None;
 
     if (g_SeCursorMove < 0) g_SeCursorMove = LoadAudioWithVolume("resource/Sound/ui_cursor_move.wav", 0.5f);
     if (g_SeSelect     < 0) g_SeSelect     = LoadAudioWithVolume("resource/Sound/ui_select.wav", 0.5f);
     if (g_SeCancel     < 0) g_SeCancel     = LoadAudioWithVolume("resource/Sound/ui_cancel.wav", 0.5f);
+    if (g_SeTabSwitch  < 0) g_SeTabSwitch  = LoadAudioWithVolume("resource/Sound/ui_tab_switch.wav", 0.5f);
 
     if (g_BgTexID < 0) g_BgTexID = Texture_Load(L"resource/Texture/titleBg.png");
 
@@ -257,6 +272,7 @@ void MissionSelect_Finalize()
     UnloadAudio(g_SeCursorMove); g_SeCursorMove = -1;
     UnloadAudio(g_SeSelect);     g_SeSelect     = -1;
     UnloadAudio(g_SeCancel);     g_SeCancel     = -1;
+    UnloadAudio(g_SeTabSwitch);  g_SeTabSwitch  = -1;
 
     // テクスチャは他画面と同一パス（＝同一ID）を共有しているためここでは解放しない
     g_BgTexID = -1;
@@ -269,18 +285,55 @@ void MissionSelect_Update(double elapsed_time)
 {
     g_Time      += elapsed_time;
     g_BriefTime += elapsed_time;
+    g_PageTime  += elapsed_time;
 
-    if (UI_IsMoveUp())
+    // ── ページ切り替え（左右 / LB・RB / TAB / ページのタブをクリック）──
+    //   同じ行の作戦へ移る（移った先のページに行がなければ最後の行）
     {
-        g_Selected  = (g_Selected + MISSION_COUNT - 1) % MISSION_COUNT;
+        const int page = PageOf(g_Selected);
+        int to = page;
+        if (UI_IsMoveRight() || UI_IsTabSwitch()) to = (page + 1) % MISSION_PAGE_COUNT;
+        if (UI_IsMoveLeft())                      to = (page + MISSION_PAGE_COUNT - 1) % MISSION_PAGE_COUNT;
+        for (int p = 0; p < MISSION_PAGE_COUNT; ++p)
+            if (UI_IsClickIn(PAGE_TAB_X + p * (PAGE_TAB_W + PAGE_TAB_GAP), PAGE_TAB_Y, PAGE_TAB_W, PAGE_TAB_H)) to = p;
+        if (to != page)
+        {
+            const int row = g_Selected - PageFirst(page);
+            g_Selected  = PageFirst(to) + std::min(row, PageCount(to) - 1);
+            g_BriefTime = 0.0;
+            g_PageTime  = 0.0;
+            PlayAudio(g_SeTabSwitch, false);
+        }
+    }
+
+    const int first = PageFirst(PageOf(g_Selected));
+    const int count = PageCount(PageOf(g_Selected));
+
+    // ── 上下：ページ内で移動（端でループ）。ホイールは一覧の上でだけ効かせる（奥に回すと上の作戦へ）──
+    const int wheel = UI_IsMouseIn(LIST_X, LIST_Y, LIST_W, count * ROW_STEP) ? UI_GetMouseWheel() : 0;
+
+    if (UI_IsMoveUp() || wheel > 0)
+    {
+        g_Selected  = first + (g_Selected - first + count - 1) % count;
         g_BriefTime = 0.0;
         PlayAudio(g_SeCursorMove, false);
     }
-    if (UI_IsMoveDown())
+    if (UI_IsMoveDown() || wheel < 0)
     {
-        g_Selected  = (g_Selected + 1) % MISSION_COUNT;
+        g_Selected  = first + (g_Selected - first + 1) % count;
         g_BriefTime = 0.0;
         PlayAudio(g_SeCursorMove, false);
+    }
+
+    // マウス：作戦はクリックで選ぶ（ホバーで切り替えると出撃ボタンへ向かう途中で変わるため）
+    for (int i = 0; i < count; ++i)
+    {
+        if (first + i != g_Selected && UI_IsClickIn(LIST_X, LIST_Y + i * ROW_STEP, LIST_W, ROW_H))
+        {
+            g_Selected  = first + i;
+            g_BriefTime = 0.0;
+            PlayAudio(g_SeCursorMove, false);
+        }
     }
 
     if (UI_IsCancel())
@@ -290,7 +343,7 @@ void MissionSelect_Update(double elapsed_time)
         return;
     }
 
-    if (UI_IsConfirm())
+    if (UI_IsConfirmKeyPad() || UI_IsClickIn(SORTIE_X, SORTIE_Y, SORTIE_W, SORTIE_H))
     {
         Mission_SetCurrent(g_Selected);
         PlayAudio(g_SeSelect, false);
@@ -335,13 +388,31 @@ void MissionSelect_Draw()
     //--------------------------------------------------------------------------
     // ミッション一覧
     //--------------------------------------------------------------------------
+    const int page      = PageOf(g_Selected);
+    const int pageFirst = PageFirst(page);
+    const int pageCount = PageCount(page);
+
     int clearedCount = 0;
     for (int i = 0; i < MISSION_COUNT; ++i)
-    {
-        const MissionDef& m = k_MissionDefs[i];
-        const float y   = LIST_Y + i * ROW_STEP;
-        const bool  sel = (i == g_Selected);
         if (Mission_IsCleared(i)) ++clearedCount;
+
+    // ページのタブ（選択中のページが光る。マウスが乗ると枠が明るくなる）
+    for (int p = 0; p < MISSION_PAGE_COUNT; ++p)
+    {
+        const float x  = PAGE_TAB_X + p * (PAGE_TAB_W + PAGE_TAB_GAP);
+        const bool  on = (p == page);
+        const bool  hv = !on && UI_IsMouseIn(x, PAGE_TAB_Y, PAGE_TAB_W, PAGE_TAB_H);
+        Panel(x, PAGE_TAB_Y, PAGE_TAB_W, PAGE_TAB_H, on ? kPanelHi : kPanel,
+              WithAlpha(kCyan, on ? 0.95f : hv ? 0.7f : 0.35f), 8.0f);
+        if (on) Fill(x + 1.0f, PAGE_TAB_Y + PAGE_TAB_H - 3.0f, PAGE_TAB_W - 2.0f, 3.0f, kCyan);
+    }
+
+    for (int i = 0; i < pageCount; ++i)
+    {
+        const int   mi  = pageFirst + i;
+        const MissionDef& m = k_MissionDefs[mi];
+        const float y   = LIST_Y + i * ROW_STEP;
+        const bool  sel = (mi == g_Selected);
 
         if (sel)
         {
@@ -353,6 +424,9 @@ void MissionSelect_Draw()
         else
         {
             Panel(LIST_X, y, LIST_W, ROW_H, kPanel, WithAlpha(kCyanDim, 0.45f));
+            // マウスが乗っている行（クリックで選べることを示す）
+            if (UI_IsMouseIn(LIST_X, y, LIST_W, ROW_H))
+                Frame(LIST_X, y, LIST_W, ROW_H, WithAlpha(kCyan, 0.7f), 1.0f);
         }
 
         // 番号の箱
@@ -365,12 +439,16 @@ void MissionSelect_Draw()
                     (r < m.rank) ? WithAlpha(RankColor(m.rank), sel ? 1.0f : 0.6f) : WithAlpha(kCyan, 0.12f));
 
         // 完了印
-        if (Mission_IsCleared(i))
+        if (Mission_IsCleared(mi))
         {
             Fill (LIST_X + LIST_W - 104.0f, y + 10.0f, 88.0f, 18.0f, WithAlpha(kAmber, 0.18f));
             Frame(LIST_X + LIST_W - 104.0f, y + 10.0f, 88.0f, 18.0f, WithAlpha(kAmber, 0.8f), 1.0f);
         }
     }
+    // ページを切り替えた直後は一覧が明滅する
+    if (g_PageTime < 0.25)
+        Fill(LIST_X, LIST_Y, LIST_W, pageCount * ROW_STEP - (ROW_STEP - ROW_H),
+             WithAlpha(kCyan, 0.14f * static_cast<float>(1.0 - g_PageTime / 0.25)));
 
     //--------------------------------------------------------------------------
     // 戦術マップ／作戦データ／ブリーフィングのパネル
@@ -393,7 +471,8 @@ void MissionSelect_Draw()
     // 出撃ボタン
     {
         const XMFLOAT4 edge = { 0.35f, 1.0f, 0.6f, 1.0f };
-        Panel(SORTIE_X, SORTIE_Y, SORTIE_W, SORTIE_H, { 0.05f, 0.35f, 0.18f, 0.45f + 0.35f * pulse }, edge, 12.0f);
+        const bool hover = UI_IsMouseIn(SORTIE_X, SORTIE_Y, SORTIE_W, SORTIE_H);
+        Panel(SORTIE_X, SORTIE_Y, SORTIE_W, SORTIE_H, { 0.05f, 0.35f, 0.18f, hover ? 0.95f : 0.45f + 0.35f * pulse }, edge, 12.0f);
         Brackets(SORTIE_X - 5.0f, SORTIE_Y - 5.0f, SORTIE_W + 10.0f, SORTIE_H + 10.0f, 10.0f, WithAlpha(edge, 0.6f + 0.4f * pulse));
     }
 
@@ -417,22 +496,41 @@ void MissionSelect_Draw()
 
     // 一覧
     Text(L"MISSION LIST", LIST_X, LIST_Y - 26.0f, 14.0f, label, UIFont::Mono, UIAlign::Left, true);
-    for (int i = 0; i < MISSION_COUNT; ++i)
     {
-        const MissionDef& m = k_MissionDefs[i];
+        static const wchar_t* PAGE_LABEL[] = { L"第一作戦区域", L"第二作戦区域", L"第三作戦区域" };
+        for (int p = 0; p < MISSION_PAGE_COUNT; ++p)
+        {
+            const float x  = PAGE_TAB_X + p * (PAGE_TAB_W + PAGE_TAB_GAP);
+            const bool  on = (p == page);
+            swprintf_s(buf, L"%02d", p + 1);
+            Text(buf, x + 10.0f, PAGE_TAB_Y + 4.0f, 13.0f, ToD2D(kCyan, on ? 1.0f : 0.5f), UIFont::Mono, UIAlign::Left, true);
+            Text(PAGE_LABEL[std::min(p, 2)], x + PAGE_TAB_W - 10.0f, PAGE_TAB_Y + 4.0f, 13.0f,
+                 on ? white : ToD2D(kCyan, 0.55f), UIFont::Body, UIAlign::Right, on);
+        }
+        Text(L"<  >", PAGE_TAB_X + MISSION_PAGE_COUNT * (PAGE_TAB_W + PAGE_TAB_GAP), PAGE_TAB_Y + 5.0f, 12.0f,
+             label, UIFont::Mono, UIAlign::Left, true);
+    }
+    for (int i = 0; i < pageCount; ++i)
+    {
+        const int   mi  = pageFirst + i;
+        const MissionDef& m = k_MissionDefs[mi];
         const float y   = LIST_Y + i * ROW_STEP;
-        const bool  sel = (i == g_Selected);
+        const bool  sel = (mi == g_Selected);
 
-        swprintf_s(buf, m.legacy ? L"--" : L"%02d", i + 1);
+        // 番号は作戦の通し番号（DEFAULT を数えない）
+        int number = 0;
+        for (int k = 0; k <= mi; ++k)
+            if (!k_MissionDefs[k].legacy) ++number;
+        swprintf_s(buf, m.legacy ? L"--" : L"%02d", number);
         Text(buf, LIST_X + 38.0f, y + 14.0f, 30.0f, ToD2D(kCyan, sel ? 1.0f : 0.55f), UIFont::Display, UIAlign::Center, true);
         Text(m.code, LIST_X + 76.0f, y + 10.0f, 12.0f, ToD2D(kCyan, sel ? 0.9f : 0.5f), UIFont::Mono);
         Text(m.title, LIST_X + 76.0f, y + 30.0f, 21.0f,
              sel ? white : D2D1::ColorF(0.7f, 0.78f, 0.85f, 1.0f), UIFont::Body, UIAlign::Left, sel);
-        if (Mission_IsCleared(i))
+        if (Mission_IsCleared(mi))
             Text(L"COMPLETE", LIST_X + LIST_W - 60.0f, y + 11.0f, 12.0f, ToD2D(kAmber), UIFont::Mono, UIAlign::Center, true);
     }
     swprintf_s(buf, L"COMPLETED  %d / %d", clearedCount, static_cast<int>(MISSION_COUNT));
-    Text(buf, LIST_X, LIST_Y + MISSION_COUNT * ROW_STEP + 4.0f, 15.0f,
+    Text(buf, LIST_X, LIST_Y + MISSION_PAGE_SIZE * ROW_STEP + 4.0f, 15.0f,
          (clearedCount >= MISSION_COUNT) ? ToD2D(kGreen) : label, UIFont::Mono, UIAlign::Left, true);
 
     // 戦術マップ
@@ -509,8 +607,8 @@ void MissionSelect_Draw()
     FlushText();
 
     InputHint_Draw(
-        "{UP}{DOWN} Mission    {ENTER} Sortie    {ESC} Back",
-        "{DPAD_UP}{DPAD_DN} Mission    {A} Sortie    {B} Back",
+        "{UP}{DOWN}{MOUSE_L} Mission    {LEFT}{RIGHT} Page    {ENTER} Sortie    {ESC}{MOUSE_R} Back",
+        "{DPAD_UP}{DPAD_DN} Mission    {DPAD_LR}{LB}{RB} Page    {A} Sortie    {B} Back",
         L"作戦を選択して出撃します（戻るとアセンブリをやり直せます）");
 }
 

@@ -29,6 +29,19 @@
 //==============================================================================
 void UIInput_Update();
 bool UI_IsMouseLeftTrig();
+bool UI_IsMouseLeftHeld();
+bool UI_IsMouseRightTrig();
+
+// メニュー画面にいる間 GameManager が毎フレーム呼ぶ（カーソル表示・ホイール集計）
+void UIInput_UpdateMenuMouse();
+
+// カーソル（座標はスプライト座標 1600×900）
+bool  UI_GetMousePos(float* x, float* y);              // 非アクティブ・画面外なら false
+bool  UI_IsMouseMoved();                               // 前フレームから動いたか
+float UI_GetMouseDeltaX();                             // 前フレームからの横移動量
+bool  UI_IsMouseIn(float x, float y, float w, float h);   // 矩形の上にあるか
+bool  UI_IsClickIn(float x, float y, float w, float h);   // 矩形の上で左クリックしたか
+int   UI_GetMouseWheel();                              // このフレームのホイール回転（奥 = +、メニュー中のみ）
 
 
 //==============================================================================
@@ -57,17 +70,23 @@ inline bool UI_IsMoveRight()
         || PadLogger_IsTrigger(PAD_DPAD_RIGHT);
 }
 
+// 決定（ENTER / PAD_A のみ。マウスは項目上のクリックだけを拾う画面で使う）
+inline bool UI_IsConfirmKeyPad()
+{
+    return KeyLogger_IsTrigger(KK_ENTER) || PadLogger_IsTrigger(PAD_A);
+}
+
 // 決定（ENTER / PAD_A / マウス左クリック）
 inline bool UI_IsConfirm()
 {
-    return KeyLogger_IsTrigger(KK_ENTER) || PadLogger_IsTrigger(PAD_A)
-        || UI_IsMouseLeftTrig();
+    return UI_IsConfirmKeyPad() || UI_IsMouseLeftTrig();
 }
 
-// キャンセル / 戻る（ESC / PAD_B）
+// キャンセル / 戻る（ESC / PAD_B / マウス右クリック）
 inline bool UI_IsCancel()
 {
-    return KeyLogger_IsTrigger(KK_ESCAPE) || PadLogger_IsTrigger(PAD_B);
+    return KeyLogger_IsTrigger(KK_ESCAPE) || PadLogger_IsTrigger(PAD_B)
+        || UI_IsMouseRightTrig();
 }
 
 // タブ切り替え（AssemblyScreen：R/L アーム、WeaponSelect：次の武器）

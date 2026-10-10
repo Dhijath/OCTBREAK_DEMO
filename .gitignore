@@ -3,6 +3,8 @@ x64/
 *.exe
 *.pdb
 *.obj
+# ↑はコンパイラの中間ファイル用。モデル（OBJ形式）は管理する
+!Resource/Models/*.obj
 *.ilk
 *.exp
 *.cso

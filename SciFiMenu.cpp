@@ -17,6 +17,7 @@
 #include "sprite.h"
 #include "texture.h"
 #include "text_logo.h"
+#include "UIInput.h"
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -68,6 +69,31 @@ namespace
 void SciFiMenu_Initialize()
 {
     if (g_BgTex < 0) g_BgTex = Texture_Load(L"resource/texture/titleBg.png");
+}
+
+bool SciFiMenu_UpdateMouse(int count, int* selected)
+{
+    // カーソル下の項目（シェブロンまで少し広めに当てる）
+    int hit = -1;
+    for (int i = 0; i < count; ++i)
+    {
+        if (UI_IsMouseIn(MENU_X - 20.0f, MENU_Y + i * MENU_STEP, MENU_W + 40.0f, MENU_H))
+        {
+            hit = i;
+            break;
+        }
+    }
+    if (hit < 0) return false;
+
+    // 動いた時だけホバーで選択を移す（止まったカーソルがキー操作を上書きしないため）
+    if (UI_IsMouseMoved()) *selected = hit;
+
+    if (UI_IsMouseLeftTrig())
+    {
+        *selected = hit;
+        return true;
+    }
+    return false;
 }
 
 void SciFiMenu_Draw(const wchar_t* path, const SciFiMenuItem* items, int count, int selected, float time)

@@ -105,6 +105,38 @@ namespace
     static constexpr float OPT_BAR_X = OPT_PNL_X + 310.0f;
     static constexpr float OPT_BAR_W = 300.0f;
     static constexpr float OPT_BAR_H = 16.0f;
+    static constexpr float OPT_ROW_YS[OPTION_COUNT] = { OPT_ROW_Y0, OPT_ROW_Y1, OPT_ROW_Y2, OPT_ROW_Y3 };
+
+    // オプションの「戻る」ボタン（パネル下端の右側。マウスで押せる）
+    static constexpr float OPT_BACK_W = 150.0f, OPT_BACK_H = 28.0f;
+    static constexpr float OPT_BACK_X = OPT_PNL_X + OPT_PNL_W - OPT_BACK_W - 24.0f;
+    static constexpr float OPT_BACK_Y = OPT_PNL_Y + OPT_PNL_H - 40.0f;
+
+    // メインメニューの項目（仮想1600×900空間）
+    static constexpr float MAIN_ITEM_W = 520.0f, MAIN_ITEM_H = 70.0f, MAIN_ITEM_GAP = 18.0f;
+    static constexpr float MAIN_ITEM_X = (1600.0f - MAIN_ITEM_W) * 0.5f;
+    static constexpr float MAIN_ITEM_Y0 = 300.0f;
+
+    static int g_DragItem = -1;   // マウスでゲージをドラッグ中のオプション項目（-1 = なし）
+
+    bool MouseOnMainItem(int i)
+    {
+        return UI_IsMouseIn(MAIN_ITEM_X, MAIN_ITEM_Y0 + i * (MAIN_ITEM_H + MAIN_ITEM_GAP), MAIN_ITEM_W, MAIN_ITEM_H);
+    }
+
+    bool MouseOnOptionRow(int i)
+    {
+        return UI_IsMouseIn(OPT_PNL_X + 12.0f, OPT_ROW_YS[i] - 24.0f, OPT_PNL_W - 24.0f, 48.0f);
+    }
+
+    // ゲージ上のカーソル位置 → 段階（左端より左は minStep）
+    int BarStepAtMouse(int maxStep, int minStep)
+    {
+        float mx, my;
+        if (!UI_GetMousePos(&mx, &my)) return minStep;
+        const int s = static_cast<int>(floorf((mx - OPT_BAR_X) / OPT_BAR_W * maxStep)) + 1;
+        return std::max(minStep, std::min(maxStep, s));
+    }
 }
 
 //==============================================================================
@@ -182,6 +214,7 @@ void Pause_Open()
     g_PrevRight = UI_IsMoveRightHeld();
     g_PrevEnter = UI_IsConfirmHeld();
     g_PrevEsc   = UI_IsCancelHeld();   // ESC が押されたまま → 即リジューム防止
+    g_DragItem  = -1;
 }
 
 //==============================================================================
@@ -203,9 +236,10 @@ PauseResult Pause_Update()
 
     const bool trigUp = nowUp && !g_PrevUp;
     const bool trigDown = nowDown && !g_PrevDown;
-    const bool trigLeft = nowLeft && !g_PrevLeft;
-    const bool trigRight = nowRight && !g_PrevRight;
-    const bool trigEnter = (nowEnter && !g_PrevEnter) || UI_IsMouseLeftTrig();
+    bool trigLeft = nowLeft && !g_PrevLeft;
+    bool trigRight = nowRight && !g_PrevRight;
+    const bool trigEnter = nowEnter && !g_PrevEnter;   // マウスは項目上のクリックだけ（下で判定）
+    // ※ 右クリックではリジュームしない（右ボタンは R-ARM。押したまま戦闘に戻ると即発射するため）
     const bool trigEsc = nowEsc && !g_PrevEsc;
 
     g_PrevUp = nowUp;
@@ -223,6 +257,70 @@ PauseResult Pause_Update()
         // カーソル上下
         if (trigUp) { g_Cursor = (g_Cursor - 1 + OPTION_COUNT) % OPTION_COUNT; PlayAudio(g_SeCursorMove, false); }
         if (trigDown) { g_Cursor = (g_Cursor + 1) % OPTION_COUNT; PlayAudio(g_SeCursorMove, false); }
+
+        // マウス：ホバーで項目選択
+        int hover = -1;
+        for (int i = 0; i < OPTION_COUNT; ++i)
+            if (MouseOnOptionRow(i)) { hover = i; break; }
+        if (hover >= 0 && hover != g_Cursor && g_DragItem < 0
+            && (UI_IsMouseMoved() || UI_IsMouseLeftTrig()))
+        {
+            g_Cursor = hover;
+            PlayAudio(g_SeCursorMove, false);
+        }
+
+        // マウス：ゲージはクリック・ドラッグで値を合わせる、スイッチは行のクリックで切り替え
+        if (UI_IsMouseLeftTrig() && hover >= 0)
+        {
+            const float y = OPT_ROW_YS[hover];
+            if (hover <= 2)
+            {
+                if (UI_IsMouseIn(OPT_BAR_X - 24.0f, y - 18.0f, OPT_BAR_W + 48.0f, 36.0f)) g_DragItem = hover;
+            }
+            else
+            {
+                Player_Camera_SetMouseInvertY(!Player_Camera_GetMouseInvertY());
+                PlayAudio(g_SeChange, false);
+            }
+        }
+        if (g_DragItem >= 0)
+        {
+            bool changed = false;
+            if (!UI_IsMouseLeftHeld())
+            {
+                g_DragItem = -1;
+            }
+            else if (g_DragItem == 0)
+            {
+                const float v = BarStepAtMouse(10, 0) * 0.1f;
+                if (fabsf(v - g_Volume) > 0.001f) { g_Volume = v; SetMasterVolume(g_Volume); changed = true; }
+            }
+            else if (g_DragItem == 1)
+            {
+                const int s = BarStepAtMouse(SENS_MAX, SENS_MIN);
+                if (s != static_cast<int>(roundf(Player_Camera_GetMouseSensitivity() / SENS_STEP)))
+                {
+                    Player_Camera_SetMouseSensitivity(s * SENS_STEP);
+                    Player_Camera_SetMouseSensitivityPitch(s * SENS_STEP);
+                    changed = true;
+                }
+            }
+            else
+            {
+                const int s = BarStepAtMouse(PAD_SENS_MAX, PAD_SENS_MIN);
+                if (s != static_cast<int>(roundf(Player_Camera_GetPadSensitivity() / PAD_SENS_STEP)))
+                {
+                    Player_Camera_SetPadSensitivity(s * PAD_SENS_STEP);
+                    changed = true;
+                }
+            }
+            if (changed) PlayAudio(g_SeChange, false);
+        }
+
+        // カーソル下の項目はホイールでも増減できる
+        const int wheel = (hover == g_Cursor) ? UI_GetMouseWheel() : 0;
+        if (wheel < 0) trigLeft  = true;
+        if (wheel > 0) trigRight = true;
 
         // 値変更
         if (g_Cursor == 0) // ボリューム
@@ -271,8 +369,8 @@ PauseResult Pause_Update()
             if (trigLeft || trigRight) { Player_Camera_SetMouseInvertY(!Player_Camera_GetMouseInvertY()); PlayAudio(g_SeChange, false); }
         }
 
-        // 戻る（ESC / PAD_B）
-        const bool trigBack = UI_IsCancel();
+        // 戻る（ESC / PAD_B / 右クリック / 戻るボタン）
+        const bool trigBack = UI_IsCancel() || UI_IsClickIn(OPT_BACK_X, OPT_BACK_Y, OPT_BACK_W, OPT_BACK_H);
         if (trigBack)
         {
             SaveData_Save();            // 設定を config.ini に書き込む
@@ -295,8 +393,18 @@ PauseResult Pause_Update()
     if (trigUp) { g_Cursor = (g_Cursor - 1 + MAIN_COUNT) % MAIN_COUNT; PlayAudio(g_SeCursorMove, false); }
     if (trigDown) { g_Cursor = (g_Cursor + 1) % MAIN_COUNT; PlayAudio(g_SeCursorMove, false); }
 
+    // マウス：ホバーで選択、項目クリックで決定
+    bool clicked = false;
+    for (int i = 0; i < MAIN_COUNT; ++i)
+    {
+        if (!MouseOnMainItem(i)) continue;
+        if (i != g_Cursor && UI_IsMouseMoved()) { g_Cursor = i; PlayAudio(g_SeCursorMove, false); }
+        if (UI_IsMouseLeftTrig()) { g_Cursor = i; clicked = true; }
+        break;
+    }
+
     // 決定
-    if (trigEnter)
+    if (trigEnter || clicked)
     {
         PlayAudio(g_SeSelect, false);
         switch (g_Cursor)
@@ -360,8 +468,16 @@ void Pause_Draw()
         Brackets(OPT_PNL_X - 5.0f, OPT_PNL_Y - 5.0f, OPT_PNL_W + 10.0f, OPT_PNL_H + 10.0f, 14.0f, WithAlpha(kCyan, 0.85f));
         Fill(OPT_PNL_X + 1.0f, OPT_PNL_Y + 44.0f, OPT_PNL_W - 2.0f, 1.0f, WithAlpha(kCyan, 0.3f));
 
-        const float rowYs[OPTION_COUNT] = { OPT_ROW_Y0, OPT_ROW_Y1, OPT_ROW_Y2, OPT_ROW_Y3 };
+        const float* rowYs = OPT_ROW_YS;
         const float ratios[3] = { g_Volume, sensRatio, padRatio };
+
+        // 戻るボタン（マウスが乗ったら枠を出す）
+        const bool backHover = UI_IsMouseIn(OPT_BACK_X, OPT_BACK_Y, OPT_BACK_W, OPT_BACK_H);
+        if (backHover)
+        {
+            Fill(OPT_BACK_X, OPT_BACK_Y, OPT_BACK_W, OPT_BACK_H, WithAlpha(kCyan, 0.16f));
+            Brackets(OPT_BACK_X - 3.0f, OPT_BACK_Y - 3.0f, OPT_BACK_W + 6.0f, OPT_BACK_H + 6.0f, 8.0f, kCyan, 1.0f);
+        }
         for (int i = 0; i < OPTION_COUNT; ++i)
         {
             const bool sel = (i == g_Cursor);
@@ -407,8 +523,10 @@ void Pause_Draw()
             Text(vals[i], OPT_PNL_X + OPT_PNL_W - 30.0f, y - 16.0f, 26.0f, ToD2D(sel ? kCyan : kCyanDim, 1.0f),
                  UIFont::Display, UIAlign::Right, true);
         }
-        Text(L"LEFT / RIGHT : CHANGE     ESC / B : BACK", OPT_PNL_X + OPT_PNL_W * 0.5f, OPT_PNL_Y + OPT_PNL_H - 34.0f, 13.0f,
-             ToD2D(kCyan, 0.6f), UIFont::Mono, UIAlign::Center, true);
+        Text(L"LEFT / RIGHT : CHANGE", OPT_PNL_X + 30.0f, OPT_PNL_Y + OPT_PNL_H - 34.0f, 13.0f,
+             ToD2D(kCyan, 0.6f), UIFont::Mono, UIAlign::Left, true);
+        Text(L"ESC / B : BACK", OPT_BACK_X + OPT_BACK_W * 0.5f, OPT_PNL_Y + OPT_PNL_H - 34.0f, 13.0f,
+             ToD2D(kCyan, backHover ? 1.0f : 0.6f), UIFont::Mono, UIAlign::Center, true);
 
         FlushText();
         return;
@@ -417,9 +535,9 @@ void Pause_Draw()
     //==================================================================
     // PauseState::Main – メインメニュー
     //==================================================================
-    constexpr float ITEM_W = 520.0f, ITEM_H = 70.0f, ITEM_GAP = 18.0f;
-    const float itemX  = (W - ITEM_W) * 0.5f;
-    const float itemY0 = 300.0f;
+    constexpr float ITEM_W = MAIN_ITEM_W, ITEM_H = MAIN_ITEM_H, ITEM_GAP = MAIN_ITEM_GAP;
+    const float itemX  = MAIN_ITEM_X;
+    const float itemY0 = MAIN_ITEM_Y0;
 
     Fill(itemX - 40.0f, 196.0f, ITEM_W + 80.0f, 1.0f, WithAlpha(kCyan, 0.4f));
     Ticks(itemX - 40.0f, 198.0f, ITEM_W + 80.0f, 40, 5, WithAlpha(kCyan, 0.35f));

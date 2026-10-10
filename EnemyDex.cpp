@@ -5,7 +5,7 @@
                                                          Date   : 2026/10/03
 --------------------------------------------------------------------------------
    ■レイアウト（1600×900）
-     一覧       : x=40〜470,   y=104〜816  全20種（分類ごとに色分け）
+     一覧       : x=40〜470,   y=104〜816  全23種（分類ごとに色分け。行の高さは項目数から決める）
      プレビュー : x=500〜1080, y=104〜560  3Dモデルが回転する（パーツも動く）
      性能       : x=1100〜1560,y=104〜560  分類・脅威度・耐久・速度・撃破数
      解説       : x=500〜1560, y=580〜816  攻撃と解説
@@ -18,6 +18,7 @@
 #include "EnemyDex.h"
 #include "EnemyManager.h"
 #include "EnemyBall.h"
+#include "EnemyBossEx.h"
 #include "EnemyParts.h"
 #include "SciFiUI.h"
 #include "UIInput.h"
@@ -188,11 +189,29 @@ namespace
           L"両腕に刃を持つ細身の騎士。瞬間移動で間合いを詰めて\n"
           L"斬りかかり、幻影型を呼ぶ。耐久は大型兵器の中で\n"
           L"最も低いが、最も速い。" },
+        { EnemyType::BossBastion, L"BASTION",    L"要塞機",     DexClass::Boss, 5, 100000, 0.0f,
+          "resource/Models/boss_bastion.obj", 1.0f, false, 1.5f, 0.0f,
+          L"交差する掃射 / 十字砲火 / ガトリング型の投下と衝撃波",
+          L"両腕にガトリングを備え、3枚の盾を周回させる要塞機。\n"
+          L"砲身の回転が上がったら掃射の合図。左右の弾の帯が\n"
+          L"交差する瞬間を、横へ抜けてかわせ。" },
+        { EnemyType::BossNest,    L"NEST",       L"母艦機",     DexClass::Boss, 5, 85000, 0.0f,
+          "resource/Models/boss_nest.obj", 1.0f, false, 2.2f, 0.0f,
+          L"翼型の射出 / 予告付きの絨毯爆撃 / 子機からの斉射",
+          L"高く浮かんで距離を取る母艦。翼型の無人機を次々と放ち、\n"
+          L"火花で示した地点を爆撃する。火花が見えたら\n"
+          L"その場を離れろ。周回する子機も弾を撃ってくる。" },
+        { EnemyType::BossEclipse, L"ECLIPSE",    L"日蝕",       DexClass::Boss, 5, 120000, 0.0f,
+          "resource/Models/boss_eclipse.obj", 1.0f, false, 2.0f, 0.0f,
+          L"二重螺旋 / 引き寄せてからの炸裂 / 衛星からの連射",
+          L"3本のリングと4つの衛星を従える最終兵器。光りながら\n"
+          L"機体を引き寄せ、全方位へ炸裂する。引力は走って\n"
+          L"振り切れる。激昂すると瞬間移動で位置を変える。" },
     };
     constexpr int ENTRY_COUNT = static_cast<int>(sizeof(k_Entries) / sizeof(k_Entries[0]));
 
     // 撃破数（EnemyType の値で引く）
-    constexpr int TYPE_COUNT = static_cast<int>(EnemyType::BossSpectre) + 1;
+    constexpr int TYPE_COUNT = static_cast<int>(EnemyType::BossEclipse) + 1;
     int g_Kills[TYPE_COUNT] = {};
 
     // 画面の状態
@@ -201,12 +220,14 @@ namespace
     float g_ViewYaw    = 0.0f;   // プレビューの回転（左右で手動回転）
     float g_SelectTime = 0.0f;   // 選択してからの時間（切り替えの演出）
     bool  g_IsEnd      = false;
+    bool  g_Dragging   = false;  // プレビューをマウスでドラッグ中
     int   g_SeCursor   = -1;
     int   g_SeCancel   = -1;
 
     // レイアウト
     constexpr float LIST_X = 40.0f,   LIST_Y = 104.0f, LIST_W = 430.0f, LIST_H = 712.0f;
-    constexpr float ROW_Y0 = LIST_Y + 40.0f, ROW_H = 33.0f;
+    constexpr float ROW_Y0 = LIST_Y + 40.0f;
+    constexpr float ROW_H  = std::min(33.0f, (LIST_H - 48.0f) / ENTRY_COUNT);   // 項目数に合わせて詰める
     constexpr float PV_X   = 500.0f,  PV_Y   = 104.0f, PV_W   = 580.0f, PV_H   = 456.0f;
     constexpr float DATA_X = 1100.0f, DATA_Y = 104.0f, DATA_W = 460.0f, DATA_H = 456.0f;
     constexpr float TXT_X  = 500.0f,  TXT_Y  = 580.0f, TXT_W  = 1060.0f, TXT_H = 236.0f;
@@ -363,6 +384,9 @@ namespace
             ModelDraw(EnemyParts_Get("resource/Models/boss_spectre_arm_r.obj"), XMMatrixRotationX(-swing) * XMMatrixTranslation(0.78f, 1.45f, 0) * world);
             break;
         }
+        case EnemyType::BossBastion: EnemyBossEx::DrawBallRig(EnemyBossEx::Kind::Bastion, body, world, t, t * 4.0f, 0.0f, false); break;
+        case EnemyType::BossNest:    EnemyBossEx::DrawBallRig(EnemyBossEx::Kind::Nest,    body, world, t, 0.0f,     0.0f, false); break;
+        case EnemyType::BossEclipse: EnemyBossEx::DrawBallRig(EnemyBossEx::Kind::Eclipse, body, world, t, 0.0f,     0.0f, false); break;
         case EnemyType::Wing:    EnemyBall::DrawPreview(EnemyBall::Kind::Wing,    world, t); break;
         case EnemyType::Gatling: EnemyBall::DrawPreview(EnemyBall::Kind::Gatling, world, t); break;
         case EnemyType::Orbiter: EnemyBall::DrawPreview(EnemyBall::Kind::Orbiter, world, t); break;
@@ -459,6 +483,7 @@ void EnemyDex_Initialize()
     g_ViewYaw    = 0.0f;
     g_SelectTime = 0.0f;
     g_IsEnd      = false;
+    g_Dragging   = false;
     if (g_SeCursor < 0) g_SeCursor = LoadAudio("resource/Sound/ui_cursor_move.wav");
     if (g_SeCancel < 0) g_SeCancel = LoadAudio("resource/Sound/ui_cancel.wav");
 
@@ -478,20 +503,40 @@ void EnemyDex_Update(double elapsed_time)
     g_Time       += dt;
     g_SelectTime += dt;
 
-    if (UI_IsMoveUp())
+    // ホイールは一覧の上でだけ効かせる（奥に回すと上の項目へ）
+    const int wheel = UI_IsMouseIn(LIST_X, LIST_Y, LIST_W, LIST_H) ? UI_GetMouseWheel() : 0;
+
+    if (UI_IsMoveUp() || wheel > 0)
     {
         g_Selected = (g_Selected + ENTRY_COUNT - 1) % ENTRY_COUNT;
         g_SelectTime = 0.0f;
         PlayAudio(g_SeCursor, false);
     }
-    if (UI_IsMoveDown())
+    if (UI_IsMoveDown() || wheel < 0)
     {
         g_Selected = (g_Selected + 1) % ENTRY_COUNT;
         g_SelectTime = 0.0f;
         PlayAudio(g_SeCursor, false);
     }
+
+    // マウス：一覧の行をクリックで選ぶ
+    for (int i = 0; i < ENTRY_COUNT; ++i)
+    {
+        if (i != g_Selected && UI_IsClickIn(LIST_X + 8.0f, ROW_Y0 + i * ROW_H, LIST_W - 16.0f, ROW_H - 3.0f))
+        {
+            g_Selected = i;
+            g_SelectTime = 0.0f;
+            PlayAudio(g_SeCursor, false);
+        }
+    }
+
     if (UI_IsMoveLeftHeld())  g_ViewYaw -= 2.2f * dt;
     if (UI_IsMoveRightHeld()) g_ViewYaw += 2.2f * dt;
+
+    // マウス：プレビューを左ドラッグで回す
+    if (UI_IsMouseLeftTrig() && UI_IsMouseIn(PV_X, PV_Y, PV_W, PV_H)) g_Dragging = true;
+    if (!UI_IsMouseLeftHeld()) g_Dragging = false;
+    if (g_Dragging) g_ViewYaw += UI_GetMouseDeltaX() * 0.012f;
 
     if (UI_IsCancel())
     {
@@ -547,6 +592,11 @@ void EnemyDex_Draw()
             Fill(LIST_X + 8.0f, y, LIST_W - 16.0f, ROW_H - 3.0f, WithAlpha(c, 0.16f));
             Frame(LIST_X + 8.0f, y, LIST_W - 16.0f, ROW_H - 3.0f, WithAlpha(c, 0.8f), 1.0f);
             Fill(LIST_X + 8.0f, y, 3.0f, ROW_H - 3.0f, c);
+        }
+        else if (UI_IsMouseIn(LIST_X + 8.0f, y, LIST_W - 16.0f, ROW_H - 3.0f))
+        {
+            // マウスが乗っている行（クリックで選べることを示す）
+            Frame(LIST_X + 8.0f, y, LIST_W - 16.0f, ROW_H - 3.0f, WithAlpha(c, 0.5f), 1.0f);
         }
         Fill(LIST_X + 18.0f, y + 9.0f, 4.0f, ROW_H - 21.0f, WithAlpha(c, on ? 1.0f : 0.55f));
         // 分類の切れ目
@@ -629,7 +679,7 @@ void EnemyDex_Draw()
     Text(sel.name, PV_X + 22.0f, PV_Y + 8.0f, 44.0f, ToD2D(accent), UIFont::Display, UIAlign::Left, true, 1.5f);
     Text(sel.nameJp, PV_X + PV_W - 22.0f, PV_Y + 14.0f, 20.0f, white, UIFont::Body, UIAlign::Right, true);
     Text(ClassLabel(sel.cls), PV_X + PV_W - 22.0f, PV_Y + 42.0f, 12.0f, ToD2D(accent, 0.75f), UIFont::Mono, UIAlign::Right, true);
-    Text(L"<  ROTATE  >", PV_X + PV_W * 0.5f, PV_Y + PV_H - 26.0f, 12.0f, ToD2D(accent, 0.5f), UIFont::Mono, UIAlign::Center, true);
+    Text(L"<  ROTATE / DRAG  >", PV_X + PV_W * 0.5f, PV_Y + PV_H - 26.0f, 12.0f, ToD2D(accent, 0.5f), UIFont::Mono, UIAlign::Center, true);
 
     // 性能
     Text(L"SPECIFICATION", DATA_X + 18.0f, DATA_Y + 8.0f, 15.0f, ToD2D(accent), UIFont::Mono, UIAlign::Left, true);

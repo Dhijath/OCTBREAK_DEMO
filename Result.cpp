@@ -18,6 +18,7 @@
 #include "Result.h"
 #include "MissionReport.h"
 #include "SciFiUI.h"
+#include "audio.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -38,6 +39,13 @@ namespace
     constexpr float ROW_FIRST = 0.7f;    // 最初の項目が出る時刻
     constexpr float ROW_GAP   = 0.22f;   // 項目ごとの間隔
     constexpr float COUNT_UP  = 0.6f;    // 数値が数え上がる時間
+
+    constexpr int   STAT_ROWS   = 6;                                        // 戦果の項目数
+    constexpr float TOTAL_START = ROW_FIRST + STAT_ROWS * ROW_GAP + 0.2f;   // 合計スコアが出る時刻
+    constexpr float RANK_START  = TOTAL_START + 0.5f;                       // 評価ランクが出る時刻
+
+    int g_SeTick = -1;   // 項目が出るたびの電子音
+    int g_SeRank = -1;   // 評価ランクが出る瞬間
 
     // 3桁区切り
     std::wstring Grouped(int value)
@@ -157,6 +165,7 @@ namespace
             { L"REWARD",        L"成功報酬",     static_cast<float>(r.reward),        0, kGreen },
         };
         constexpr int ROW_COUNT = static_cast<int>(sizeof(rows) / sizeof(rows[0]));
+        static_assert(ROW_COUNT == STAT_ROWS, "効果音のタイミング（STAT_ROWS）を合わせること");
         constexpr float ROW_TOP = STAT_Y + 50.0f;
         constexpr float ROW_STEP = 52.0f;
 
@@ -170,7 +179,7 @@ namespace
         }
 
         // 合計スコア
-        const float totalStart = ROW_FIRST + ROW_COUNT * ROW_GAP + 0.2f;
+        const float totalStart = TOTAL_START;
         const float totalA = Progress(totalStart, 0.25f);
         const float totalY = ROW_TOP + ROW_COUNT * ROW_STEP + 14.0f;
         if (totalA > 0.0f)
@@ -182,7 +191,7 @@ namespace
         //----------------------------------------------------------------------
         // 評価パネル
         //----------------------------------------------------------------------
-        const float rankStart = totalStart + 0.5f;
+        const float rankStart = RANK_START;
         const float rankA     = Progress(rankStart, 0.15f);
         const XMFLOAT4 rankCol = RankColor(r.rank);
 
@@ -300,15 +309,27 @@ namespace
 void Result_Initialize()
 {
     g_Time = 0.0f;
+    if (g_SeTick < 0) g_SeTick = LoadAudioWithVolume("resource/Sound/ui_tick.wav", 0.6f);
+    if (g_SeRank < 0) g_SeRank = LoadAudioWithVolume("resource/Sound/ui_rank.wav", 0.9f);
 }
 
 void Result_Finalize()
 {
+    UnloadAudio(g_SeTick); g_SeTick = -1;
+    UnloadAudio(g_SeRank); g_SeRank = -1;
 }
 
 void Result_Update(double elapsed_time)
 {
+    const float prev = g_Time;
     g_Time += static_cast<float>(elapsed_time);
+
+    // 描画の演出（項目・合計・評価が順に出る）に合わせて効果音を鳴らす
+    auto reached = [&](float at) { return prev < at && g_Time >= at; };
+    for (int i = 0; i < STAT_ROWS; ++i)
+        if (reached(ROW_FIRST + i * ROW_GAP)) PlayAudio(g_SeTick, false);
+    if (reached(TOTAL_START)) PlayAudio(g_SeTick, false);
+    if (reached(RANK_START))  PlayAudio(g_SeRank, false);
 }
 
 void Result_Draw()

@@ -78,6 +78,9 @@ bool Player_Camera_IsMouseLeftTrigger();
 bool Player_Camera_IsMouseLeftPressed();
 bool Player_Camera_IsMouseRightPressed();
 
+// メニューを閉じた直後に呼ぶ：押したままのマウスボタンを、一度離すまで押されていない扱いにする
+void Player_Camera_SuppressHeldMouseButtons();
+
 //==============================================================================
 // シネマティック上書き（ボス演出など）
 // ・指定した eye / target で View/Proj を作りすべてのシェーダへ適用する

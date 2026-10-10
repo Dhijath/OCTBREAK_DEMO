@@ -15,6 +15,9 @@ namespace
     constexpr int BOSS_OMEGA   = static_cast<int>(EnemyType::BossOmega);
     constexpr int BOSS_HYDRA   = static_cast<int>(EnemyType::BossHydra);
     constexpr int BOSS_SPECTRE = static_cast<int>(EnemyType::BossSpectre);
+    constexpr int BOSS_BASTION = static_cast<int>(EnemyType::BossBastion);
+    constexpr int BOSS_NEST    = static_cast<int>(EnemyType::BossNest);
+    constexpr int BOSS_ECLIPSE = static_cast<int>(EnemyType::BossEclipse);
 }
 
 //------------------------------------------------------------------------------
@@ -159,6 +162,147 @@ const MissionDef k_MissionDefs[MISSION_COUNT] =
         60000, 3, 1.25f, 1.3f, true,
         0, {},
         3, 7, EnemyMix::Balanced, true
+    },
+
+    //==========================================================================
+    // 第二作戦区域（2ページ目）
+    //   敵の装甲は 1.4〜2.0 倍、増援は4波まで。1ページ目を終えたプレイヤー向けの続編
+    //==========================================================================
+
+    /* MISSION_SPACEPORT */
+    {
+        L"MISSION 07", L"宇宙港夜間降下", L"管理局 第七調査班", L"ORBITAL SPACEPORT 第二発着場", L"制限時間内に北端の打ち上げ台へ到達",
+        L"夜間の宇宙港に降下する。武装勢力が発着場ごと占拠した。\n"
+        L"北端の打ち上げ台に、脱出用のシャトルを待機させてある。\n"
+        L"\n"
+        L"誘導路の両脇はパッドと格納庫。陰から挟み込まれるぞ。\n"
+        L"3分30秒以内に打ち上げ台へ上がれ。増援は四波来る。",
+        70000, 3, 1.4f, 1.9f, false,
+        1,
+        {
+            { BlockStageID::Spaceport, MissionObjective::ReachGoal, 6, EnemyMix::Balanced, 210.0f,
+              { { 35.0f, 6, EnemyMix::Swarm }, { 80.0f, 8, EnemyMix::Balanced },
+                { 125.0f, 8, EnemyMix::Sniper }, { 165.0f, 8, EnemyMix::Heavy } } },
+        },
+        0, 0, EnemyMix::Balanced, false
+    },
+
+    /* MISSION_VAULT */
+    {
+        L"MISSION 08", L"電子金庫侵入", L"企業連合 情報部", L"DATA VAULT 第零記憶区画", L"記憶区画の敵部隊を全滅",
+        L"企業連合の電子金庫が乗っ取られた。区画は天井のある屋内だ。\n"
+        L"サーバーラックの列が迷路になっている。角を曲がれば至近距離だ。\n"
+        L"\n"
+        L"交差点は固定砲台が押さえ、通路を自爆型と幻影型が走る。\n"
+        L"4分30秒以内に区画内の敵をすべて排除せよ。",
+        85000, 4, 1.5f, 1.6f, false,
+        1,
+        {
+            { BlockStageID::DataVault, MissionObjective::Annihilate, 6, EnemyMix::Swarm, 270.0f,
+              { { 30.0f, 6, EnemyMix::Swarm }, { 70.0f, 8, EnemyMix::Balanced },
+                { 115.0f, 8, EnemyMix::Swarm }, { 160.0f, 8, EnemyMix::Heavy } } },
+        },
+        0, 0, EnemyMix::Balanced, false
+    },
+
+    /* MISSION_CRYO */
+    {
+        L"MISSION 09", L"氷原採掘場奪還", L"独立傭兵仲介所", L"CRYO MINE 第四採掘場", L"敵部隊の全滅および大型兵器の撃破",
+        L"氷原の採掘場を奪還する。中央の掘削リグに狙撃型が陣取っている。\n"
+        L"地上は脚付きと重装型。岩陰を伝ってリグの階段へ取り付け。\n"
+        L"\n"
+        L"制圧すると、要塞機『BASTION』が北の広場に降りてくる。\n"
+        L"両腕のガトリングが回り始めたら掃射の合図だ。横へ抜けろ。",
+        130000, 4, 1.6f, 1.9f, false,
+        2,
+        {
+            { BlockStageID::CryoMine, MissionObjective::Annihilate, 6, EnemyMix::Heavy, 300.0f,
+              { { 40.0f, 6, EnemyMix::Heavy }, { 90.0f, 8, EnemyMix::Sniper }, { 140.0f, 8, EnemyMix::Balanced } } },
+            { BlockStageID::CryoMine, MissionObjective::DestroyBoss, 0, EnemyMix::Heavy, 300.0f,
+              { { 35.0f, 4, EnemyMix::Heavy }, { 80.0f, 6, EnemyMix::Swarm }, { 130.0f, 6, EnemyMix::Sniper } }, BOSS_BASTION, true },
+        },
+        0, 0, EnemyMix::Balanced, false
+    },
+
+    /* MISSION_TWOFRONT */
+    {
+        L"MISSION 10", L"二正面作戦", L"管理局 作戦司令部", L"ORBITAL DOCK ／ NEON FRONTIER", L"貨物区の制圧および市街の突破",
+        L"貨物区と市街の二か所で同時に敵が動いた。片付けてから向かう余裕はない。\n"
+        L"まず貨物区の高機動部隊を4分以内に全滅させ、\n"
+        L"その足で市街へ降下し、3分以内に北端のヘリパッドへ抜けろ。\n"
+        L"\n"
+        L"どちらも一度見た戦場だが、装甲は1.7倍。増援の数も前回の比ではない。",
+        140000, 5, 1.7f, 2.0f, false,
+        2,
+        {
+            { BlockStageID::Terminal, MissionObjective::Annihilate, 6, EnemyMix::Swarm, 240.0f,
+              { { 30.0f, 8, EnemyMix::Swarm }, { 70.0f, 8, EnemyMix::Balanced }, { 110.0f, 10, EnemyMix::Swarm } } },
+            { BlockStageID::City, MissionObjective::ReachGoal, 6, EnemyMix::Sniper, 180.0f,
+              { { 30.0f, 8, EnemyMix::Balanced }, { 70.0f, 8, EnemyMix::Sniper },
+                { 110.0f, 10, EnemyMix::Swarm }, { 150.0f, 10, EnemyMix::Heavy } } },
+        },
+        0, 0, EnemyMix::Balanced, false
+    },
+
+    /* MISSION_CARRIER */
+    {
+        L"MISSION 11", L"艦上決戦", L"企業連合 保安部", L"CARRIER DECK 強襲空母の飛行甲板", L"艦首への到達および大型兵器の撃破",
+        L"敵の強襲空母に取り付いた。飛行甲板を南から北の艦首まで突っ切れ。\n"
+        L"甲板の上は翼型が飛び交い、艦橋の上からは狙撃が来る。\n"
+        L"\n"
+        L"艦首に着いたら、母艦機『NEST』が甲板の上に現れる。\n"
+        L"火花が散った地点は爆撃の着弾点だ。見えたらすぐに離れろ。",
+        160000, 5, 1.8f, 2.0f, false,
+        2,
+        {
+            { BlockStageID::CarrierDeck, MissionObjective::ReachGoal, 6, EnemyMix::Swarm, 210.0f,
+              { { 30.0f, 6, EnemyMix::Swarm }, { 75.0f, 8, EnemyMix::Swarm }, { 120.0f, 8, EnemyMix::Balanced } } },
+            { BlockStageID::CarrierDeck, MissionObjective::DestroyBoss, 0, EnemyMix::Swarm, 300.0f,
+              { { 40.0f, 4, EnemyMix::Swarm }, { 90.0f, 6, EnemyMix::Balanced }, { 140.0f, 6, EnemyMix::Swarm } }, BOSS_NEST, true },
+        },
+        0, 0, EnemyMix::Balanced, false
+    },
+
+    /* MISSION_HAUNT */
+    {
+        L"MISSION 12", L"亡霊の巣", L"依頼主不明", L"REACTOR PLANT 第三反応炉（再汚染区画）", L"敵部隊の全滅および強化型大型兵器の撃破",
+        L"一度制圧した反応炉プラントで、刃の騎士の反応が再び確認された。\n"
+        L"今度の個体は装甲が厚い。前回の1.6倍の耐久を見込め。\n"
+        L"\n"
+        L"まず地上とデッキの部隊を5分以内に全滅させろ。\n"
+        L"騎士は瞬間移動で背後に回る。足を止めずに撃ち続けろ。",
+        180000, 5, 1.9f, 2.0f, false,
+        2,
+        {
+            { BlockStageID::Plant, MissionObjective::Annihilate, 6, EnemyMix::Balanced, 300.0f,
+              { { 35.0f, 8, EnemyMix::Swarm }, { 80.0f, 8, EnemyMix::Sniper },
+                { 125.0f, 10, EnemyMix::Heavy }, { 170.0f, 8, EnemyMix::Swarm } } },
+            { BlockStageID::Plant, MissionObjective::DestroyBoss, 0, EnemyMix::Balanced, 300.0f,
+              { { 30.0f, 6, EnemyMix::Swarm }, { 70.0f, 6, EnemyMix::Balanced }, { 120.0f, 8, EnemyMix::Sniper } }, BOSS_SPECTRE, true },
+        },
+        0, 0, EnemyMix::Balanced, false,
+        1.6f
+    },
+
+    /* MISSION_ECLIPSE */
+    {
+        L"MISSION 13", L"最終作戦《日蝕》", L"管理局 最高評議会", L"DATA VAULT ／ OMEGA CORE 最深部", L"金庫最深部の突破および最終兵器の撃破",
+        L"すべての襲撃は、電子金庫の最深部に眠る最終兵器を起こすためだった。\n"
+        L"4分以内に金庫を突破し、その奥の制御区画へ降りろ。\n"
+        L"\n"
+        L"最終兵器『ECLIPSE』は、光りながら機体を引き寄せて炸裂する。\n"
+        L"引力は走れば振り切れる。これが最後の作戦だ。必ず戻ってこい。",
+        250000, 5, 2.0f, 2.2f, false,
+        2,
+        {
+            { BlockStageID::DataVault, MissionObjective::ReachGoal, 6, EnemyMix::Balanced, 240.0f,
+              { { 30.0f, 8, EnemyMix::Swarm }, { 70.0f, 8, EnemyMix::Balanced },
+                { 110.0f, 10, EnemyMix::Heavy }, { 150.0f, 10, EnemyMix::Swarm } } },
+            { BlockStageID::Arena, MissionObjective::DestroyBoss, 4, EnemyMix::Balanced, 360.0f,
+              { { 30.0f, 6, EnemyMix::Swarm }, { 60.0f, 6, EnemyMix::Sniper },
+                { 95.0f, 8, EnemyMix::Heavy }, { 135.0f, 8, EnemyMix::Balanced } }, BOSS_ECLIPSE },
+        },
+        0, 0, EnemyMix::Balanced, false
     },
 };
 

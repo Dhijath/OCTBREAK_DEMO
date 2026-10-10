@@ -70,7 +70,12 @@ void StageSelect_Update(double elapsed_time)
         PlayAudio(g_SeCursorMove, false);
     }
 
-    if (UI_IsConfirm())
+    // マウス：ホバーで選択、項目クリックで決定
+    const int prevSelected = g_Selected;
+    const bool clicked = SciFiMenu_UpdateMouse(ITEM_COUNT, &g_Selected);
+    if (g_Selected != prevSelected && !clicked) PlayAudio(g_SeCursorMove, false);
+
+    if (UI_IsConfirmKeyPad() || clicked)
     {
         PlayAudio(g_SeSelect, false);
         g_Result = (g_Selected == 0)
@@ -101,7 +106,7 @@ void StageSelect_Draw()
         L"屋外アリーナで5ウェーブ間、生き残りを目指します",
     };
     InputHint_Draw(
-        "{UP}{DOWN} Move    {ENTER} Select    {ESC} Back",
+        "{UP}{DOWN} Move    {ENTER}{MOUSE_L} Select    {ESC}{MOUSE_R} Back",
         "{DPAD_UP}{DPAD_DN} Move    {A} Select    {B} Back",
         itemDesc[g_Selected]);
 }

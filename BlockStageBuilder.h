@@ -125,3 +125,7 @@ void BlockStageLayout_Fortress(std::mt19937& rng);
 void BlockStageLayout_Trench  (std::mt19937& rng);
 void BlockStageLayout_Arena   (std::mt19937& rng);
 void BlockStageLayout_Plant   (std::mt19937& rng);
+void BlockStageLayout_Spaceport  (std::mt19937& rng);
+void BlockStageLayout_DataVault  (std::mt19937& rng);
+void BlockStageLayout_CryoMine   (std::mt19937& rng);
+void BlockStageLayout_CarrierDeck(std::mt19937& rng);

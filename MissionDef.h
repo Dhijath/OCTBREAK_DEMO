@@ -37,8 +37,22 @@ enum MissionID
     MISSION_ASSAULT,       // 渓谷を突破 → 大型兵器を撃破（2フェーズ）
     MISSION_PLANT,         // 二層プラントの制御室を確保 → 大型兵器を撃破（2フェーズ）
     MISSION_DEFAULT,       // デフォルト（従来の自動生成ダンジョン）
+
+    // ── 第二作戦区域（ミッション選択の2ページ目）──
+    // ※セーブはミッションの番号で記録するので、既存の番号を変えないよう末尾に足す
+    MISSION_SPACEPORT,     // 宇宙港の夜間降下（打ち上げ台へ到達）
+    MISSION_VAULT,         // 電子金庫に侵入して全滅
+    MISSION_CRYO,          // 氷結採掘場を奪還 → BASTION
+    MISSION_TWOFRONT,      // 二正面作戦：貨物区を制圧 → 市街を突破
+    MISSION_CARRIER,       // 空母甲板を突破 → NEST
+    MISSION_HAUNT,         // 二層プラントの再制圧 → 強化型 SPECTRE
+    MISSION_ECLIPSE,       // 最終作戦：金庫の最深部を突破 → ECLIPSE
     MISSION_COUNT
 };
+
+// ミッション選択の1ページに並ぶ数（1ページ目 = 01〜06＋DEFAULT、2ページ目 = 07〜13）
+constexpr int MISSION_PAGE_SIZE  = 7;
+constexpr int MISSION_PAGE_COUNT = (MISSION_COUNT + MISSION_PAGE_SIZE - 1) / MISSION_PAGE_SIZE;
 
 // 敵編成（スポーン種別の割り振り方）
 enum class EnemyMix
@@ -105,6 +119,8 @@ struct MissionDef
     int      enemySpawnRate;    // 敵の密度（小さいほど多い。階層ごとに 2 ずつ減る）
     EnemyMix enemyMix;          // 敵編成
     bool     hasBoss;           // 階層突破後にボス部屋へ進むか
+
+    float    bossHpScale = 1.0f;   // 大型兵器の耐久倍率（再戦で強化するとき）
 };
 
 extern const MissionDef k_MissionDefs[MISSION_COUNT];

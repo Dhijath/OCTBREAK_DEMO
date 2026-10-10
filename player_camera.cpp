@@ -56,6 +56,11 @@ namespace                                                // ファイル内限�
     bool gMouseLeftTrigger = false;                      // マウス左ボタントリガー（押した瞬間）
     bool gMouseRightNow = false;                         // 現在フレームのマウス右ボタン状態
 
+    // メニューを閉じた時に押したままのボタンは、一度離すまで無効にする
+    //（RESUME のクリックやショップを閉じる右クリックで暴発しないように）
+    bool gMouseLeftSuppress  = false;
+    bool gMouseRightSuppress = false;
+
     //==========================================================================
     // 返却用（どちらのカメラでもここへ集約）
     //==========================================================================
@@ -317,6 +322,8 @@ static void UpdateMouseCamera(double elapsed_time)       // 自由視点を更�
     gMouseLeftNow = ms.leftButton;                       // 現在フレーム状態を取得
     gMouseLeftTrigger = (gMouseLeftNow && !gMouseLeftPrev); // トリガー判定（立ち上がり）
     gMouseRightNow = ms.rightButton;                     // 右ボタン状態を取得
+    if (!gMouseLeftNow)  gMouseLeftSuppress  = false;    // メニュー後の押しっぱなしは離したら解除
+    if (!gMouseRightNow) gMouseRightSuppress = false;
 
     // 感度はnamespace変数から参照（オプション画面で変更可）
 
@@ -551,7 +558,21 @@ void Player_Camera_ApplyMainViewProj()                   // 本編のView/Proj�
     ApplyViewProjToShaders(view, proj);                  // シェーダへ適用
 }                                                        // 終了
 
-bool Player_Camera_IsMouseLeftTrigger() { return gMouseLeftTrigger; } // マウス左トリガー判定
+bool Player_Camera_IsMouseLeftTrigger()                  // マウス左トリガー判定
+{
+    return gMouseLeftTrigger && !gMouseLeftSuppress;
+}
+
+//==============================================================================
+// メニューを閉じた直後に呼ぶ：押したままのマウスボタンを、離すまで射撃に使わない
+//==============================================================================
+void Player_Camera_SuppressHeldMouseButtons()
+{
+    // 解除はボタン状態を取り直す所（マウスカメラの更新）で、離されていたら行う。
+    // ※ Player_Update はカメラ更新より先に走るため、ここで今の状態は判定できない
+    gMouseLeftSuppress  = true;
+    gMouseRightSuppress = true;
+}
 
 //==============================================================================
 // パッド ロックオンアシスト：ターゲット位置をセット（nullptr で無効化）
@@ -562,9 +583,15 @@ void Player_Camera_SetLockOnAssist(const XMFLOAT3* targetWorldPos)
     if (targetWorldPos) gAssistTarget = *targetWorldPos;
 }
 
-bool Player_Camera_IsMouseLeftPressed() { return gMouseLeftNow; } // マウス左押下判定
+bool Player_Camera_IsMouseLeftPressed()                  // マウス左押下判定
+{
+    return gMouseLeftNow && !gMouseLeftSuppress;
+}
 
-bool Player_Camera_IsMouseRightPressed() { return gMouseRightNow; } // マウス右押下判定
+bool Player_Camera_IsMouseRightPressed()                 // マウス右押下判定
+{
+    return gMouseRightNow && !gMouseRightSuppress;
+}
 
 //==============================================================================
 // Yaw/Pitch 直接設定（演出開始前の向きリセット用）

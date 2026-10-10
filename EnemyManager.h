@@ -53,6 +53,11 @@ enum class EnemyType
     BossOmega,    // 動力炉：螺旋弾幕・連射・砲台の召喚
     BossHydra,    // 三つ首：扇状の一斉射・機雷・自爆型の召喚
     BossSpectre,  // 刃の騎士：瞬間移動・斬撃・幻影型の召喚
+
+    // ── 第二作戦区域のボス（EnemyBossEx：球体型）──
+    BossBastion,  // 要塞機：交差するガトリング掃射・十字砲火・ガトリング型の投下
+    BossNest,     // 母艦機：翼型の射出・予告付きの絨毯爆撃・子機からの斉射
+    BossEclipse,  // 日蝕　：二重螺旋・引き寄せてからの炸裂・衛星からの連射
 };
 
 class EnemyManager

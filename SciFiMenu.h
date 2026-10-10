@@ -30,3 +30,8 @@ void SciFiMenu_Initialize();   // 背景テクスチャの読み込み（各画�
 // selected : 選択中の項目
 // time     : 画面に入ってからの経過秒（アニメーション用）
 void SciFiMenu_Draw(const wchar_t* path, const SciFiMenuItem* items, int count, int selected, float time);
+
+// マウス操作（各画面の Update から毎フレーム呼ぶ）
+//   カーソルが動いて項目に乗ったら *selected をその項目へ移す。
+//   戻り値：項目の上で左クリックされたら true（*selected はその項目）
+bool SciFiMenu_UpdateMouse(int count, int* selected);
